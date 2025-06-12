@@ -100,8 +100,7 @@ export default {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: rgba(30, 30, 30, 0.9);
-  opacity: 1;
+
   flex-shrink: 0;
 }
 
@@ -115,7 +114,7 @@ export default {
   justify-content: flex-end;
   padding: 15px 15px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  background-color: rgba(30, 30, 30, 0.9);
+
 }
 
 .sub-sidebar-title {

@@ -1,21 +1,21 @@
 <template>
   <div class="menu-container">
-    <button v-if="!currentViewIsOpen" @click="openInitialSidebar" class="btn btn-dark menu-icon">
+    <button v-if="!menuManager.currentViewIsOpen" @click="menuManager.openInitialMenu()" class="btn btn-dark menu-icon">
       <span class="navbar-toggler-icon"></span>
     </button>
 
     <transition name="slide">
-      <div v-if="currentViewIsOpen" class="sidebar-content text-white shadow" :style="{ width: currentSidebarWidth }">
-        <div v-if="isOpen && !activeSubMenu" class="main-menu-panel">
+      <div v-if="menuManager.currentViewIsOpen" class="sidebar-content text-white shadow" :style="{ width: menuManager.currentSidebarWidth }">
+        <div v-if="menuManager.isOpen && !menuManager.activeSubMenu" class="main-menu-panel">
           <ul class="list-unstyled sidebar-menu">
             <li>
-              <button @click="closeSidebar" class="btn btn-link text-white sidebar-item poppins-font">
+              <button @click="menuManager.closeAll()" class="btn btn-link text-white sidebar-item poppins-font">
                 <i class="fas fa-times me-3"></i>
                 <span>Close</span>
               </button>
             </li>
-            <li v-for="item in menuItems" :key="item.id">
-              <button @click="handleMenuItemClick(item)" class="btn btn-link text-white sidebar-item poppins-font">
+            <li v-for="item in menuManager.menuItems" :key="item.id">
+              <button @click="menuManager.handleMenuItemClick(item)" class="btn btn-link text-white sidebar-item poppins-font">
                 <i :class="item.icon" class="me-3"></i>
                 <span>{{ item.label }}</span>
               </button>
@@ -24,25 +24,26 @@
         </div>
 
         <component
-          :is="activeSubMenuComponent"
-          v-if="activeSubMenu"
-          @close-sub-menu="handleCloseSubMenu"
+          :is="menuManager.activeSubMenuComponent"
+          v-if="menuManager.activeSubMenu"
+          @close-sub-menu="menuManager.handleCloseSubMenu()"
+          @update-visualization-mode="$emit('open-visualization-sidebar', $event)"
           class="sub-sidebar-transition-target"
         />
-        </div>
+      </div>
     </transition>
   </div>
 </template>
 
 <script>
-// Import your sub-sidebar components
 import AddDataSidebar from './sub-sidebars/AddDataSidebar.vue';
 import LayerManagerSidebar from './sub-sidebars/LayerManagerSidebar.vue';
+import VisualizationSidebar from './sub-sidebars/VisualizationSidebar.vue';
 // If you have other sub-sidebars, uncomment and import them here
-// import VisualizationSidebar from './sub-sidebars/VisualizationSidebar.vue';
 // import ToolsSidebar from './sub-sidebars/ToolsSidebar.vue';
 // import PluginsSidebar from './sub-sidebars/PluginsSidebar.vue';
 
+import { MenuSidebarManager } from './utils/MenuSidebarManager.js'; // Import the new class
 
 export default {
   name: 'MenuSidebar',
@@ -50,72 +51,27 @@ export default {
   components: {
     AddDataSidebar,
     LayerManagerSidebar,
-    // Register other sub-sidebar components here
-    // VisualizationSidebar,
-    // ToolsSidebar,
-    // PluginsSidebar,
+    VisualizationSidebar,
   },
 
   data() {
+    const menuItems = [
+      { id: 'addData', label: 'Add Data', icon: 'far fa-plus', component: 'AddDataSidebar', width: '350px' },
+      { id: 'layerManager', label: 'Layer Manager', icon: 'fas fa-layer-group', component: 'LayerManagerSidebar', width: '350px' },
+      { id: 'visualization', label: 'Visualization', icon: 'far fa-eye', component: 'VisualizationSidebar', width: '350px' },
+      { id: 'tools', label: 'Tools', icon: 'fas fa-tools', component: 'ToolsSidebar', width: '350px' },
+      { id: 'plugins', label: 'Plugins', icon: 'fas fa-plug', component: 'PluginsSidebar', width: '350px' },
+    ];
     return {
-      isOpen: false,
-      activeSubMenu: null,
-      currentSidebarWidth: '250px',
-
-      menuItems: [
-        { id: 'addData', label: 'Add Data', icon: 'far fa-plus', component: 'AddDataSidebar', width: '350px' },
-        { id: 'layerManager', label: 'Layer Manager', icon: 'fas fa-layer-group', component: 'LayerManagerSidebar', width: '350px' },
-        { id: 'visualization', label: 'Visualization', icon: 'far fa-eye', component: 'VisualizationSidebar', width: '350px' },
-        { id: 'tools', label: 'Tools', icon: 'fas fa-tools', component: 'ToolsSidebar', width: '350px' },
-        { id: 'plugins', label: 'Plugins', icon: 'fas fa-plug', component: 'PluginsSidebar', width: '350px' },
-      ]
+      menuManager: new MenuSidebarManager(menuItems), // Create an instance of the class
     };
   },
 
-  computed: {
-    currentViewIsOpen() {
-      return this.isOpen || this.activeSubMenu !== null;
-    },
-
-    activeSubMenuComponent() {
-      const item = this.menuItems.find(item => item.id === this.activeSubMenu);
-      return item ? item.component : null;
-    }
-  },
-
-  methods: {
-    openInitialSidebar() {
-      this.isOpen = true;
-      this.activeSubMenu = null;
-      this.currentSidebarWidth = '250px';
-    },
-
-    closeSidebar() {
-      this.isOpen = false;
-      this.activeSubMenu = null;
-      this.currentSidebarWidth = '250px';
-    },
-
-    handleMenuItemClick(item) {
-      if (item.component) {
-        this.activeSubMenu = item.id;
-        this.isOpen = true;
-        this.currentSidebarWidth = item.width || '250px';
-      } else {
-        console.log(`Clicked: ${item.label} (No sub-menu component defined)`);
-      }
-    },
-
-    handleCloseSubMenu() {
-      this.activeSubMenu = null;
-      this.isOpen = true;
-      this.currentSidebarWidth = '250px';
-    }
-  }
 };
 </script>
 
 <style scoped>
+
 .poppins-font {
   font-family: 'Poppins', sans-serif;
 }
@@ -151,8 +107,8 @@ export default {
   z-index: 999;
   display: flex;
   flex-direction: column;
-  background: rgba(30, 30, 30, 0.6) !important; /* REVERTED TO 0.9, KEEP !important */
-  opacity: 1 !important; /* KEEP !important FOR EXPLICIT OPACITY OVERRIDE */
+  background: rgba(30, 30, 30, 0.6) !important;
+  opacity: 1 !important;
   transition: width 0.3s ease;
   filter: none;
 }
@@ -188,7 +144,6 @@ export default {
   text-align: center;
 }
 
-/* Overall Slide Transition for the main sidebar wrapper */
 .slide-enter-active, .slide-leave-active {
   transition: transform 0.3s ease;
 }
@@ -196,8 +151,6 @@ export default {
 .slide-enter-from, .slide-leave-to {
   transform: translateX(-100%);
 }
-
-/* REMOVED .fade-enter-active, .fade-leave-active, .fade-enter-from, .fade-leave-to RULES HERE */
 
 .sub-sidebar-transition-target {
     position: absolute;
@@ -208,7 +161,5 @@ export default {
     padding-top: 70px;
     display: flex;
     flex-direction: column;
-    background: rgba(30, 30, 30, 0.9) !important; /* REVERTED TO 0.9, KEEP !important */
-    opacity: 1 !important; /* KEEP !important FOR EXPLICIT OPACITY OVERRIDE */
 }
 </style>

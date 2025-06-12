@@ -7,7 +7,6 @@
       </button>
     </div>
     <div class="sub-sidebar-body">
-      <!-- Radio Buttons for Option Selection -->
       <div class="form-group mb-3">
         <div class="form-check form-check-inline">
           <input
@@ -31,15 +30,12 @@
         </div>
       </div>
 
-      <hr class="sidebar-divider mb-4"> <!-- Straight Line Sectioning -->
-
-      <!-- Section for "Add Data" -->
-      <div v-if="selectedOption === 'data'">
+      <hr class="sidebar-divider mb-4"> <div v-if="selectedOption === 'data'">
         <div class="form-group mb-3">
           <label for="dataNameInput">Name:</label>
           <input
             type="text"
-            class="form-control custom-input" 
+            class="form-control custom-input"
             id="dataNameInput"
             placeholder="city points"
             v-model="dataName"
@@ -47,38 +43,70 @@
         </div>
         <div class="form-group mb-4">
           <label for="dataTypeSelect">Data Type:</label>
-          <select class="form-control custom-select" id="dataTypeSelect" v-model="selectedDataType"> <!-- Added custom-select class -->
+          <select class="form-control custom-select" id="dataTypeSelect" v-model="selectedDataType">
             <option value="geojson">GeoJSON</option>
             <option value="kmlkmz">KML/KMZ</option>
             <option value="shapefile">Shapefile</option>
             <option value="geopackage">GeoPackage</option>
-            <!-- Add other file types as needed -->
-          </select>
+            </select>
         </div>
         <button class="btn btn-primary w-100" @click="addGeoSpatialData">
           <i class="fas fa-plus me-2"></i> Add Data
         </button>
       </div>
 
-      <!-- Section for "Add Service" -->
       <div v-else-if="selectedOption === 'service'">
         <div class="form-group mb-3">
           <label for="serviceNameInput">Name:</label>
           <input
             type="text"
-            class="form-control custom-input" 
+            class="form-control custom-input"
             id="serviceNameInput"
             v-model="serviceName"
           >
         </div>
         <div class="form-group mb-4">
           <label for="serviceTypeSelect">Service Type:</label>
-          <select class="form-control custom-select" id="serviceTypeSelect" v-model="selectedServiceType"> <!-- Added custom-select class -->
+          <select class="form-control custom-select" id="serviceTypeSelect" v-model="selectedServiceType">
             <option value="ridam">RIDaM</option>
             <option value="geoEntityStats">Geo Entity Stats System</option>
-            <!-- Add other service types as needed -->
-          </select>
+            </select>
         </div>
+
+        <hr class="sidebar-divider mb-4">
+        <h6 class="text-white mb-3">Service Details</h6>
+
+        <div class="form-group mb-3">
+          <label for="baseUrlInput">Base URL:</label>
+          <input
+            type="text"
+            class="form-control custom-input"
+            id="baseUrlInput"
+            v-model="baseUrl"
+            placeholder="e.g., https://example.com/geoservice"
+          >
+        </div>
+        <div class="form-group mb-3">
+          <label for="argsInput">Args:</label>
+          <input
+            type="text"
+            class="form-control custom-input"
+            id="argsInput"
+            v-model="args"
+            placeholder="e.g., layer=roads&format=png"
+          >
+        </div>
+        <div class="form-group mb-4">
+          <label for="legendOptionsInput">Legend Options:</label>
+          <input
+            type="text"
+            class="form-control custom-input"
+            id="legendOptionsInput"
+            v-model="legendOptions"
+            placeholder="e.g., { 'title': 'Road Types' }"
+          >
+        </div>
+
         <button class="btn btn-primary w-100" @click="addGeoSpatialService">
           <i class="fas fa-plus me-2"></i> Add Service
         </button>
@@ -97,7 +125,11 @@ export default {
       dataName: '',
       selectedDataType: 'geojson', // Default data type
       serviceName: '',
-      selectedServiceType: 'ridam' // Default service type
+      selectedServiceType: 'ridam', // Default service type
+      // New data properties for the service details form
+      baseUrl: '',
+      args: '',
+      legendOptions: ''
     };
   },
 
@@ -115,9 +147,12 @@ export default {
     addGeoSpatialService() {
       console.log('Adding Service:', {
         name: this.serviceName,
-        type: this.selectedServiceType
+        type: this.selectedServiceType,
+        baseUrl: this.baseUrl,
+        args: this.args,
+        legendOptions: this.legendOptions
       });
-      alert(`Adding Service: ${this.serviceName || 'N/A'} (${this.selectedServiceType})`);
+      alert(`Adding Service: ${this.serviceName || 'N/A'} (${this.selectedServiceType})\nBase URL: ${this.baseUrl}\nArgs: ${this.args}\nLegend Options: ${this.legendOptions}`);
     }
   }
 };
