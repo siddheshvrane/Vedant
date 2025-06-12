@@ -1,6 +1,7 @@
 <template>
   <div id="mapWrapper" style="width: 100vw; height: 100vh; overflow: hidden;">
     <div id="mapContainer" style="width: 100%; height: 100%;"></div>
+    <div id="northArrow"></div>
     <MenuSidebar />
     <SearchPanel @zoom-to-coordinates="handleZoomToCoordinates" />
   </div>
@@ -34,9 +35,6 @@ export default {
   },
   methods: {
     initCesiumMap() {
-      // Remove the commented-out duplicate line here:
-      // Cesium.Ion.defaultAccessToken = 'YOUR_CESIUM_ION_ACCESS_TOKEN'; 
-
       const viewer = new Cesium.Viewer('mapContainer', {
         animation: false,
         baseLayerPicker: false,
@@ -51,7 +49,7 @@ export default {
         creditContainer: document.createElement('div'),
         fullscreenButton: false,
         imageryProvider: false, // Disable default imagery provider
-        sceneMode: Cesium.SceneMode.SCENE3D, 
+        sceneMode: Cesium.SceneMode.SCENE3D,
         terrainExaggeration: 1.0,
         terrain: new Cesium.Terrain(Cesium.CesiumTerrainProvider.fromUrl("https://vedas.sac.gov.in/elevation/cdem_10m_2016/"))
       });
@@ -73,7 +71,29 @@ export default {
       }));
 
       // Store the viewer instance in component data
-      this.viewer = viewer; 
+      this.viewer = viewer;
+
+      // North Arrow Logic
+      const northArrow = document.getElementById('northArrow');
+      const updateNorthArrow = () => {
+        // Ensure viewer and camera are defined before accessing properties
+        if (this.viewer && this.viewer.camera) {
+          const heading = this.viewer.camera.heading;
+          northArrow.style.transform = `rotate(${Cesium.Math.toDegrees(heading)}deg)`;
+        }
+      };
+
+      // Add event listener for camera movement
+      if (this.viewer && this.viewer.scene && this.viewer.scene.camera) {
+        this.viewer.scene.camera.moveEnd.addEventListener(updateNorthArrow);
+      }
+      // Initial update to set the north arrow's orientation
+      updateNorthArrow();
+
+      // Set depthTextAgainstTerrain
+      if (this.viewer && this.viewer.scene && this.viewer.scene.globe) {
+        this.viewer.scene.globe.depthTestAgainstTerrain = false;
+      }
 
       // Optional: Adjust map to a specific view
       // viewer.camera.flyTo({
@@ -102,17 +122,27 @@ export default {
 </script>
 
 <style scoped>
-/* You already have these styles in the template for #mapWrapper,
-   but defining them here provides a more centralized and cleaner approach for CSS. */
 #mapWrapper {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
+  position: relative; /* Needed for positioning the north arrow */
 }
 
 #mapContainer {
   width: 100%;
   height: 100%;
+}
+
+#northArrow {
+  position: absolute;
+  top: 20px; /* Adjust as needed */
+  right: 20px; /* Adjust as needed */
+  width: 40px; /* Size of your north arrow */
+  height: 40px; /* Size of your north arrow */
+  background-image: url(''); /* Replace with your north arrow image */
+  background-size: cover;
+  z-index: 10; /* Ensure it's above the map */
 }
 
 /* Ensure no default margin/padding on body/html if this is the root component */
