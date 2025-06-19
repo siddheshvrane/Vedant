@@ -39,6 +39,7 @@
 import AddDataSidebar from './sub-sidebars/AddDataSidebar.vue';
 import LayerManagerSidebar from './sub-sidebars/LayerManagerSidebar.vue';
 import VisualizationSidebar from './sub-sidebars/VisualizationSidebar.vue';
+import PluginManagerSidebar from './sub-sidebars/PluginManagerSidebar.vue'; // Import the plugin manager sidebar
 // If you have other sub-sidebars, uncomment and import them here
 // import ToolsSidebar from './sub-sidebars/ToolsSidebar.vue';
 // import PluginsSidebar from './sub-sidebars/PluginsSidebar.vue';
@@ -52,6 +53,7 @@ export default {
     AddDataSidebar,
     LayerManagerSidebar,
     VisualizationSidebar,
+    PluginManagerSidebar,
   },
 
   data() {
@@ -60,7 +62,7 @@ export default {
       { id: 'layerManager', label: 'Layer Manager', icon: 'fas fa-layer-group', component: 'LayerManagerSidebar', width: '350px' },
       { id: 'visualization', label: 'Visualization', icon: 'far fa-eye', component: 'VisualizationSidebar', width: '350px' },
       { id: 'tools', label: 'Tools', icon: 'fas fa-tools', component: 'ToolsSidebar', width: '350px' },
-      { id: 'plugins', label: 'Plugins', icon: 'fas fa-plug', component: 'PluginsSidebar', width: '350px' },
+      { id: 'plugins', label: 'Plugins', icon: 'fas fa-plug', component: 'PluginManagerSidebar', width: '350px' },
     ];
     return {
       menuManager: new MenuSidebarManager(menuItems), // Create an instance of the class

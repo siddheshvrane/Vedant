@@ -31,6 +31,17 @@ export default class CesiumMapManager {
     this._addImageryLayer();
     this._setupNorthArrowRotation(); // Call the north arrow setup
     this.viewer.scene.globe.depthTestAgainstTerrain = false; // Ensures objects below terrain are not clipped
+
+    // Set the default camera position to India
+    this.viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(78.9629, 20.5937, 20000000), // Longitude, Latitude for India, and height
+      orientation: {
+        heading: Cesium.Math.toRadians(0.0),    // Look North
+        pitch: Cesium.Math.toRadians(-90.0),    // Look straight down
+        roll: Cesium.Math.toRadians(0.0)        // No roll
+      },
+      duration: 0 // Set duration to 0 for immediate positioning
+    });
   }
 
   /**

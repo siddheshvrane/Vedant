@@ -1,22 +1,34 @@
-]<template>
+<template>
   <div id="mapWrapper">
-    <div id="mapContainer"></div>
+    <div v-if="loading" class="loading-screen">
+      <img :src="vedantLogoSrc" alt="Vedant Logo" class="vedant-logo-img-loading fade-in" />
+      <img :src="spaceImageSrc" alt="Space Background" class="space-image" />
+    </div>
 
-    <div id="northArrow" @click="resetCameraNorth">
+    <div v-else id="mapContainer"></div>
+
+    <div id="northArrow" @click="resetCameraNorth" v-show="!loading">
       <img :src="compassSrc" alt="North Arrow" class="north-arrow-img" />
     </div>
 
-    <div id="vedantLogo">
-      <img :src="vedantLogoSrc" alt="Vedant Logo" class="vedant-logo-img" />
-      <div class="copyright-text">Copyright © 2024 - VEDAS, SAC, ISRO.</div>
+    <div
+      id="vedantLogo"
+      v-show="!loading"
+      :class="{ 'vedant-logo-container-final-pos': globeLogoFinalPosition }"
+    >
+      <img :src="vedantLogoSrc" alt="Vedant Logo" class="vedant-logo-img-globe" />
+      <div class="copyright-text" :class="{ 'copyright-text-final': globeLogoFinalPosition }">
+        Copyright © 2024 - VEDAS, SAC, ISRO.
+      </div>
     </div>
 
     <MenuSidebar
       @service-added="showServiceAddedPopup"
       @open-visualization-sidebar="openVisualizationSidebar"
+      v-show="!loading"
     />
 
-    <SearchPanel @zoom-to-coordinates="handleZoomToCoordinates" />
+    <SearchPanel @zoom-to-coordinates="handleZoomToCoordinates" v-show="!loading" />
 
     <div v-if="showPopup" class="service-added-popup-overlay">
       <div class="service-added-popup">
@@ -47,13 +59,11 @@ import VisualizationSidebar from './sub-sidebars/VisualizationSidebar.vue';
 import CesiumMapManager from './utils/CesiumMapManager';
 import PopupManager from './utils/PopupManager';
 
-// IMPORT THE COMPASS IMAGE HERE
-import compassImage from '../assets/compass.png'; // Correct relative path from Earthviewer.vue to src/assets
+import compassImage from '../assets/compass.png';
+import vedantLogo from '../assets/vedant_Logo_white.png';
+import spaceImage from '../assets/space.jpg';
 
-// IMPORT THE NEW VEDANT LOGO HERE
-import vedantLogo from '../assets/vedant_Logo_white.png'; // Correct relative path to src/assets
-
-// Make sure to replace 'your-token' with your actual Cesium Ion Access Token
+// Remember to replace 'your-token' with your actual Cesium Ion Access Token
 Cesium.Ion.defaultAccessToken = 'your-token';
 
 export default {
@@ -65,19 +75,37 @@ export default {
       mapManager: null,
       popupManager: new PopupManager(),
       showVisualizationSidebar: false,
-      compassSrc: compassImage, // Make the imported compass image path available
-      vedantLogoSrc: vedantLogo, // Make the imported vedant logo path available
+      compassSrc: compassImage,
+      vedantLogoSrc: vedantLogo,
+      spaceImageSrc: spaceImage,
+      loading: true,
+      globeLogoFinalPosition: false
     };
   },
 
   mounted() {
-    this.mapManager = new CesiumMapManager('mapContainer', 'https://vedas.sac.gov.in/elevation/cdem_10m_2016/');
-    this.mapManager.init();
+    setTimeout(() => {
+      this.loading = false;
+      this.$nextTick(() => {
+        try {
+          this.mapManager = new CesiumMapManager('mapContainer', 'https://vedas.sac.gov.in/elevation/cdem_10m_2016/');
+          this.mapManager.init();
+
+          setTimeout(() => {
+            this.globeLogoFinalPosition = true;
+          }, 100);
+        } catch (error) {
+          console.error('Error initializing CesiumMapManager:', error);
+        }
+      });
+    }, 3000);
   },
 
   methods: {
     handleZoomToCoordinates(coordinates) {
-      this.mapManager.flyToCoordinates(coordinates);
+      if (this.mapManager) {
+        this.mapManager.flyToCoordinates(coordinates);
+      }
     },
     showServiceAddedPopup(params) {
       this.popupManager.show(params);
@@ -92,22 +120,14 @@ export default {
       this.showVisualizationSidebar = false;
     },
     handleVisualizationModeChange(mode) {
-      this.mapManager.setSceneMode(mode);
-    },
-    /**
-     * @method resetCameraNorth
-     * @description Reorients the Cesium globe camera to point North (heading 0),
-     * while maintaining the current approximate location and altitude.
-     * @returns {void}
-     */
-    resetCameraNorth() {
-      const viewer = this.mapManager.getViewer();
-      if (!viewer) {
-        console.warn("Cesium viewer not initialized. Cannot reset camera.");
-        return;
+      if (this.mapManager) {
+        this.mapManager.setSceneMode(mode);
       }
+    },
+    resetCameraNorth() {
+      const viewer = this.mapManager ? this.mapManager.getViewer() : null;
+      if (!viewer) return;
 
-      // Get current camera position
       const currentCameraPosition = viewer.camera.positionCartographic;
       const longitude = Cesium.Math.toDegrees(currentCameraPosition.longitude);
       const latitude = Cesium.Math.toDegrees(currentCameraPosition.latitude);
@@ -116,13 +136,12 @@ export default {
       viewer.camera.flyTo({
         destination: Cesium.Cartesian3.fromDegrees(longitude, latitude, height),
         orientation: {
-          heading: Cesium.Math.toRadians(0.0),      // North
-          pitch: Cesium.Math.toRadians(-45.0),      // A common angled view
-          roll: Cesium.Math.toRadians(0.0)          // No roll
+          heading: Cesium.Math.toRadians(0.0),
+          pitch: Cesium.Math.toRadians(-45.0),
+          roll: Cesium.Math.toRadians(0.0)
         },
-        duration: 1.5 // Smooth animation duration in seconds
+        duration: 1.5
       });
-      console.log('Camera reoriented to North.');
     }
   },
 
@@ -149,16 +168,102 @@ export default {
   height: 100%;
 }
 
-/* North Arrow Styles */
+.loading-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #000;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  overflow: hidden;
+}
+
+.vedant-logo-img-loading {
+  width: 400px;
+  height: auto;
+  object-fit: contain;
+  margin-bottom: 20px;
+  opacity: 0;
+  animation: fadeIn 2s forwards;
+  animation-delay: 0.5s;
+}
+
+.space-image {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: -1;
+  opacity: 0.7;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+#vedantLogo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(1);
+  width: 400px;
+  height: auto;
+  opacity: 1;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  transition: all 1.2s ease-out; /* Smooth, non-bouncing transition */
+}
+
+#vedantLogo.vedant-logo-container-final-pos {
+  top: 100%;
+  left: 100%;
+  transform: translate(calc(-100% - 5px), calc(-100% - 5px)) scale(0.7); /* Adjusted scale for 280px final width (280/400 = 0.7) */
+  width: 280px; /* Adjusted target final width for the logo */
+}
+
+.vedant-logo-img-globe {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  margin-bottom: 0;
+}
+
+.copyright-text {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 1em; /* Increased font size */
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.8s ease-out 0.4s;
+}
+
+.copyright-text.copyright-text-final {
+  opacity: 1;
+}
+
 #northArrow {
   position: absolute;
-  top: 80px; /* Shifted down to make space for search panel */
+  top: 80px;
   right: 20px;
-  width: 80px; /* Made bigger */
-  height: 80px; /* Made bigger */
-  z-index: 1000; /* Ensure it's on top */
-  cursor: pointer; /* Add pointer cursor to indicate it's clickable */
-  transition: transform 0.1s linear; /* Keep existing rotation transition */
+  width: 80px;
+  height: 80px;
+  z-index: 1000;
+  cursor: pointer;
+  transition: transform 0.1s linear;
 }
 #northArrow .north-arrow-img {
   width: 100%;
@@ -166,34 +271,6 @@ export default {
   display: block;
   object-fit: contain;
 }
-
-/* Vedant Logo and Copyright Styles - UPDATED for closer spacing */
-#vedantLogo {
-  position: absolute;
-  bottom: 10px; /* Moved closer to the bottom edge */
-  right: 20px; /* Aligned to the RIGHT */
-  width: 160px; /* 2 times bigger than North Arrow (80px * 2) */
-  z-index: 1000; /* Ensure it's on top of the map */
-
-  /* Flexbox for stacking logo and text */
-  display: flex;
-  flex-direction: column; /* Stack children vertically */
-  align-items: flex-end; /* Align items to the right */
-}
-#vedantLogo .vedant-logo-img {
-  width: 100%;
-  height: 100px; /* Keep fixed height for the image itself */
-  display: block;
-  object-fit: contain; /* Ensures the entire logo is visible within its bounds */
-  margin-bottom: 0; /* REMOVED/REDUCED GAP HERE */
-}
-.copyright-text {
-  color: rgba(255, 255, 255, 0.7); /* Slightly transparent white */
-  font-size: 0.8em; /* Smaller font size */
-  text-shadow: 0 0 3px rgba(0, 0, 0, 0.5); /* Slight shadow for readability on map */
-  white-space: nowrap; /* Keep text on one line */
-}
-
 
 html, body {
   margin: 0;
