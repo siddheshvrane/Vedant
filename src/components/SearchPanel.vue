@@ -4,58 +4,60 @@
       <input
         type="text"
         class="form-control custom-search-input"
-        placeholder="Search Places" v-model="searchTerm"
+        :placeholder="searchTerm ? '' : 'Search Places'" v-model="searchTerm"
         @input="handleInput"
         @focus="isDropdownVisible = true"
         @blur="hideDropdown"
-        @keyup.enter="performSearch" >
+        @keyup.enter="performSearch"
+      />
       <button class="btn search-icon-btn" @click="performSearch">
         <i class="fas fa-search"></i>
       </button>
     </div>
 
-    <div v-if="isDropdownVisible && filteredResults.length > 0" class="dropdown-menu-custom shadow-sm show">
-      <ul class="list-unstyled">
-        <li v-for="result in filteredResults" :key="result.properties.id">
-          <a href="#" class="dropdown-item-custom" @mousedown.prevent="selectLocation(result)">
-            <i class="fas fa-map-marker-alt me-2"></i>
-            {{ result.properties.name }}
-          </a>
-        </li>
-      </ul>
-    </div>
+    <Suggestion
+      :suggestions="filteredResults"
+      :is-visible="isDropdownVisible"
+      @select-location="handleSelectLocation"
+    />
   </div>
 </template>
 
 <script>
-// IMPORTANT: Keep this line removed, as per our previous discussion.
-// import indianCitiesGeoJSON from '../data/indian_cities.geojson';
+import { MapService } from '../services.js'; // Import MapService
+import Suggestion from './Suggestion.vue'; // Import the new Suggestion component
 
 export default {
   name: 'SearchPanel',
-
+  components: {
+    Suggestion, // Register the Suggestion component
+  },
   data() {
     return {
       searchTerm: '',
       isDropdownVisible: false,
       allLocations: [], // Will be populated by fetched GeoJSON features
-      filteredResults: []
+      filteredResults: [], // This will be passed to the Suggestion component
     };
   },
-
   watch: {
     searchTerm: {
       handler(newTerm) {
         this.filterLocations(newTerm);
+        // If the search term becomes empty, ensure dropdown is hidden and results are cleared.
+        // This handles cases where user deletes all text.
+        if (!newTerm.trim()) {
+            this.isDropdownVisible = false;
+            this.filteredResults = [];
+        }
       },
-      immediate: true
-    }
+      immediate: true,
+    },
   },
-
   async mounted() {
     try {
       // Use fetch to load the GeoJSON file as a static asset.
-      const response = await fetch('/src/data/indian_cities.geojson');
+      const response = await fetch('/src/data/Location.geojson'); // Updated path to Location.geojson
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -68,7 +70,6 @@ export default {
       this.allLocations = [];
     }
   },
-
   methods: {
     /**
      * @method handleInput
@@ -83,7 +84,7 @@ export default {
     /**
      * @method performSearch
      * @description Triggers a search based on the input: either coordinates or text.
-     * Emits 'zoom-to-coordinates' if coordinates are detected.
+     * Publishes 'zoom-to-coordinates' via MapService if coordinates are detected.
      * @returns {void}
      */
     performSearch() {
@@ -98,6 +99,7 @@ export default {
         // It's a coordinate search
         const lat = parseFloat(match[1]);
         const lon = parseFloat(match[3]);
+        const elevation = 15000; // Default elevation for coordinate search
 
         // Basic validation for latitude and longitude ranges
         if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
@@ -108,34 +110,46 @@ export default {
         }
 
         console.log('Coordinates entered:', lat, lon);
-        // Emit event to parent (EarthViewer) to zoom to these coordinates
-        this.$emit('zoom-to-coordinates', lat, lon);
+        // Publish event via MapService to zoom to these coordinates
+        MapService.zoomToCoordinates({ latitude: lat, longitude: lon, elevation: elevation });
+        MapService.displayLocationMarker({
+            name: `${lat}, ${lon}`,
+            identifier: `coord-${lat}-${lon}`,
+            getCoordinates: () => ({ latitude: lat, longitude: lon, elevation: elevation })
+        });
         this.isDropdownVisible = false; // Hide dropdown after action
-        this.searchTerm = `${lat}, ${lon}`; // Keep cleaned coordinates in search bar
+        this.searchTerm = ''; // Clear search term after successful coordinate search
       } else {
-        // It's a text search, continue with existing filtering logic
-        console.log('Text search for:', trimmedSearchTerm);
-        this.filterLocations(trimmedSearchTerm); // Re-filter to ensure latest results
+        // If it's a text search without selecting from suggestions,
+        // we keep the text to allow further refinement or re-search.
+        // The placeholder will only reappear if the user manually clears the input.
+        this.filterLocations(trimmedSearchTerm);
         this.isDropdownVisible = this.filteredResults.length > 0;
       }
     },
 
     /**
-     * @method selectLocation
-     * @description Handles selecting a location from the dropdown.
-     * Emits 'zoom-to-coordinates' using the GeoJSON feature's coordinates.
+     * @method handleSelectLocation
+     * @description Handles selecting a location from the Suggestion component.
+     * Publishes 'zoom-to-coordinates' via MapService using the GeoJSON feature's coordinates.
      * @param {Object} locationFeature - The selected GeoJSON Feature object.
      * @returns {void}
      */
-    selectLocation(locationFeature) {
+    handleSelectLocation(locationFeature) {
       console.log('Selected location:', locationFeature.properties.name);
-      this.searchTerm = locationFeature.properties.name;
       this.isDropdownVisible = false;
 
       // Check if the feature has valid point coordinates
       if (locationFeature.geometry && locationFeature.geometry.type === 'Point' && locationFeature.geometry.coordinates) {
-        const [lon, lat] = locationFeature.geometry.coordinates; // GeoJSON coordinates are [longitude, latitude]
-        this.$emit('zoom-to-coordinates', lat, lon); // Emit with (latitude, longitude)
+        const [lon, lat, elevation = 500] = locationFeature.geometry.coordinates; // GeoJSON coords are [lon, lat, elevation]
+        // Publish event via MapService to zoom to these coordinates
+        MapService.zoomToCoordinates({ latitude: lat, longitude: lon, elevation: elevation });
+        MapService.displayLocationMarker({
+            name: locationFeature.properties.name,
+            identifier: locationFeature.properties.id,
+            getCoordinates: () => ({ latitude: lat, longitude: lon, elevation: elevation })
+        });
+        this.searchTerm = ''; // Clear search term after successful selection
       } else {
         console.warn('Selected location does not have valid point coordinates:', locationFeature);
       }
@@ -147,6 +161,7 @@ export default {
      * @returns {void}
      */
     hideDropdown() {
+      // Use a timeout to allow click events on suggestions to register before hiding
       setTimeout(() => {
         this.isDropdownVisible = false;
       }, 150);
@@ -155,6 +170,7 @@ export default {
     /**
      * @method filterLocations
      * @description Filters the loaded locations based on the current search term.
+     * Updates 'filteredResults' which is passed to the Suggestion component.
      * @param {string} term - The search term.
      * @returns {void}
      */
@@ -164,12 +180,12 @@ export default {
         return;
       }
       const lowerCaseTerm = term.toLowerCase();
-      this.filteredResults = this.allLocations.filter(feature =>
+      this.filteredResults = this.allLocations.filter((feature) =>
         feature.properties.name.toLowerCase().includes(lowerCaseTerm)
       );
       this.isDropdownVisible = this.filteredResults.length > 0;
-    }
-  }
+    },
+  },
 };
 </script>
 
@@ -229,52 +245,5 @@ export default {
 .input-group > .search-icon-btn:not(:first-child) {
   border-top-left-radius: 0 !important;
   border-bottom-left-radius: 0 !important;
-}
-
-.dropdown-menu-custom {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 1000;
-  width: 100%;
-  max-height: 200px;
-  overflow-y: auto;
-  background-color: rgba(30, 30, 30, 0.65);
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  border-radius: 0.25rem;
-  padding: 0;
-  margin-top: 0.125rem;
-  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.175);
-}
-
-.dropdown-menu-custom .list-unstyled {
-    margin-bottom: 0;
-    padding-bottom: 0;
-}
-
-.dropdown-item-custom {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  padding: 0.5rem 1rem;
-  clear: both;
-  font-weight: 400;
-  text-align: inherit;
-  white-space: nowrap;
-  background-color: transparent;
-  border: 0;
-  text-decoration: none;
-  color: white;
-}
-
-.dropdown-item-custom:hover,
-.dropdown-item-custom:focus {
-  color: #fff;
-  background-color: rgba(255, 255, 255, 0.1);
-}
-
-.dropdown-item-custom i {
-    font-size: 0.9em;
-    margin-right: 0.5rem;
 }
 </style>

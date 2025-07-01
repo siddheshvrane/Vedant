@@ -1,0 +1,109 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "delhi",
+        "name": "New Delhi",
+        "country": "India",
+        "description": "Capital of India"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [77.2090, 28.6139, 500]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "mumbai",
+        "name": "Mumbai",
+        "country": "India",
+        "description": "Financial capital of India"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [72.8777, 19.0760, 500]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "bengaluru",
+        "name": "Bengaluru",
+        "country": "India",
+        "description": "Silicon Valley of India"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [77.5946, 12.9716, 500]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "kolkata",
+        "name": "Kolkata",
+        "country": "India",
+        "description": "City of Joy"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [88.3639, 22.5726, 500]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "chennai",
+        "name": "Chennai",
+        "country": "India",
+        "description": "Gateway to South India"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [80.2707, 13.0827, 500]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "hyderabad",
+        "name": "Hyderabad",
+        "country": "India",
+        "description": "City of Pearls"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [78.4867, 17.3850, 500]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "ahmedabad",
+        "name": "Ahmedabad",
+        "country": "India",
+        "description": "Textile city of India"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [72.5714, 23.0225, 500]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "pune",
+        "name": "Pune",
+        "country": "India",
+        "description": "Oxford of the East"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [73.8567, 18.5204, 500]
+      }
+    }
+  ]
+}
