@@ -4,10 +4,11 @@
 
     <SceneInfo v-show="globeIsLoaded" />
 
-    <MenuSidebar
+    <Menu v-show="globeIsLoaded && !isSidebarOpen" />
+
+    <Sidebar v-show="globeIsLoaded && isSidebarOpen"
       @service-added="showServiceAddedPopup"
       @open-visualization-sidebar="openVisualizationSidebar"
-      v-show="globeIsLoaded"
     />
 
     <div v-if="showPopup" class="service-added-popup-overlay">
@@ -32,34 +33,54 @@
 
 <script>
 import Globe from './components/Globe.vue';
-import MenuSidebar from './components/MenuSidebar.vue';
+// Remove the old MenuSidebar import
+// import MenuSidebar from './components/MenuSidebar.vue'; 
 import VisualizationSidebar from './components/sub-sidebars/VisualizationSidebar.vue';
 import SceneInfo from './components/SceneInfo.vue';
 
+// Import the new Menu and Sidebar components
+import Menu from './components/Menu.vue';
+import Sidebar from './components/Sidebar.vue';
+
 import PopupManager from './components/utils/PopupManager';
-import { MapService } from './services.js';
+// Ensure UserInterfaceService is imported
+import { MapService, UserInterfaceService } from './services.js'; 
 
 export default {
   name: 'App',
   components: {
     Globe,
-    MenuSidebar,
+    // Remove MenuSidebar from components list
+    // MenuSidebar, 
     VisualizationSidebar,
     SceneInfo,
+    // Add new components
+    Menu,
+    Sidebar,
   },
   data() {
     return {
       popupManager: new PopupManager(),
       showVisualizationSidebar: false,
-      globeIsLoaded: false, // New data property to track globe loading state
+      globeIsLoaded: false,
+      isSidebarOpen: false, // New state to track if sidebar is currently open
+      sidebarVisibilitySubscription: null, // For RxJS subscription cleanup
     };
   },
+  mounted() {
+    // Subscribe to UserInterfaceService to get updates on sidebar visibility
+    this.sidebarVisibilitySubscription = UserInterfaceService.isSidebarOpen$.subscribe(isOpen => {
+      this.isSidebarOpen = isOpen;
+      console.log('App.vue: Sidebar visibility updated to:', this.isSidebarOpen);
+    });
+  },
+  beforeUnmount() {
+    // Unsubscribe to prevent memory leaks
+    if (this.sidebarVisibilitySubscription) {
+      this.sidebarVisibilitySubscription.unsubscribe();
+    }
+  },
   methods: {
-    /**
-     * @method handleGlobeLoaded
-     * @description Sets globeIsLoaded to true when the Globe component emits 'globe-ready'.
-     * @returns {void}
-     */
     handleGlobeLoaded() {
       this.globeIsLoaded = true;
     },
