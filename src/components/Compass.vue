@@ -5,19 +5,20 @@
 </template>
 
 <script>
-import * as Cesium from 'cesium'; // Needed for Cesium.Math and camera properties
-import { MapService } from '../services.js';
-import compassImage from '../assets/compass.png';
+import * as Cesium from 'cesium'; // Required for Cesium.Math and accessing viewer camera properties.
+import { MapService } from '../services.js'; // Imports the singleton MapService for communication.
+import compassImage from '../assets/compass.png'; // Path to the compass image asset.
 
 export default {
   name: 'Compass',
   props: {
-    // Globe component will pass its Cesium viewer instance here
+    // Receives the Cesium Viewer instance from the parent (Globe.vue).
+    // This is crucial for interacting with the globe's camera.
     viewer: {
-      type: Object, // Cesium.Viewer instance
+      type: Object, // Expects a Cesium.Viewer object.
       required: true
     },
-    // The v-show binding from Globe.vue can be passed as a prop
+    // Controls the visibility of the compass component, typically bound to Globe's `isGlobeReady`.
     isVisible: {
       type: Boolean,
       default: true
@@ -26,79 +27,87 @@ export default {
   data() {
     return {
       compassSrc: compassImage,
-      angle: 0.0, // Corresponds to 'angle: float' in diagram [cite: 161]
-      mapViewSubscription: null,
-      postRenderListener: null,
+      angle: 0.0, // Current rotation angle of the compass arrow in degrees.
+      mapViewSubscription: null, // Holds the subscription to MapService.updateView$ for cleanup.
+      postRenderListener: null,  // Holds the Cesium event listener for cleanup.
     };
   },
+  /**
+   * @Lifecycle Hook: mounted
+   * Subscribes to map view updates and Cesium's `postRender` event to keep the compass oriented.
+   */
   mounted() {
-    // Corresponds to 'onGlobeViewUpdate' handler in diagram [cite: 164]
-    // The compass needs to react to view updates to rotate
+    // Subscribe to MapService for general view updates. This is one way to receive camera info.
     this.mapViewSubscription = MapService.updateView$.subscribe(this.onGlobeViewUpdate);
 
-    // Additionally, subscribe to Cesium's postRender for smooth, continuous rotation updates
-    // This is more direct than relying solely on MapService.updateView$ if it's less frequent.
+    // Additionally, subscribe directly to Cesium's `postRender` event.
+    // This provides very frequent updates (every frame), ensuring smooth and immediate compass rotation
+    // as the user interacts with the globe. It directly updates `this.angle` based on camera heading.
     if (this.viewer) {
       this.postRenderListener = () => {
         const heading = this.viewer.camera.heading;
-        // Convert radians to degrees and negate for correct CSS rotation
-        // Cesium heading is clockwise, CSS rotate() is counter-clockwise for positive values.
+        // Convert Cesium's radian heading to degrees and negate for CSS rotation property.
         this.angle = -Cesium.Math.toDegrees(heading);
       };
       this.viewer.scene.postRender.addEventListener(this.postRenderListener);
-      // Set initial angle immediately after mounting if viewer is available
+      // Set initial angle immediately after mounting.
       this.angle = -Cesium.Math.toDegrees(this.viewer.camera.heading);
     }
   },
+  /**
+   * @Lifecycle Hook: beforeUnmount
+   * Important for preventing memory leaks by unsubscribing from RxJS observables
+   * and removing Cesium event listeners before the component is destroyed.
+   */
   beforeUnmount() {
-    // Unsubscribe from RxJS observable
     if (this.mapViewSubscription) {
       this.mapViewSubscription.unsubscribe();
     }
-    // Remove Cesium postRender event listener
     if (this.viewer && this.postRenderListener) {
       this.viewer.scene.postRender.removeEventListener(this.postRenderListener);
     }
   },
   methods: {
-    // Corresponds to 'onClick(): void' in diagram [cite: 163]
+    /**
+     * @method onClick
+     * Triggered when the compass component is clicked.
+     * Emits an event via MapService to orient the globe to North.
+     */
     onClick() {
-      // Triggers MapService: Redirect Globe [cite: 163] (implemented as orientToNorth in MapService)
       MapService.orientToNorth();
     },
-    // Corresponds to 'onGlobeViewUpdate(viewData: any): void' in diagram [cite: 164]
+    /**
+     * @method onGlobeViewUpdate
+     * Callback for `MapService.updateView$` subscription.
+     * Updates the compass angle based on the `viewData` provided by MapService.
+     * While `postRenderListener` handles continuous updates, this method ensures
+     * consistency if updates also come through the MapService channel.
+     * @param {Object} viewData - Contains `angle` property (in degrees) representing camera heading.
+     */
     onGlobeViewUpdate(viewData) {
-      // Update the angle based on the viewData from MapService
-      // This is an alternative/redundant update path if `postRender` listener is used directly
-      // However, keeping it as it directly matches the class diagram.
       if (viewData && typeof viewData.angle === 'number') {
-        // Use the angle from viewData (which should be in degrees)
-        this.angle = -viewData.angle; // Negate for CSS rotation
+        this.angle = -viewData.angle; // Negate for CSS rotation.
       }
     },
-    // Corresponds to 'displayArrow(): void' in diagram [cite: 162]
-    // In Vue, this is implicitly handled by the template's v-show and :style binding.
-    // We don't need a separate method for 'displayArrow' unless it involves more complex logic.
   }
 };
 </script>
 
 <style scoped>
-/* Styles specific to the Compass component */
+/* Scoped styles ensure these CSS rules only apply to this component. */
 #northArrow {
-  position: absolute;
-  top: 80px;
-  right: 20px;
+  position: absolute; /* Positions the compass relative to its parent (#mapWrapper). */
+  top: 80px;         /* Distance from the top of the parent. */
+  right: 20px;       /* Distance from the right of the parent. */
   width: 80px;
   height: 80px;
-  z-index: 1000;
-  cursor: pointer;
-  /* transition on transform is now handled directly by the angle property for smoother updates via Cesium events */
+  z-index: 1000;     /* Ensures the compass is above other map elements. */
+  cursor: pointer;   /* Indicates the element is clickable. */
 }
 #northArrow .north-arrow-img {
   width: 100%;
   height: 100%;
   display: block;
-  object-fit: contain;
+  object-fit: contain; /* Ensures the image fits within its container without distortion. */
 }
 </style>

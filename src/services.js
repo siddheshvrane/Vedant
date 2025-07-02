@@ -1,59 +1,54 @@
 // src/services.js
-import { Subject } from 'rxjs'; // Make sure you have RxJS installed: npm install rxjs
+import { Subject } from 'rxjs'; // RxJS is used for reactive programming, managing streams of events.
 
 /**
- * MapService: Manages map view updates, graphic rendering, and globe redirection.
- * Corresponds to MapService in the class diagram[cite: 49, 50].
+ * MapService: Provides a centralized mechanism for different components to communicate
+ * and trigger map-related actions (e.g., updating view, rendering graphics)
+ * without direct coupling. It acts as a singleton.
  */
 class MapServiceClass {
-    // Observables that components can subscribe to
-    updateView$ = new Subject(); // For MapService: Update View [cite: 49]
-    redirectGlobe$ = new Subject(); // For MapService: Redirect Globe (e.g., for Compass) [cite: 50]
-    orientToNorth$ = new Subject(); // For MapService: Orient to North [cite: 53]
-    renderGraphic$ = new Subject(); // For MapService: Render Graphic [cite: 54]
-    removeGraphic$ = new Subject(); // For MapService: Remove Graphic [cite: 56]
-    zoomToCoordinates$ = new Subject(); // For internal helper, but exposed for other components to trigger Globe's method [cite: 46]
-    displayLocationMarker$ = new Subject(); // For internal helper, exposed for other components to trigger Globe's method [cite: 47]
+    // Observables (Subjects) that components can subscribe to, listening for events.
+    // When a method (e.g., updateView) calls `.next()` on its corresponding Subject,
+    // all subscribed components receive the data.
+    updateView$ = new Subject();       // Emits data when the map view properties change.
+    redirectGlobe$ = new Subject();    // For general globe redirection commands.
+    orientToNorth$ = new Subject();    // Specifically triggers the globe to orient North.
+    renderGraphic$ = new Subject();    // Emits a graphic object to be rendered on the map.
+    removeGraphic$ = new Subject();    // Emits an identifier to remove a specific graphic.
+    zoomToCoordinates$ = new Subject(); // Emits coordinates to trigger a zoom/fly-to action.
+    displayLocationMarker$ = new Subject(); // Emits location data to display a marker/label.
 
-
-    // Methods to trigger events
+    // Methods to push data/events to the corresponding observables.
     updateView(updateData) {
-        console.log('MapService: Triggering Update View with:', updateData);
         this.updateView$.next(updateData);
     }
 
     redirectGlobe(viewData) {
-        console.log('MapService: Triggering Redirect Globe with:', viewData);
         this.redirectGlobe$.next(viewData);
     }
 
     orientToNorth() {
-        console.log('MapService: Triggering Orient to North');
         this.orientToNorth$.next();
     }
 
     renderGraphic(graphic) {
-        console.log('MapService: Triggering Render Graphic with:', graphic);
         this.renderGraphic$.next(graphic);
     }
 
     removeGraphic(graphicIdentifier) {
-        console.log('MapService: Triggering Remove Graphic for:', graphicIdentifier);
         this.removeGraphic$.next(graphicIdentifier);
     }
 
     zoomToCoordinates(coordinates) {
-        console.log('MapService: Triggering Zoom To Coordinates with:', coordinates);
         this.zoomToCoordinates$.next(coordinates);
     }
 
     displayLocationMarker(location) {
-        console.log('MapService: Triggering Display Location Marker with:', location);
         this.displayLocationMarker$.next(location);
     }
 }
 
-// Export a singleton instance of the service
+// Export a singleton instance of the service so all imports refer to the same object.
 export const MapService = new MapServiceClass();
 
-// You'll add other services (UserInterfaceService, SearchService, etc.) here as you refactor.
+// Additional services (UserInterfaceService, SearchService, etc.) would be defined and exported here.

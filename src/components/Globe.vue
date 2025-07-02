@@ -1,12 +1,12 @@
 <template>
   <div id="mapWrapper">
-    <ProjectLogo @loading-complete="handleGlobeReady" />
+    <ProjectLogo @loading-complete="handleGlobeReady" class="globe-overlay-logo" />
 
     <div v-show="isGlobeReady" id="globeContainer"></div>
 
     <Compass :viewer="viewer" :is-visible="isGlobeReady" />
+    
     <SearchPanel v-if="isGlobeReady" />
-
   </div>
 </template>
 
@@ -16,8 +16,9 @@ import 'cesium/Build/Cesium/Widgets/widgets.css';
 import { MapService } from '../services.js';
 import Compass from './Compass.vue';
 import SearchPanel from './SearchPanel.vue';
-import ProjectLogo from './ProjectLogo.vue'; // NEW: Import ProjectLogo
+import ProjectLogo from './ProjectLogo.vue';
 
+// Cesium Ion access token is required for using Cesium's default assets (e.g., imagery, terrain).
 Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJjNmUzZWU3Ni1kYzM3LTQyNzYtOTk0MS03YWVkMTZlNTU0MDMiLCJpZCI6MzEwMzcwLCJpYXQiOjE3NDk0NjMxNzl9.K7YHyi1fwwi5ICQKn4C82gUnv60u9nVs783T_UpHxG0';
 
 export default {
@@ -25,43 +26,45 @@ export default {
   components: {
     Compass,
     SearchPanel,
-    ProjectLogo, // NEW: Register ProjectLogo
+    ProjectLogo,
   },
+  // Declares the 'globe-ready' event emitted when the Cesium globe is initialized.
+  emits: ['globe-ready'], 
   props: {
-    // We can pass initial properties if needed, but for now, Globe manages its own Cesium instance
+    // Globe component manages its own Cesium instance.
   },
   data() {
     return {
-      viewer: null, // This will hold the Cesium Viewer instance
-      isGlobeReady: false, // NEW: Controls when Cesium globe and other components are displayed
-      // REMOVED: loading, globeLogoFinalPosition, vedantLogoSrc, spaceImageSrc
-      zoomLevel: 0.0,
-      centerCoordinates: [0.0, 0.0],
-      orientation: 0.0,
-      currentLocationMarkerEntity: null, // To keep track of the last added label entity
+      viewer: null, // Holds the Cesium Viewer instance.
+      isGlobeReady: false, // Controls display of globe and related components.
+      zoomLevel: 0.0, // Current camera height.
+      centerCoordinates: [0.0, 0.0], // Longitude and Latitude of the camera's look-at point.
+      orientation: 0.0, // Camera's current heading.
+      currentLocationMarkerEntity: null, // Stores the active location label entity for easy removal.
     };
   },
+  /**
+   * @Lifecycle Hook: mounted
+   * Subscribes to MapService observables for inter-component communication.
+   */
   mounted() {
-    // REMOVED: setTimeout logic for loading screen and logo transition. ProjectLogo handles this.
-
-    // Subscribe to MapService events
     this.mapViewSubscription = MapService.updateView$.subscribe(this.updateView);
     this.compassRedirectSubscription = MapService.orientToNorth$.subscribe(this.orientToNorth);
     this.graphicRenderSubscription = MapService.renderGraphic$.subscribe(this.renderGraphic);
     this.graphicRemovalSubscription = MapService.removeGraphic$.subscribe(this.removeGraphic);
-
-    // Handle zoomToCoordinates
     this.zoomToCoordinatesSubscription = MapService.zoomToCoordinates$.subscribe(this.zoomToCoordinates);
-    // Handle displayLocationMarker
     this.displayLocationMarkerSubscription = MapService.displayLocationMarker$.subscribe(this.displayLocationMarker);
   },
+  /**
+   * @Lifecycle Hook: beforeUnmount
+   * Cleans up Cesium viewer and unsubscribes from RxJS observables to prevent memory leaks.
+   */
   beforeUnmount() {
-    // Clean up Cesium viewer
     if (this.viewer) {
       this.viewer.destroy();
       this.viewer = null;
     }
-    // Unsubscribe from RxJS observables to prevent memory leaks
+    // Unsubscribe from all RxJS observables.
     if (this.mapViewSubscription) this.mapViewSubscription.unsubscribe();
     if (this.compassRedirectSubscription) this.compassRedirectSubscription.unsubscribe();
     if (this.graphicRenderSubscription) this.graphicRenderSubscription.unsubscribe();
@@ -69,7 +72,7 @@ export default {
     if (this.zoomToCoordinatesSubscription) this.zoomToCoordinatesSubscription.unsubscribe();
     if (this.displayLocationMarkerSubscription) this.displayLocationMarkerSubscription.unsubscribe();
 
-    // Ensure the current marker is also destroyed if component unmounts
+    // Remove the current location marker if it exists.
     if (this.currentLocationMarkerEntity) {
         this.viewer.entities.remove(this.currentLocationMarkerEntity);
         this.currentLocationMarkerEntity = null;
@@ -78,20 +81,26 @@ export default {
   methods: {
     /**
      * @method handleGlobeReady
-     * @description Called when ProjectLogo component emits 'loading-complete'.
-     * Sets isGlobeReady to true and initializes the Cesium globe.
-     * @returns {void}
+     * Called when ProjectLogo's loading animation completes.
+     * Sets `isGlobeReady` to true and initializes the Cesium globe.
      */
-    handleGlobeReady() { // NEW method
+    handleGlobeReady() {
       this.isGlobeReady = true;
       this.$nextTick(() => {
         try {
           this.initGlobe();
+          this.$emit('globe-ready');
         } catch (error) {
           console.error('Error initializing Globe:', error);
         }
       });
     },
+    /**
+     * @method initGlobe
+     * Initializes the Cesium Viewer with specific options (e.g., UI elements disabled).
+     * Configures a custom terrain provider and adds an imagery layer.
+     * Sets an initial camera position over India and attaches a camera change listener.
+     */
     initGlobe() {
       this.viewer = new Cesium.Viewer('globeContainer', {
         animation: false,
@@ -106,7 +115,7 @@ export default {
         navigationInstructionsInitiallyVisible: false,
         creditContainer: document.createElement('div'), // Hides the Cesium credit badge
         fullscreenButton: false,
-        imageryProvider: false, // Explicitly set to false to add our own
+        imageryProvider: false, // Explicitly false to add our own below
         sceneMode: Cesium.SceneMode.SCENE3D,
         terrainExaggeration: 1.0,
         terrain: new Cesium.Terrain(Cesium.CesiumTerrainProvider.fromUrl('https://vedas.sac.gov.in/elevation/cdem_10m_2016/'))
@@ -115,25 +124,27 @@ export default {
       this._addImageryLayer();
       this.viewer.scene.globe.depthTestAgainstTerrain = false;
 
-      // Set the default camera position to India as per CesiumMapManager
+      // Set default camera position to India.
       this.viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(78.9629, 20.5937, 20000000), // Longitude, Latitude for India, and height
+        destination: Cesium.Cartesian3.fromDegrees(78.9629, 20.5937, 20000000), // Long, Lat, Height
         orientation: {
           heading: Cesium.Math.toRadians(0.0),    // Look North
           pitch: Cesium.Math.toRadians(-90.0),    // Look straight down
           roll: Cesium.Math.toRadians(0.0)        // No roll
         },
-        duration: 0 // Set duration to 0 for immediate positioning
+        duration: 0 // Immediate positioning
       });
 
       this.updateGlobeViewProperties();
 
-      // IMPORTANT: Use Cesium's camera.changed event for frequent updates
-      // and then emit through MapService.updateView.
-      // This ensures SceneInfo and Compass get updates.
+      // Attach listener to camera changes to update UI components.
       this.viewer.camera.changed.addEventListener(this.onCameraChanged);
     },
 
+    /**
+     * @method _addImageryLayer
+     * Adds a Web Map Service (WMS) imagery provider to the globe.
+     */
     _addImageryLayer() {
       this.viewer.imageryLayers.addImageryProvider(new Cesium.WebMapServiceImageryProvider({
         url: 'https://bhuvan-ras1.nrsc.gov.in/tilecache/tilecache.py',
@@ -152,6 +163,11 @@ export default {
       }));
     },
 
+    /**
+     * @method updateGlobeViewProperties
+     * Updates the component's data properties (zoomLevel, centerCoordinates, orientation)
+     * based on the current Cesium camera position and orientation.
+     */
     updateGlobeViewProperties() {
       if (this.viewer) {
         const cameraPosition = this.viewer.camera.positionCartographic;
@@ -161,12 +177,19 @@ export default {
       }
     },
 
+    /**
+     * @method onCameraChanged
+     * Callback for Cesium camera changes. Updates view properties and emits scene info via MapService.
+     */
     onCameraChanged() {
         this.updateGlobeViewProperties();
-        // Emit the scene information through MapService
         MapService.updateView(this.getSceneInformation());
     },
 
+    /**
+     * @method getSceneInformation
+     * Gathers and returns an object with current camera/scene details.
+     */
     getSceneInformation() {
       if (!this.viewer) return {};
       const cameraPosition = this.viewer.camera.positionCartographic;
@@ -201,6 +224,11 @@ export default {
     updateView(updateData) {
       console.log('Globe: updateView method called with data:', updateData);
     },
+    /**
+     * @method renderGraphic
+     * Renders a point or polygon graphic on the globe based on provided geometry.
+     * @param {Object} graphic - Contains `identifier` and `geometry` (array of coordinates).
+     */
     renderGraphic(graphic) {
       console.log('Globe: renderGraphic method called with graphic:', graphic);
       if (this.viewer && graphic && graphic.geometry && graphic.geometry.length > 0) {
@@ -233,6 +261,11 @@ export default {
         }
       }
     },
+    /**
+     * @method removeGraphic
+     * Removes a graphic from the globe using its unique identifier.
+     * @param {string} graphicIdentifier - ID of the graphic to remove.
+     */
     removeGraphic(graphicIdentifier) {
       console.log('Globe: removeGraphic method called for identifier:', graphicIdentifier);
       if (this.viewer) {
@@ -242,6 +275,12 @@ export default {
         }
       }
     },
+    /**
+     * @method zoomToCoordinates
+     * Flies the camera to a specified longitude, latitude, and elevation.
+     * Uses a default elevation if the provided one is too low.
+     * @param {Object} coordinates - Contains `longitude`, `latitude`, and optional `elevation`.
+     */
     zoomToCoordinates(coordinates) {
       console.log('Globe: zoomToCoordinates method called with coordinates:', coordinates);
       if (this.viewer && coordinates) {
@@ -253,10 +292,16 @@ export default {
         });
       }
     },
+    /**
+     * @method displayLocationMarker
+     * Displays a named label marker at a given location.
+     * Removes any existing `currentLocationMarkerEntity` before adding a new one.
+     * @param {Object} location - Object with `name` and `getCoordinates()` method.
+     */
     displayLocationMarker(location) {
       console.log('Globe: displayLocationMarker method called for location:', location);
       if (this.viewer && location && location.getCoordinates) {
-        // Remove the previously displayed marker if it exists
+        // Remove existing marker before adding a new one.
         if (this.currentLocationMarkerEntity) {
             this.viewer.entities.remove(this.currentLocationMarkerEntity);
             this.currentLocationMarkerEntity = null;
@@ -264,12 +309,11 @@ export default {
 
         const coords = location.getCoordinates();
         if (coords) {
-            // Only add the label, no separate icon/billboard for now
             const newMarkerEntity = this.viewer.entities.add({
                 position: Cesium.Cartesian3.fromDegrees(coords.longitude, coords.latitude, coords.elevation || 0),
                 label: {
                     text: location.name,
-                    font: '14pt Poppins, sans-serif', // Consistent font styling
+                    font: '14pt Poppins, sans-serif',
                     fillColor: Cesium.Color.WHITE,
                     outlineColor: Cesium.Color.BLACK,
                     outlineWidth: 2,
@@ -279,11 +323,15 @@ export default {
                 },
                 id: `location-label-${location.identifier}`
             });
-            // Store the reference to the newly added entity
+            // Store reference to the new marker.
             this.currentLocationMarkerEntity = newMarkerEntity;
         }
       }
     },
+    /**
+     * @method orientToNorth
+     * Orients the camera's heading to North (0 degrees) while preserving current pitch and roll.
+     */
     orientToNorth() {
       console.log('Globe: orientToNorth method called (maintaining current pitch and roll)');
       if (this.viewer) {
@@ -298,9 +346,9 @@ export default {
         this.viewer.camera.flyTo({
           destination: Cesium.Cartesian3.fromDegrees(longitude, latitude, height),
           orientation: {
-            heading: Cesium.Math.toRadians(0.0),
-            pitch: currentPitch,
-            roll: currentRoll
+            heading: Cesium.Math.toRadians(0.0), // Set heading to North
+            pitch: currentPitch, // Preserve current pitch
+            roll: currentRoll // Preserve current roll
           },
           duration: 1.5
         });
@@ -323,5 +371,12 @@ export default {
   height: 100%;
 }
 
-/* REMOVED: All loading screen and logo position/animation CSS, now in ProjectLogo.vue */
+/* Style for the ProjectLogo overlay */
+.globe-overlay-logo {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
 </style>

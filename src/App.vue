@@ -1,18 +1,14 @@
 <template>
   <div>
-    <Globe />
+    <Globe @globe-ready="handleGlobeLoaded" />
 
-    <!-- Integrate the new SceneInfo component here -->
-    <SceneInfo :is-visible="!loading" />
+    <SceneInfo v-show="globeIsLoaded" />
 
     <MenuSidebar
       @service-added="showServiceAddedPopup"
       @open-visualization-sidebar="openVisualizationSidebar"
-      v-show="!loading"
+      v-show="globeIsLoaded"
     />
-
-    <!-- SearchPanel is already integrated in Globe.vue now -->
-    <!-- <SearchPanel @zoom-to-coordinates="handleZoomToCoordinates" v-show="!loading" /> -->
 
     <div v-if="showPopup" class="service-added-popup-overlay">
       <div class="service-added-popup">
@@ -37,10 +33,8 @@
 <script>
 import Globe from './components/Globe.vue';
 import MenuSidebar from './components/MenuSidebar.vue';
-// SearchPanel is now integrated directly into Globe.vue's template
-// import SearchPanel from './components/SearchPanel.vue';
 import VisualizationSidebar from './components/sub-sidebars/VisualizationSidebar.vue';
-import SceneInfo from './components/SceneInfo.vue'; // NEW: Import SceneInfo
+import SceneInfo from './components/SceneInfo.vue';
 
 import PopupManager from './components/utils/PopupManager';
 import { MapService } from './services.js';
@@ -50,18 +44,25 @@ export default {
   components: {
     Globe,
     MenuSidebar,
-    // SearchPanel is no longer directly here
     VisualizationSidebar,
-    SceneInfo, // NEW: Register SceneInfo
+    SceneInfo,
   },
   data() {
     return {
       popupManager: new PopupManager(),
       showVisualizationSidebar: false,
-      loading: false, // App.vue no longer manages the main loading screen for the globe
+      globeIsLoaded: false, // New data property to track globe loading state
     };
   },
   methods: {
+    /**
+     * @method handleGlobeLoaded
+     * @description Sets globeIsLoaded to true when the Globe component emits 'globe-ready'.
+     * @returns {void}
+     */
+    handleGlobeLoaded() {
+      this.globeIsLoaded = true;
+    },
     handleZoomToCoordinates(coordinates) {
       MapService.zoomToCoordinates(coordinates);
     },
