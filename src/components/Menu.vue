@@ -7,7 +7,7 @@
 </template>
 
 <script>
-import { UserInterfaceService } from '../services.js'; // Import the new service
+import { UserInterfaceService } from '../services/controller.js';
 
 export default {
   name: 'Menu',

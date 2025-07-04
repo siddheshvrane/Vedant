@@ -1,59 +1,72 @@
 <template>
   <div id="mapWrapper">
-    <ProjectLogo @loading-complete="handleGlobeReady" class="globe-overlay-logo" />
-
-    <div v-show="isGlobeReady" id="globeContainer"></div>
-
-    <Compass :viewer="viewer" :is-visible="isGlobeReady" />
-    
-    <SearchPanel v-if="isGlobeReady" />
+    <!-- The div where Cesium will attach its canvas -->
+    <div id="globeContainer"></div>
   </div>
 </template>
 
 <script>
 import * as Cesium from 'cesium';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
-import { MapService } from '../services.js';
-import Compass from './Compass.vue';
-import SearchPanel from './SearchPanel.vue';
-import ProjectLogo from './ProjectLogo.vue';
+import { MapService } from '../services/controller.js'; // Ensure this path is correct
 
 // Cesium Ion access token is required for using Cesium's default assets (e.g., imagery, terrain).
 Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJjNmUzZWU3Ni1kYzM3LTQyNzYtOTk0MS03YWVkMTZlNTU0MDMiLCJpZCI6MzEwMzcwLCJpYXQiOjE3NDk0NjMxNzl9.K7YHyi1fwwi5ICQKn4C82gUnv60u9nVs783T_UpHxG0';
 
 export default {
   name: 'Globe',
-  components: {
-    Compass,
-    SearchPanel,
-    ProjectLogo,
-  },
-  // Declares the 'globe-ready' event emitted when the Cesium globe is initialized.
-  emits: ['globe-ready'], 
+  // No longer directly imports or uses other Vue components
   props: {
-    // Globe component manages its own Cesium instance.
+    // No props needed from App.vue for its core functionality now
   },
   data() {
     return {
       viewer: null, // Holds the Cesium Viewer instance.
-      isGlobeReady: false, // Controls display of globe and related components.
-      zoomLevel: 0.0, // Current camera height.
-      centerCoordinates: [0.0, 0.0], // Longitude and Latitude of the camera's look-at point.
-      orientation: 0.0, // Camera's current heading.
-      currentLocationMarkerEntity: null, // Stores the active location label entity for easy removal.
+      // Internal state for Globe, not directly exposed to other components' rendering logic.
+      zoomLevel: 0.0,
+      centerCoordinates: [0.0, 0.0],
+      orientation: 0.0,
+      currentLocationMarkerEntity: null,
+      
+      // Subscriptions for cleanup
+      mapViewSubscription: null,
+      compassRedirectSubscription: null,
+      graphicRenderSubscription: null,
+      graphicRemovalSubscription: null,
+      zoomToCoordinatesSubscription: null,
+      displayLocationMarkerSubscription: null,
+      initGlobeSubscription: null, // New subscription to trigger init
     };
   },
   /**
    * @Lifecycle Hook: mounted
    * Subscribes to MapService observables for inter-component communication.
+   * Crucially, it subscribes to `MapService.initGlobe$` to know when to initialize itself.
    */
   mounted() {
+    // Subscribe to MapService for various commands
     this.mapViewSubscription = MapService.updateView$.subscribe(this.updateView);
     this.compassRedirectSubscription = MapService.orientToNorth$.subscribe(this.orientToNorth);
     this.graphicRenderSubscription = MapService.renderGraphic$.subscribe(this.renderGraphic);
     this.graphicRemovalSubscription = MapService.removeGraphic$.subscribe(this.removeGraphic);
     this.zoomToCoordinatesSubscription = MapService.zoomToCoordinates$.subscribe(this.zoomToCoordinates);
     this.displayLocationMarkerSubscription = MapService.displayLocationMarker$.subscribe(this.displayLocationMarker);
+    
+    // NEW: Subscribe to the initGlobe$ observable from MapService
+    // This tells Globe.vue WHEN to create the Cesium viewer.
+    this.initGlobeSubscription = MapService.initGlobe$.subscribe(() => {
+      this.$nextTick(() => { // Ensure DOM element is ready
+        try {
+          this.initGlobe();
+          MapService.notifyGlobeInitialized(true); // Notify that globe is ready
+          MapService.setGlobeViewer(this.viewer); // Pass the viewer instance to the service
+        } catch (error) {
+          console.error('Error initializing Globe:', error);
+          MapService.notifyGlobeInitialized(false); // Notify failure
+          MapService.setGlobeViewer(null); // Indicate no viewer available
+        }
+      });
+    });
   },
   /**
    * @Lifecycle Hook: beforeUnmount
@@ -71,6 +84,7 @@ export default {
     if (this.graphicRemovalSubscription) this.graphicRemovalSubscription.unsubscribe();
     if (this.zoomToCoordinatesSubscription) this.zoomToCoordinatesSubscription.unsubscribe();
     if (this.displayLocationMarkerSubscription) this.displayLocationMarkerSubscription.unsubscribe();
+    if (this.initGlobeSubscription) this.initGlobeSubscription.unsubscribe(); // NEW: Unsubscribe init trigger
 
     // Remove the current location marker if it exists.
     if (this.currentLocationMarkerEntity) {
@@ -79,22 +93,6 @@ export default {
     }
   },
   methods: {
-    /**
-     * @method handleGlobeReady
-     * Called when ProjectLogo's loading animation completes.
-     * Sets `isGlobeReady` to true and initializes the Cesium globe.
-     */
-    handleGlobeReady() {
-      this.isGlobeReady = true;
-      this.$nextTick(() => {
-        try {
-          this.initGlobe();
-          this.$emit('globe-ready');
-        } catch (error) {
-          console.error('Error initializing Globe:', error);
-        }
-      });
-    },
     /**
      * @method initGlobe
      * Initializes the Cesium Viewer with specific options (e.g., UI elements disabled).
@@ -205,6 +203,7 @@ export default {
       };
     },
 
+    // These methods are called via MapService subscriptions, keeping Globe decoupled
     rotateView() {
       console.log('Globe: rotateView method called');
     },
@@ -238,25 +237,25 @@ export default {
 
         if (graphic.geometry.length === 1) {
             this.viewer.entities.add({
-                position: points[0],
-                point: {
-                    pixelSize: 10,
-                    color: Cesium.Color.RED,
-                    outlineColor: Cesium.Color.WHITE,
-                    outlineWidth: 2
-                },
-                id: graphic.identifier
+              position: points[0],
+              point: {
+                  pixelSize: 10,
+                  color: Cesium.Color.RED,
+                  outlineColor: Cesium.Color.WHITE,
+                  outlineWidth: 2
+              },
+              id: graphic.identifier
             });
         } else if (graphic.geometry.length > 1) {
             this.viewer.entities.add({
-                polygon: {
-                    hierarchy: new Cesium.PolygonHierarchy(points),
-                    material: Cesium.Color.BLUE.withAlpha(0.5),
-                    outline: true,
-                    outlineColor: Cesium.Color.BLACK,
-                    outlineWidth: 2,
-                },
-                id: graphic.identifier
+              polygon: {
+                  hierarchy: new Cesium.PolygonHierarchy(points),
+                  material: Cesium.Color.BLUE.withAlpha(0.5),
+                  outline: true,
+                  outlineColor: Cesium.Color.BLACK,
+                  outlineWidth: 2,
+              },
+              id: graphic.identifier
             });
         }
       }
@@ -371,12 +370,7 @@ export default {
   height: 100%;
 }
 
-/* Style for the ProjectLogo overlay */
-.globe-overlay-logo {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-}
+/* ProjectLogo overlay styles removed from here,
+   as ProjectLogo itself or its parent should manage its positioning/visibility.
+   If ProjectLogo is still an overlay, its CSS should be in ProjectLogo.vue or a global style. */
 </style>

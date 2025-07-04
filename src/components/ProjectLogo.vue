@@ -21,6 +21,7 @@
 <script>
 import vedantLogo from '../assets/vedant_Logo_white.png';
 import spaceImage from '../assets/space.jpg';
+import { UserInterfaceService } from '../services/controller.js'; // Import the service
 
 export default {
   name: 'ProjectLogo',
@@ -36,7 +37,10 @@ export default {
     // First timeout: Controls the duration of the overall loading screen
     setTimeout(() => {
       this.localLoading = false; // Hide the loading screen
-      this.$emit('loading-complete'); // Emit event to notify parent (Globe) that loading is visually complete
+
+      // *** IMPORTANT CHANGE HERE ***
+      // Instead of emitting, call the UserInterfaceService method
+      UserInterfaceService.notifyProjectLogoReady(); // Signal to the service that ProjectLogo is done
 
       // Second timeout: Allows a small delay before the logo transitions to its final position
       // This is wrapped in $nextTick to ensure DOM updates for v-show are processed

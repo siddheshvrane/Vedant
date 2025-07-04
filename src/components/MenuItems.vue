@@ -14,18 +14,20 @@
 </template>
 
 <script>
-import { UserInterfaceService } from '../services.js'; // Import UserInterfaceService
+import { UserInterfaceService, MenuItemService } from '../services/controller.js';
 
 export default {
   name: 'MenuItems',
   props: {
-    // Array of menu item objects, ensuring their order is maintained
     items: {
       type: Array,
       required: true,
       default: () => [],
     },
   },
+  // --- ADD THIS 'emits' OPTION ---
+  emits: ['menu-item-clicked'], // Declare the custom event using its kebab-case name
+  // ---------------------------------
   methods: {
     /**
      * @method itemClicked

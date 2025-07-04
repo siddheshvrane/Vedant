@@ -24,7 +24,7 @@
 </template>
 
 <script>
-import { MapService } from '../services.js'; // Import MapService
+import { MapService } from '../services/controller.js'; // Import MapService
 import Suggestion from './Suggestion.vue'; // Import the new Suggestion component
 
 export default {

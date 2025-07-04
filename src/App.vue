@@ -1,12 +1,16 @@
 <template>
-  <div>
-    <Globe @globe-ready="handleGlobeLoaded" />
+  <div id="app-container">
+    <ProjectLogo />
 
-    <SceneInfo v-show="globeIsLoaded" />
+    <Globe />
 
-    <Menu v-show="globeIsLoaded && !isSidebarOpen" />
+    <SceneInfo v-if="globeIsReady" :is-sidebar-open="isSidebarOpen" />
 
-    <Sidebar v-show="globeIsLoaded && isSidebarOpen"
+    <Compass v-if="viewerInstance" />
+    <SearchPanel v-if="viewerInstance" />
+
+    <Menu v-show="globeIsReady && !isSidebarOpen" />
+    <Sidebar v-show="globeIsReady && isSidebarOpen"
       @service-added="showServiceAddedPopup"
       @open-visualization-sidebar="openVisualizationSidebar"
     />
@@ -33,57 +37,87 @@
 
 <script>
 import Globe from './components/Globe.vue';
-// Remove the old MenuSidebar import
-// import MenuSidebar from './components/MenuSidebar.vue'; 
-import VisualizationSidebar from './components/sub-sidebars/VisualizationSidebar.vue';
 import SceneInfo from './components/SceneInfo.vue';
-
-// Import the new Menu and Sidebar components
+import Compass from './components/Compass.vue';
+import SearchPanel from './components/SearchPanel.vue';
+import ProjectLogo from './components/ProjectLogo.vue';
 import Menu from './components/Menu.vue';
 import Sidebar from './components/Sidebar.vue';
+import VisualizationSidebar from './components/sub-sidebars/VisualizationSidebar.vue';
 
 import PopupManager from './components/utils/PopupManager';
-// Ensure UserInterfaceService is imported
-import { MapService, UserInterfaceService } from './services.js'; 
+// IMPORTANT CHANGE: AppInitializer is NOT imported here because it's handled directly in your combined controller.js
+import { MapService, UserInterfaceService } from './services/controller.js';
 
 export default {
   name: 'App',
   components: {
     Globe,
-    // Remove MenuSidebar from components list
-    // MenuSidebar, 
-    VisualizationSidebar,
     SceneInfo,
-    // Add new components
+    Compass,
+    SearchPanel,
+    ProjectLogo,
     Menu,
     Sidebar,
+    VisualizationSidebar,
   },
   data() {
     return {
       popupManager: new PopupManager(),
       showVisualizationSidebar: false,
-      globeIsLoaded: false,
-      isSidebarOpen: false, // New state to track if sidebar is currently open
-      sidebarVisibilitySubscription: null, // For RxJS subscription cleanup
+      globeIsReady: false, // Controls visibility of main UI elements
+      viewerInstance: null, // Holds the Cesium viewer instance from MapService for global availability if needed
+      isSidebarOpen: false, // State to track if sidebar is currently open
+      // Subscriptions for cleanup
+      projectLogoReadySubscription: null,
+      globeInitializedSubscription: null,
+      globeViewerSubscription: null,
+      sidebarVisibilitySubscription: null,
     };
   },
+  created() {
+    // IMPORTANT CHANGE: AppInitializer.initialize() is no longer called here.
+    // It's called directly within your combined controller.js file when the app starts.
+    console.log('App.vue: created. AppInitializer handled in controller.js.');
+  },
   mounted() {
-    // Subscribe to UserInterfaceService to get updates on sidebar visibility
+    console.log('App.vue: mounted');
+
+    // These subscriptions are still needed for App.vue to react to service updates
+    this.projectLogoReadySubscription = UserInterfaceService.projectLogoReady$.subscribe(() => {
+        console.log('App.vue: ProjectLogo ready signal received. (AppInitializer in controller.js acts on this)');
+    });
+
+    this.globeInitializedSubscription = MapService.globeInitialized$.subscribe(isReady => {
+      this.globeIsReady = isReady;
+      if (!isReady) {
+        console.error('App.vue: Globe failed to initialize.');
+      }
+      console.log('App.vue: Globe initialization status updated to:', isReady);
+    });
+
+    this.globeViewerSubscription = MapService.globeViewer$.subscribe(viewer => {
+      this.viewerInstance = viewer;
+      if (viewer) {
+          console.log('App.vue: Cesium Viewer instance received.');
+      } else {
+          console.log('App.vue: Cesium Viewer instance is null (failed init or destroyed).');
+      }
+    });
+
     this.sidebarVisibilitySubscription = UserInterfaceService.isSidebarOpen$.subscribe(isOpen => {
       this.isSidebarOpen = isOpen;
       console.log('App.vue: Sidebar visibility updated to:', this.isSidebarOpen);
     });
   },
   beforeUnmount() {
-    // Unsubscribe to prevent memory leaks
-    if (this.sidebarVisibilitySubscription) {
-      this.sidebarVisibilitySubscription.unsubscribe();
-    }
+    console.log('App.vue: beforeUnmount - Cleaning up subscriptions.');
+    if (this.projectLogoReadySubscription) this.projectLogoReadySubscription.unsubscribe();
+    if (this.globeInitializedSubscription) this.globeInitializedSubscription.unsubscribe();
+    if (this.globeViewerSubscription) this.globeViewerSubscription.unsubscribe();
+    if (this.sidebarVisibilitySubscription) this.sidebarVisibilitySubscription.unsubscribe();
   },
   methods: {
-    handleGlobeLoaded() {
-      this.globeIsLoaded = true;
-    },
     handleZoomToCoordinates(coordinates) {
       MapService.zoomToCoordinates(coordinates);
     },
@@ -95,9 +129,11 @@ export default {
     },
     openVisualizationSidebar() {
       this.showVisualizationSidebar = true;
+      UserInterfaceService.toggleSidebar(true);
     },
     closeVisualizationSidebar() {
       this.showVisualizationSidebar = false;
+      UserInterfaceService.toggleSidebar(false); // Assuming closing viz sidebar means closing main sidebar
     },
     handleVisualizationModeChange(mode) {
       console.log(`App.vue: handleVisualizationModeChange for mode: ${mode}`);
@@ -115,5 +151,66 @@ export default {
 </script>
 
 <style>
-/* Global styles from App.vue if any */
+/* ... (Your existing CSS for App.vue) ... */
+#app-container {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+  font-family: 'Poppins', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-align: center;
+  color: #2c3e50;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+#globeContainer {
+  width: 100%;
+  height: 100%;
+}
+
+.service-added-popup-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+}
+
+.service-added-popup {
+  background-color: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  width: 300px;
+  text-align: left;
+}
+
+.popup-title {
+  color: #333;
+  font-size: 1.2em;
+  margin-bottom: 15px;
+}
+
+.popup-content p {
+  margin-bottom: 8px;
+  font-size: 0.9em;
+  color: #555;
+}
+
+.close-popup-btn {
+  margin-top: 20px;
+  width: 100%;
+}
 </style>
