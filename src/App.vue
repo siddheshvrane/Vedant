@@ -36,16 +36,17 @@
 </template>
 
 <script>
-import Globe from './components/Globe.vue';
-import SceneInfo from './components/SceneInfo.vue';
-import Compass from './components/Compass.vue';
-import SearchPanel from './components/SearchPanel.vue';
-import ProjectLogo from './components/ProjectLogo.vue';
-import Menu from './components/Menu.vue';
-import Sidebar from './components/Sidebar.vue';
-import VisualizationSidebar from './components/sub-sidebars/VisualizationSidebar.vue';
+// UPDATE IMPORT PATHS:
+import Globe from './components/Globe/Globe.vue'; // Changed
+import SceneInfo from './components/SceneInfo/SceneInfo.vue'; // Changed
+import Compass from './components/Compass/Compass.vue'; // Changed
+import SearchPanel from './components/SearchPanel/SearchPanel.vue'; // Changed
+import ProjectLogo from './components/ProjectLogo/ProjectLogo.vue'; // Changed
+import Menu from './components/Menu/Menu.vue'; // Changed
+import Sidebar from './components/Menu/Sidebar.vue'; // Changed
+import VisualizationSidebar from './components/sub-sidebars/VisualizationSidebar.vue'; // Stays the same as sub-sidebars is already a nested folder
 
-import PopupManager from './components/utils/PopupManager';
+import PopupManager from './components/utils/PopupManager'; // Stays the same if utils is a sibling of the new component folders
 // IMPORTANT CHANGE: AppInitializer is NOT imported here because it's handled directly in your combined controller.js
 import { MapService, UserInterfaceService } from './services/controller.js';
 
@@ -65,10 +66,9 @@ export default {
     return {
       popupManager: new PopupManager(),
       showVisualizationSidebar: false,
-      globeIsReady: false, // Controls visibility of main UI elements
-      viewerInstance: null, // Holds the Cesium viewer instance from MapService for global availability if needed
-      isSidebarOpen: false, // State to track if sidebar is currently open
-      // Subscriptions for cleanup
+      globeIsReady: false,
+      viewerInstance: null,
+      isSidebarOpen: false,
       projectLogoReadySubscription: null,
       globeInitializedSubscription: null,
       globeViewerSubscription: null,
@@ -76,14 +76,11 @@ export default {
     };
   },
   created() {
-    // IMPORTANT CHANGE: AppInitializer.initialize() is no longer called here.
-    // It's called directly within your combined controller.js file when the app starts.
     console.log('App.vue: created. AppInitializer handled in controller.js.');
   },
   mounted() {
     console.log('App.vue: mounted');
 
-    // These subscriptions are still needed for App.vue to react to service updates
     this.projectLogoReadySubscription = UserInterfaceService.projectLogoReady$.subscribe(() => {
         console.log('App.vue: ProjectLogo ready signal received. (AppInitializer in controller.js acts on this)');
     });
@@ -133,7 +130,7 @@ export default {
     },
     closeVisualizationSidebar() {
       this.showVisualizationSidebar = false;
-      UserInterfaceService.toggleSidebar(false); // Assuming closing viz sidebar means closing main sidebar
+      UserInterfaceService.toggleSidebar(false);
     },
     handleVisualizationModeChange(mode) {
       console.log(`App.vue: handleVisualizationModeChange for mode: ${mode}`);

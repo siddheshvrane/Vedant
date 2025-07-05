@@ -14,7 +14,7 @@
 </template>
 
 <script>
-import { UserInterfaceService, MenuItemService } from '../services/controller.js';
+import { UserInterfaceService, MenuItemService } from '../../services/controller.js';
 
 export default {
   name: 'MenuItems',

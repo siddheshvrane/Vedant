@@ -19,9 +19,9 @@
 </template>
 
 <script>
-import vedantLogo from '../assets/vedant_Logo_white.png';
-import spaceImage from '../assets/space.jpg';
-import { UserInterfaceService } from '../services/controller.js'; // Import the service
+import vedantLogo from '../../assets/vedant_Logo_white.png';
+import spaceImage from '../../assets/space.jpg';
+import { UserInterfaceService } from '../../services/controller.js'; // Import the service
 
 export default {
   name: 'ProjectLogo',

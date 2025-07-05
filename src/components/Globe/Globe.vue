@@ -10,24 +10,23 @@ import * as Cesium from 'cesium';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 
 // Cesium Ion access token is required for using Cesium's default assets (e.g., imagery, terrain)..
-Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJjNmUzZWU3Ni1kYzM3LTQyNzYtOTk0MS03YWVkMTZlNTU0MDMiLCJpZCI6MzEwMzcwLCJpYXQiOjE3NDk0NjMxNzl9.K7YHyi1fwwi5ICQKn4C82gUnv60u9nVs783T_UpHxG0';
+Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJjNmUzZWU3Ni1kYzM3LTQyNzYtOTk0MS03YWVkMTZlNTU0MDMiLCJpZCI6MzEwMzcwLCJpYXQiOjE3NDk0NjMxNzl9.K7YHyi1fwwi5ICQKn4C82gUnv60u9nVs783T_UpHxG0'; // <<< IMPORTANT: Update this!
 
-import { MapService } from '../services/controller.js';
-import CesiumGlobeManager from '../lib/CesiumGlobeManager.js'; // Ensure this path is correct
+import { MapService } from '../../services/controller.js'; // Path changed: Go up two levels from components/Globe/ to src/, then down to services/
+import CesiumGlobeManager from './CesiumGlobeManager.js'; // Path changed: Now in the same folder as Globe.vue
 
 export default {
   name: 'Globe',
   data() {
     return {
-      globeManager: null, // Instance of our CesiumGlobeManager
+      globeManager: null,
 
-      // Subscriptions for cleanup
       compassRedirectSubscription: null,
       graphicRenderSubscription: null,
       graphicRemovalSubscription: null,
       zoomToCoordinatesSubscription: null,
       displayLocationMarkerSubscription: null,
-      initGlobeSubscription: null, // Subscription to trigger init
+      initGlobeSubscription: null,
     };
   },
   /**

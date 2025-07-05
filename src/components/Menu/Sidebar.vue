@@ -19,12 +19,14 @@
 </template>
 
 <script>
-import AddDataSidebar from './sub-sidebars/AddDataSidebar.vue';
-import LayerManagerSidebar from './sub-sidebars/LayerManagerSidebar.vue';
-import VisualizationSidebar from './sub-sidebars/VisualizationSidebar.vue';
-import PluginManagerSidebar from './sub-sidebars/PluginManagerSidebar.vue';
-import MenuItems from './MenuItems.vue';
-import { UserInterfaceService, MenuItemService } from '../services/controller.js';
+// Corrected import paths for sub-sidebars:
+import AddDataSidebar from '../sub-sidebars/AddDataSidebar.vue'; // Corrected path
+import LayerManagerSidebar from '../sub-sidebars/LayerManagerSidebar.vue'; // Corrected path
+import VisualizationSidebar from '../sub-sidebars/VisualizationSidebar.vue'; // Corrected path
+import PluginManagerSidebar from '../sub-sidebars/PluginManagerSidebar.vue'; // Corrected path
+
+import MenuItems from './MenuItems.vue'; // This path remains the same as MenuItems.vue is a sibling in the Menu folder
+import { UserInterfaceService, MenuItemService } from '../../services/controller.js'; // This path is correct, as it needs to go up two levels to src/ then into services/
 
 export default {
   name: 'Sidebar',
@@ -107,16 +109,16 @@ export default {
   left: 0;
   height: 100%;
   padding-top: 70px;
-  z-index: 1050; /* <--- CHANGE THIS: Make it higher than SceneInfo's 1001 */
+  z-index: 1050;
   display: flex;
   flex-direction: column;
-  background: rgba(30, 30, 30, 0.7); /* Changed from 0.6 to 0.7 for consistency, removed !important */
-  opacity: 1; /* Explicitly set to 1 for clarity, removed !important */
+  background: rgba(30, 30, 30, 0.7);
+  opacity: 1;
   transition: width 0.3s ease, transform 0.3s ease;
   backdrop-filter: blur(5px);
   -webkit-backdrop-filter: blur(5px);
   box-shadow: 2px 0 10px rgba(0, 0, 0, 0.5);
-  text-align: left; /* <--- ADDED: To ensure all text within sidebar aligns left */
+  text-align: left;
 }
 
 .main-menu-panel {
@@ -150,10 +152,9 @@ export default {
   padding-top: 70px;
   display: flex;
   flex-direction: column;
-  /* UNDID: align-items: flex-start; was here and removed */
   background: rgba(30, 30, 30, 0);
   box-shadow: none;
-  backdrop-filter: blur(5px); /* ADDED: For consistent blur effect on sub-sidebars */
-  -webkit-backdrop-filter: blur(5px); /* ADDED: Safari support */
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
 }
 </style>

@@ -7,7 +7,7 @@
 </template>
 
 <script>
-import { UserInterfaceService } from '../services/controller.js';
+import { UserInterfaceService } from '../../services/controller.js';
 
 export default {
   name: 'Menu',

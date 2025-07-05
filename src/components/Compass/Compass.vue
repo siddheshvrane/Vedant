@@ -6,17 +6,12 @@
 
 <script>
 import * as Cesium from 'cesium';
-import { MapService } from '../services/controller.js'; // Imports the singleton MapService for communication.
-import compassImage from '../assets/compass.png'; // Path to the compass image asset.
+import { MapService } from '../../services/controller.js'; // Imports the singleton MapService for communication.
+import compassImage from '../../assets/compass.png'; // Corrected path to the compass image asset.
 
 export default {
   name: 'Compass',
   props: {
-    // The viewer prop is no longer 'required' and can be removed if App.vue
-    // doesn't conditionally render based on a prop.
-    // However, keeping it as optional (required: false, default: null)
-    // allows App.vue's v-if="viewerInstance" to still control its existence,
-    // while the component internally gets the viewer via subscription.
     viewer: { // Keeping for App.vue's v-if, but not relying on it directly.
       type: Object,
       required: false, // <--- CHANGED: No longer required

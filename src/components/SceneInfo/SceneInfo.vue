@@ -26,7 +26,7 @@
 
 <script>
 // Corrected import path for MapService and UserInterfaceService from controller.js
-import { MapService, UserInterfaceService } from '../services/controller.js';
+import { MapService, UserInterfaceService } from '../../services/controller.js';
 
 export default {
   name: 'SceneInfo',
