@@ -1,22 +1,10 @@
-// src/lib/CesiumGlobeManager.js
 import * as Cesium from 'cesium';
 
-/**
- * Manages all direct interactions with the Cesium Viewer instance.
- * This class encapsulates the Cesium API logic, keeping the Vue component cleaner.
- */
 class CesiumGlobeManager {
-    /**
-     * @param {string} containerId - The ID of the DOM element to attach the Cesium Viewer to.
-     * @param {object} [options] - Optional Cesium Viewer options.
-     */
     constructor(containerId, options = {}) {
         this.viewer = null;
         this.containerId = containerId;
 
-        // Define defaultViewerOptions.
-        // IMPORTANT CHANGE: imageryProvider and terrain are NO LONGER defined here.
-        // They will be set up directly in the init() method to mimic the old Globe.vue's behavior.
         this.defaultViewerOptions = {
             animation: false,
             baseLayerPicker: false,
@@ -28,34 +16,21 @@ class CesiumGlobeManager {
             timeline: false,
             navigationHelpButton: false,
             navigationInstructionsInitiallyVisible: false,
-            creditContainer: document.createElement('div'), // Hides the Cesium credit badge
+            creditContainer: document.createElement('div'),
             fullscreenButton: false,
             sceneMode: Cesium.SceneMode.SCENE3D,
             terrainExaggeration: 1.0,
-            // imageryProvider and terrain are commented out/removed from here
-            // as they will be explicitly added/set in the init method.
         };
-        this.currentLocationMarkerEntity = null; // Manage marker internally
+        this.currentLocationMarkerEntity = null;
 
-        // Merge default options with any provided options
         this.viewerOptions = { ...this.defaultViewerOptions, ...options };
     }
 
-    /**
-     * Initializes the Cesium Viewer.
-     * This method now explicitly sets the terrain and imagery layers,
-     * mirroring the successful setup in the old Globe.vue.
-     * @returns {Cesium.Viewer} The initialized Cesium Viewer instance.
-     */
     init() {
         if (this.viewer) {
-            // console.warn('CesiumGlobeManager: Viewer already initialized.');
             return this.viewer;
         }
 
-        // --- CRITICAL CHANGE: Initialize Viewer with a default or no imageryProvider,
-        //                     and then explicitly add the terrain and imagery layers.
-        // This setup mirrors the working 'old Globe.vue'.
         this.viewer = new Cesium.Viewer(this.containerId, {
             animation: this.viewerOptions.animation,
             baseLayerPicker: this.viewerOptions.baseLayerPicker,
@@ -70,47 +45,34 @@ class CesiumGlobeManager {
             creditContainer: this.viewerOptions.creditContainer,
             fullscreenButton: this.viewerOptions.fullscreenButton,
             
-            // Explicitly set imageryProvider to false in the viewer constructor
-            // so we can add our custom WMS as the *first* layer.
             imageryProvider: false, 
             
             sceneMode: this.viewerOptions.sceneMode,
             terrainExaggeration: this.viewerOptions.terrainExaggeration,
             
-            // Explicitly set the terrain provider here, as it was done in the old Globe.vue
             terrain: new Cesium.Terrain(Cesium.CesiumTerrainProvider.fromUrl('https://vedas.sac.gov.in/elevation/cdem_10m_2016/'))
         });
-        // console.log('CesiumGlobeManager: Viewer created successfully with custom terrain.');
 
-
-        // Add your custom WMS imagery layer *after* the viewer has been created.
         this._addImageryLayer();
         this.viewer.scene.globe.depthTestAgainstTerrain = false;
 
-        // Set default camera position to India.
         this.viewer.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(78.9629, 20.5937, 20000000), // Long, Lat, Height
+            destination: Cesium.Cartesian3.fromDegrees(78.9629, 20.5937, 20000000),
             orientation: {
-                heading: Cesium.Math.toRadians(0.0),    // Look North
-                pitch: Cesium.Math.toRadians(-90.0),    // Look straight down
-                roll: Cesium.Math.toRadians(0.0)        // No roll
+                heading: Cesium.Math.toRadians(0.0),
+                pitch: Cesium.Math.toRadians(-90.0),
+                roll: Cesium.Math.toRadians(0.0)
             },
-            duration: 0 // Immediate positioning
+            duration: 0
         });
 
         return this.viewer;
     }
 
-    /**
-     * Adds a Web Map Service (WMS) imagery provider to the globe.
-     * @private
-     */
     _addImageryLayer() {
         if (!this.viewer) {
-            // console.error('CesiumGlobeManager: Viewer not initialized, cannot add imagery layer.');
             return;
         }
-        // console.log('CesiumGlobeManager: Attempting to add Bhuvan WMS imagery layer.');
         this.viewer.imageryLayers.addImageryProvider(new Cesium.WebMapServiceImageryProvider({
             url: 'https://bhuvan-ras1.nrsc.gov.in/tilecache/tilecache.py',
             layers: 'bhuvan_img',
@@ -128,40 +90,27 @@ class CesiumGlobeManager {
         }));
     }
 
-    /**
-     * Attaches a camera change listener to the viewer.
-     * @param {Function} callback - The callback function to execute on camera change.
-     */
     addCameraChangeListener(callback) {
         if (this.viewer) {
             this.viewer.camera.changed.addEventListener(callback);
         }
     }
 
-    /**
-     * Removes the camera change listener from the viewer.
-     * @param {Function} callback - The callback function to remove.
-     */
     removeCameraChangeListener(callback) {
         if (this.viewer) {
             this.viewer.camera.changed.removeEventListener(callback);
         }
     }
 
-    /**
-     * Gathers and returns an object with current camera/scene details.
-     * @returns {Object} An object containing current view information.
-     */
     getSceneInformation() {
         if (!this.viewer) return {};
         const cameraPosition = this.viewer.camera.positionCartographic;
         if (!cameraPosition) {
-             // console.warn('CesiumGlobeManager: Camera position is not yet defined.');
              return {
-                 currentCoordinates: { latitude: 0, longitude: 0, elevation: 0 },
-                 terrainType: 'N/A',
-                 satelliteImageryType: 'N/A',
-                 angle: 0
+                currentCoordinates: { latitude: 0, longitude: 0, elevation: 0 },
+                terrainType: 'N/A',
+                satelliteImageryType: 'N/A',
+                angle: 0
              };
         }
 
@@ -210,10 +159,6 @@ class CesiumGlobeManager {
         }
     }
 
-    /**
-     * Renders a point or polygon graphic on the globe based on provided geometry.
-     * @param {Object} graphic - Contains `identifier` and `geometry` (array of coordinates).
-     */
     renderGraphic(graphic) {
         if (!this.viewer || !graphic || !graphic.geometry || graphic.geometry.length === 0) return;
 
@@ -246,10 +191,6 @@ class CesiumGlobeManager {
         }
     }
 
-    /**
-     * Removes a graphic from the globe using its unique identifier.
-     * @param {string} graphicIdentifier - ID of the graphic to remove.
-     */
     removeGraphic(graphicIdentifier) {
         if (this.viewer) {
             const entity = this.viewer.entities.getById(graphicIdentifier);
@@ -259,11 +200,6 @@ class CesiumGlobeManager {
         }
     }
 
-    /**
-     * Flies the camera to a specified longitude, latitude, and elevation.
-     * Uses a default elevation if the provided one is too low.
-     * @param {Object} coordinates - Contains `longitude`, `latitude`, and optional `elevation`.
-     */
     zoomToCoordinates(coordinates) {
         if (this.viewer && coordinates) {
             const targetElevation = coordinates.elevation && coordinates.elevation > 1000 ? coordinates.elevation : 25000;
@@ -274,15 +210,9 @@ class CesiumGlobeManager {
         }
     }
 
-    /**
-     * Displays a named label marker at a given location.
-     * Removes any existing `currentLocationMarkerEntity` before adding a new one.
-     * @param {Object} location - Object with `name` and `getCoordinates()` method.
-     */
     displayLocationMarker(location) {
         if (!this.viewer || !location || !location.getCoordinates) return;
 
-        // Remove existing marker before adding a new one.
         if (this.currentLocationMarkerEntity) {
             this.viewer.entities.remove(this.currentLocationMarkerEntity);
             this.currentLocationMarkerEntity = null;
@@ -304,14 +234,10 @@ class CesiumGlobeManager {
                 },
                 id: `location-label-${location.identifier}`
             });
-            // Store reference to the new marker.
             this.currentLocationMarkerEntity = newMarkerEntity;
         }
     }
 
-    /**
-     * Orients the camera's heading to North (0 degrees) while preserving current pitch and roll.
-     */
     orientToNorth() {
         if (this.viewer) {
             const currentCameraPosition = this.viewer.camera.positionCartographic;
@@ -325,9 +251,9 @@ class CesiumGlobeManager {
             this.viewer.camera.flyTo({
                 destination: Cesium.Cartesian3.fromDegrees(longitude, latitude, height),
                 orientation: {
-                    heading: Cesium.Math.toRadians(0.0), // Set heading to North
-                    pitch: currentPitch, // Preserve current pitch
-                    roll: currentRoll // Preserve current roll
+                    heading: Cesium.Math.toRadians(0.0),
+                    pitch: currentPitch,
+                    roll: currentRoll
                 },
                 duration: 1.5
             });
@@ -335,8 +261,32 @@ class CesiumGlobeManager {
     }
 
     /**
-     * Destroys the Cesium Viewer instance and cleans up resources.
+     * Sets the Cesium viewer's scene mode based on the provided visualization mode.
+     * @param {string} mode - The desired visualization mode ('2D' or '3D').
      */
+    setGlobeVisualizationMode(mode) {
+        if (!this.viewer) {
+            console.warn('CesiumGlobeManager: Viewer not initialized, cannot set visualization mode.');
+            return;
+        }
+
+        switch (mode) {
+            case '2D':
+                // For 2D mode, activate Columbus View
+                this.viewer.scene.mode = Cesium.SceneMode.COLUMBUS_VIEW;
+                this.viewer.scene.screenSpaceCameraController.enableTilt = false; // Disable tilting in Columbus View
+                break;
+            case '3D':
+                // For 2.5D (3D Globe), activate 3D mode
+                this.viewer.scene.mode = Cesium.SceneMode.SCENE3D;
+                this.viewer.scene.screenSpaceCameraController.enableTilt = true; // Enable tilting back for 3D
+                break;
+            default:
+                console.warn(`CesiumGlobeManager: Unknown visualization mode: ${mode}.`);
+                break;
+        }
+    }
+
     destroy() {
         if (this.viewer) {
             this.viewer.destroy();

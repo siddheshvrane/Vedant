@@ -47,6 +47,9 @@ class MapServiceClass {
     globeInitialized$ = new Subject(); // Globe.vue emits true/false after init attempt
     globeViewer$ = new BehaviorSubject(null); // Globe.vue emits the Cesium viewer instance, using BehaviorSubject for current value
 
+    // NEW: Subject for visualization mode changes
+    visualizationModeChanged$ = new Subject();
+
     updateView(updateData) {
         this.updateView$.next(updateData);
     }
@@ -85,6 +88,11 @@ class MapServiceClass {
     }
     getGlobeViewer() {
         return this.globeViewer$.getValue();
+    }
+
+    // NEW: Method to set the visualization mode
+    setVisualizationMode(mode) {
+        this.visualizationModeChanged$.next(mode);
     }
 }
 // Export an instance of MapServiceClass as MapService

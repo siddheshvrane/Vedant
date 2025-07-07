@@ -11,7 +11,7 @@
         :is="activeSubMenuComponent"
         v-if="activeSubMenu"
         @close-sub-menu="handleCloseSubMenu"
-        @update-visualization-mode="$emit('open-visualization-sidebar', $event)"
+        @update-visualization-mode="handleVisualizationModeChange"
         class="sub-sidebar-transition-target"
       />
     </div>
@@ -26,7 +26,8 @@ import PluginManagerSidebar from './SubSidebars/Plugins/PluginManagerSidebar.vue
 import BasicToolsSidebar from './SubSidebars/BasicTools/BasicToolsSidebar.vue';
 
 import MenuItems from './MenuItems.vue';
-import { UserInterfaceService, MenuItemService } from '../../services/controller.js';
+// UPDATE THIS LINE: Add MapService to the import
+import { UserInterfaceService, MenuItemService, MapService } from '../../services/controller.js';
 
 export default {
   name: 'Sidebar',
@@ -101,6 +102,10 @@ export default {
     handleMenuItemClick(item) {
       UserInterfaceService.handleMenuItemClick(item);
     },
+    // New method to handle visualization mode changes from VisualizationSidebar
+    handleVisualizationModeChange(mode) {
+      MapService.setVisualizationMode(mode); // Notify MapService of the mode change
+    }
   },
 };
 </script>
