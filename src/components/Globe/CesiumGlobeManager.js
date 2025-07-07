@@ -49,7 +49,7 @@ class CesiumGlobeManager {
      */
     init() {
         if (this.viewer) {
-            console.warn('CesiumGlobeManager: Viewer already initialized.');
+            // console.warn('CesiumGlobeManager: Viewer already initialized.');
             return this.viewer;
         }
 
@@ -80,7 +80,7 @@ class CesiumGlobeManager {
             // Explicitly set the terrain provider here, as it was done in the old Globe.vue
             terrain: new Cesium.Terrain(Cesium.CesiumTerrainProvider.fromUrl('https://vedas.sac.gov.in/elevation/cdem_10m_2016/'))
         });
-        console.log('CesiumGlobeManager: Viewer created successfully with custom terrain.');
+        // console.log('CesiumGlobeManager: Viewer created successfully with custom terrain.');
 
 
         // Add your custom WMS imagery layer *after* the viewer has been created.
@@ -107,10 +107,10 @@ class CesiumGlobeManager {
      */
     _addImageryLayer() {
         if (!this.viewer) {
-            console.error('CesiumGlobeManager: Viewer not initialized, cannot add imagery layer.');
+            // console.error('CesiumGlobeManager: Viewer not initialized, cannot add imagery layer.');
             return;
         }
-        console.log('CesiumGlobeManager: Attempting to add Bhuvan WMS imagery layer.');
+        // console.log('CesiumGlobeManager: Attempting to add Bhuvan WMS imagery layer.');
         this.viewer.imageryLayers.addImageryProvider(new Cesium.WebMapServiceImageryProvider({
             url: 'https://bhuvan-ras1.nrsc.gov.in/tilecache/tilecache.py',
             layers: 'bhuvan_img',
@@ -156,7 +156,7 @@ class CesiumGlobeManager {
         if (!this.viewer) return {};
         const cameraPosition = this.viewer.camera.positionCartographic;
         if (!cameraPosition) {
-             console.warn('CesiumGlobeManager: Camera position is not yet defined.');
+             // console.warn('CesiumGlobeManager: Camera position is not yet defined.');
              return {
                  currentCoordinates: { latitude: 0, longitude: 0, elevation: 0 },
                  terrainType: 'N/A',

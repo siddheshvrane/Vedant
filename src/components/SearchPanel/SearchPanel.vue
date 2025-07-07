@@ -63,7 +63,6 @@ export default {
       }
       const geojsonData = await response.json();
       this.allLocations = geojsonData.features;
-      console.log('Loaded Indian cities:', this.allLocations);
       this.filterLocations(this.searchTerm);
     } catch (error) {
       console.error('Error loading GeoJSON data:', error);
@@ -103,14 +102,10 @@ export default {
 
         // Basic validation for latitude and longitude ranges
         if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-          console.warn('Invalid coordinates entered:', trimmedSearchTerm);
-          // Optionally, add a visual feedback to the user here
           this.isDropdownVisible = false; // Hide dropdown
           return;
         }
 
-        console.log('Coordinates entered:', lat, lon);
-        // Publish event via MapService to zoom to these coordinates
         MapService.zoomToCoordinates({ latitude: lat, longitude: lon, elevation: elevation });
         MapService.displayLocationMarker({
             name: `${lat}, ${lon}`,
@@ -120,9 +115,6 @@ export default {
         this.isDropdownVisible = false; // Hide dropdown after action
         this.searchTerm = ''; // Clear search term after successful coordinate search
       } else {
-        // If it's a text search without selecting from suggestions,
-        // we keep the text to allow further refinement or re-search.
-        // The placeholder will only reappear if the user manually clears the input.
         this.filterLocations(trimmedSearchTerm);
         this.isDropdownVisible = this.filteredResults.length > 0;
       }
@@ -136,7 +128,6 @@ export default {
      * @returns {void}
      */
     handleSelectLocation(locationFeature) {
-      console.log('Selected location:', locationFeature.properties.name);
       this.isDropdownVisible = false;
 
       // Check if the feature has valid point coordinates

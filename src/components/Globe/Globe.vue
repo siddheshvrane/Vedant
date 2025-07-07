@@ -34,7 +34,7 @@ export default {
    * Subscribes to MapService observables and initializes CesiumGlobeManager.
    */
   mounted() {
-    console.log('Globe.vue: mounted, creating CesiumGlobeManager instance.');
+    // console.log('Globe.vue: mounted, creating CesiumGlobeManager instance.');
     this.globeManager = new CesiumGlobeManager('globeContainer');
 
     // Subscribe to MapService for various commands
@@ -46,11 +46,11 @@ export default {
 
     // Subscribe to the initGlobe$ observable from MapService
     this.initGlobeSubscription = MapService.initGlobe$.subscribe(() => {
-      console.log('Globe.vue: Received initGlobe command, attempting to initialize globeManager.');
+      // console.log('Globe.vue: Received initGlobe command, attempting to initialize globeManager.');
       this.$nextTick(() => { // Ensure DOM element is ready
         try {
           const viewer = this.globeManager.init(); // Initialize Cesium Viewer via manager
-          console.log('Globe.vue: globeManager.init() returned viewer:', viewer);
+          // console.log('Globe.vue: globeManager.init() returned viewer:', viewer);
 
           this.globeManager.addCameraChangeListener(this.onCameraChanged); // Add camera listener
           this.onCameraChanged(); // Trigger initial view update to MapService
@@ -58,7 +58,7 @@ export default {
           MapService.notifyGlobeInitialized(true); // Notify that globe is ready
           MapService.setGlobeViewer(viewer); // Pass the viewer instance to the service
         } catch (error) {
-          console.error('Error initializing Globe:', error);
+          // console.error('Error initializing Globe:', error);
           MapService.notifyGlobeInitialized(false); // Notify failure
           MapService.setGlobeViewer(null); // Indicate no viewer available
         }
@@ -95,31 +95,31 @@ export default {
 
     // All these methods now simply delegate to the globeManager
     zoomIn() {
-      console.log('Globe: zoomIn method called');
+      // console.log('Globe: zoomIn method called');
       if (this.globeManager) this.globeManager.zoomIn();
     },
     zoomOut() {
-      console.log('Globe: zoomOut method called');
+      // console.log('Globe: zoomOut method called');
       if (this.globeManager) this.globeManager.zoomOut();
     },
     renderGraphic(graphic) {
-      console.log('Globe: renderGraphic method called with graphic:', graphic);
+      // console.log('Globe: renderGraphic method called with graphic:', graphic);
       if (this.globeManager) this.globeManager.renderGraphic(graphic);
     },
     removeGraphic(graphicIdentifier) {
-      console.log('Globe: removeGraphic method called for identifier:', graphicIdentifier);
+      // console.log('Globe: removeGraphic method called for identifier:', graphicIdentifier);
       if (this.globeManager) this.globeManager.removeGraphic(graphicIdentifier);
     },
     zoomToCoordinates(coordinates) {
-      console.log('Globe: zoomToCoordinates method called with coordinates:', coordinates);
+      // console.log('Globe: zoomToCoordinates method called with coordinates:', coordinates);
       if (this.globeManager) this.globeManager.zoomToCoordinates(coordinates);
     },
     displayLocationMarker(location) {
-      console.log('Globe: displayLocationMarker method called for location:', location);
+      // console.log('Globe: displayLocationMarker method called for location:', location);
       if (this.globeManager) this.globeManager.displayLocationMarker(location);
     },
     orientToNorth() {
-      console.log('Globe: orientToNorth method called');
+      // console.log('Globe: orientToNorth method called');
       if (this.globeManager) this.globeManager.orientToNorth();
     }
   }

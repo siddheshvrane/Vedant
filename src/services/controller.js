@@ -22,7 +22,7 @@ Cesium.Ion.defaultAccessToken = 'YOUR_CESIUM_ION_ACCESS_TOKEN'; // <<< IMPORTANT
 window.Cesium = Cesium;
 
 // 2. RxJS Subject Import (needed by the services)
-import { Subject } from 'rxjs';
+import { Subject, BehaviorSubject } from 'rxjs'; // Added BehaviorSubject for isSidebarOpen$
 
 // NEW: Import Data Models
 import MenuItem from '../datamodels/MenuItem.js'; // Import the MenuItem data model
@@ -45,7 +45,7 @@ class MapServiceClass {
     // Subjects for Globe initialization status and viewer instance
     initGlobe$ = new Subject(); // Emits to tell Globe.vue to initialize Cesium
     globeInitialized$ = new Subject(); // Globe.vue emits true/false after init attempt
-    globeViewer$ = new Subject(); // Globe.vue emits the Cesium viewer instance
+    globeViewer$ = new BehaviorSubject(null); // Globe.vue emits the Cesium viewer instance, using BehaviorSubject for current value
 
     updateView(updateData) {
         this.updateView$.next(updateData);
@@ -73,15 +73,18 @@ class MapServiceClass {
     // Methods to trigger and receive globe status
     triggerGlobeInitialization() {
         this.initGlobe$.next();
-        console.log('MapService: Triggering Globe initialization.');
+        // console.log('MapService: Triggering Globe initialization.');
     }
     notifyGlobeInitialized(isReady) {
         this.globeInitialized$.next(isReady);
-        console.log('MapService: Globe initialized status:', isReady);
+        // console.log('MapService: Globe initialized status:', isReady);
     }
     setGlobeViewer(viewerInstance) {
         this.globeViewer$.next(viewerInstance);
-        console.log('MapService: Cesium Viewer instance set.');
+        // console.log('MapService: Cesium Viewer instance set.');
+    }
+    getGlobeViewer() {
+        return this.globeViewer$.getValue();
     }
 }
 // Export an instance of MapServiceClass as MapService
@@ -94,44 +97,50 @@ export const MapService = new MapServiceClass();
 class UserInterfaceServiceClass {
     openSidebarPanel$ = new Subject();
     closeSidebar$ = new Subject();
-    activateFeature$ = new Subject();
-    handleCloseSubMenu$ = new Subject();
-
-    isSidebarOpen$ = new Subject();
+    activateFeature$ = new Subject(); // Signals Sidebar.vue to activate a feature or sub-menu
+    
+    // Changed to BehaviorSubject for current state
+    isSidebarOpen$ = new BehaviorSubject(false); 
     projectLogoReady$ = new Subject(); // ProjectLogo.vue emits this when its animation is done
 
     openInitialMenu() {
         this.openSidebarPanel$.next();
         this.isSidebarOpen$.next(true);
-        console.log('UserInterfaceService: Opening initial menu.');
+        // console.log('UserInterfaceService: Opening initial menu.');
     }
 
     closeAll() {
         this.closeSidebar$.next();
         this.isSidebarOpen$.next(false);
-        console.log('UserInterfaceService: Closing all panels and returning to globe.');
+        // console.log('UserInterfaceService: Closing all panels and returning to globe.');
     }
 
     handleMenuItemClick(item) {
         // Here, 'item' is now expected to be an instance of the MenuItem data model
-        console.log('UserInterfaceService: Menu item clicked:', item);
+        // console.log('UserInterfaceService: Menu item clicked:', item);
         this.activateFeature$.next(item);
     }
 
+    /**
+     * Corrected method: Signals Sidebar.vue to return to the main menu view.
+     * It does NOT re-open the entire sidebar or close it fully.
+     */
     handleCloseSubMenu() {
-        this.openInitialMenu();
-        console.log('UserInterfaceService: Sub-menu closed, returning to main menu.');
+        this.activateFeature$.next(null); // Signal Sidebar.vue to reset active sub-menu to null
+        // console.log('UserInterfaceService: Sub-menu closed, returning to main menu view.');
     }
 
     // Method for ProjectLogo to signal readiness
     notifyProjectLogoReady() {
         this.projectLogoReady$.next();
-        console.log('UserInterfaceService: ProjectLogo ready signal emitted.');
+        // console.log('UserInterfaceService: ProjectLogo ready signal emitted.');
     }
 
+    // This method now primarily updates the global state, the actual open/close logic
+    // is in openInitialMenu/closeAll, which use this subject.
     toggleSidebar(isOpen) {
         this.isSidebarOpen$.next(isOpen);
-        console.log('UserInterfaceService: Toggled sidebar to:', isOpen);
+        // console.log('UserInterfaceService: Toggled sidebar to:', isOpen);
     }
 }
 // Export an instance of UserInterfaceServiceClass as UserInterfaceService
@@ -154,7 +163,7 @@ class MenuItemServiceClass {
             new MenuItem('plugins', 'Plugins', 'fas fa-plug', 'PluginManagerSidebar', '350px'),
         ];
         this.menuItemsLoaded$.next(items);
-        console.log('MenuItemService: Menu items retrieved and loaded.');
+        // console.log('MenuItemService: Menu items retrieved and loaded.');
     }
 }
 // Export an instance of MenuItemServiceClass as MenuItemService
@@ -175,26 +184,26 @@ class AppInitializerClass {
     initialize() {
         // Step 1: Listen for ProjectLogo to signal its completion.
         this.projectLogoReadySubscription = UserInterfaceService.projectLogoReady$.subscribe(() => {
-            console.log('AppInitializer: ProjectLogo ready, triggering Globe initialization.');
+            // console.log('AppInitializer: ProjectLogo ready, triggering Globe initialization.');
             MapService.triggerGlobeInitialization();
         });
 
         // Step 2: Listen for Globe initialization status.
         this.globeInitializedSubscription = MapService.globeInitialized$.subscribe(isReady => {
             if (isReady) {
-                console.log('AppInitializer: Globe is ready. The menu icon should now be visible and waiting for a click.');
+                // console.log('AppInitializer: Globe is ready. The menu icon should now be visible and waiting for a click.');
                 // The sidebar will now remain hidden by default until user interaction.
             } else {
-                console.error('AppInitializer: Globe failed to initialize.');
+                // console.error('AppInitializer: Globe failed to initialize.');
             }
         });
 
         // Step 3: Listen for the Cesium viewer instance from Globe.vue
         this.globeViewerSubscription = MapService.globeViewer$.subscribe(viewer => {
             if (viewer) {
-                console.log('AppInitializer: Cesium Viewer instance received.');
+                // console.log('AppInitializer: Cesium Viewer instance received.');
             } else {
-                console.log('AppInitializer: Cesium Viewer instance is null (failed init or destroyed).');
+                // console.log('AppInitializer: Cesium Viewer instance is null (failed init or destroyed).');
             }
         });
     }

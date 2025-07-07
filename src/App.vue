@@ -9,11 +9,7 @@
     <Compass v-if="viewerInstance" />
     <SearchPanel v-if="viewerInstance" />
 
-    <Menu v-show="globeIsReady && !isSidebarOpen" />
-    <Sidebar v-show="globeIsReady && isSidebarOpen"
-      @service-added="showServiceAddedPopup"
-      @open-visualization-sidebar="openVisualizationSidebar"
-    />
+    <Menu v-show="globeIsReady" /> 
 
     <div v-if="showPopup" class="service-added-popup-overlay">
       <div class="service-added-popup">
@@ -26,28 +22,19 @@
         <button @click="hideServiceAddedPopup" class="btn btn-primary close-popup-btn">OK</button>
       </div>
     </div>
-
-    <VisualizationSidebar
-      v-if="showVisualizationSidebar"
-      @close-sub-menu="closeVisualizationSidebar"
-      @update-visualization-mode="handleVisualizationModeChange"
-    />
   </div>
 </template>
 
 <script>
 // UPDATE IMPORT PATHS:
-import Globe from './components/Globe/Globe.vue'; // Changed
-import SceneInfo from './components/SceneInfo/SceneInfo.vue'; // Changed
-import Compass from './components/Compass/Compass.vue'; // Changed
-import SearchPanel from './components/SearchPanel/SearchPanel.vue'; // Changed
-import ProjectLogo from './components/ProjectLogo/ProjectLogo.vue'; // Changed
-import Menu from './components/Menu/Menu.vue'; // Changed
-import Sidebar from './components/Menu/Sidebar.vue'; // Changed
-import VisualizationSidebar from './components/sub-sidebars/VisualizationSidebar.vue'; // Stays the same as sub-sidebars is already a nested folder
+import Globe from './components/Globe/Globe.vue';
+import SceneInfo from './components/SceneInfo/SceneInfo.vue';
+import Compass from './components/Compass/Compass.vue';
+import SearchPanel from './components/SearchPanel/SearchPanel.vue';
+import ProjectLogo from './components/ProjectLogo/ProjectLogo.vue';
+import Menu from './components/Menu/Menu.vue'; // Menu will now contain Sidebar
 
-import PopupManager from './components/utils/PopupManager'; // Stays the same if utils is a sibling of the new component folders
-// IMPORTANT CHANGE: AppInitializer is NOT imported here because it's handled directly in your combined controller.js
+import PopupManager from './components/utils/PopupManager';
 import { MapService, UserInterfaceService } from './services/controller.js';
 
 export default {
@@ -59,56 +46,54 @@ export default {
     SearchPanel,
     ProjectLogo,
     Menu,
-    Sidebar,
-    VisualizationSidebar,
   },
   data() {
     return {
       popupManager: new PopupManager(),
-      showVisualizationSidebar: false,
       globeIsReady: false,
       viewerInstance: null,
-      isSidebarOpen: false,
+      isSidebarOpen: false, // Keep this for SceneInfo and other global consumers
       projectLogoReadySubscription: null,
       globeInitializedSubscription: null,
       globeViewerSubscription: null,
-      sidebarVisibilitySubscription: null,
+      sidebarVisibilitySubscription: null, // Keep this to update isSidebarOpen
     };
   },
   created() {
-    console.log('App.vue: created. AppInitializer handled in controller.js.');
+    // console.log('App.vue: created. AppInitializer handled in controller.js.');
   },
   mounted() {
-    console.log('App.vue: mounted');
+    // console.log('App.vue: mounted');
 
     this.projectLogoReadySubscription = UserInterfaceService.projectLogoReady$.subscribe(() => {
-        console.log('App.vue: ProjectLogo ready signal received. (AppInitializer in controller.js acts on this)');
+        // console.log('App.vue: ProjectLogo ready signal received. (AppInitializer in controller.js acts on this)');
     });
 
     this.globeInitializedSubscription = MapService.globeInitialized$.subscribe(isReady => {
       this.globeIsReady = isReady;
       if (!isReady) {
-        console.error('App.vue: Globe failed to initialize.');
+        // console.error('App.vue: Globe failed to initialize.');
       }
-      console.log('App.vue: Globe initialization status updated to:', isReady);
+      // console.log('App.vue: Globe initialization status updated to:', isReady);
     });
 
     this.globeViewerSubscription = MapService.globeViewer$.subscribe(viewer => {
       this.viewerInstance = viewer;
       if (viewer) {
-          console.log('App.vue: Cesium Viewer instance received.');
+          // console.log('App.vue: Cesium Viewer instance received.');
       } else {
-          console.log('App.vue: Cesium Viewer instance is null (failed init or destroyed).');
+          // console.log('App.vue: Cesium Viewer instance is null (failed init or destroyed).');
       }
     });
 
+    // App.vue still subscribes to global sidebar state
     this.sidebarVisibilitySubscription = UserInterfaceService.isSidebarOpen$.subscribe(isOpen => {
       this.isSidebarOpen = isOpen;
-      console.log('App.vue: Sidebar visibility updated to:', this.isSidebarOpen);
+      // console.log('App.vue: Sidebar visibility updated to:', this.isSidebarOpen);
     });
   },
   beforeUnmount() {
-    console.log('App.vue: beforeUnmount - Cleaning up subscriptions.');
+    // console.log('App.vue: beforeUnmount - Cleaning up subscriptions.');
     if (this.projectLogoReadySubscription) this.projectLogoReadySubscription.unsubscribe();
     if (this.globeInitializedSubscription) this.globeInitializedSubscription.unsubscribe();
     if (this.globeViewerSubscription) this.globeViewerSubscription.unsubscribe();
@@ -123,18 +108,7 @@ export default {
     },
     hideServiceAddedPopup() {
       this.popupManager.hide();
-    },
-    openVisualizationSidebar() {
-      this.showVisualizationSidebar = true;
-      UserInterfaceService.toggleSidebar(true);
-    },
-    closeVisualizationSidebar() {
-      this.showVisualizationSidebar = false;
-      UserInterfaceService.toggleSidebar(false);
-    },
-    handleVisualizationModeChange(mode) {
-      console.log(`App.vue: handleVisualizationModeChange for mode: ${mode}`);
-    },
+    }
   },
   computed: {
     serviceParameters() {
