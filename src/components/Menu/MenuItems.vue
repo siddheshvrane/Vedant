@@ -15,34 +15,28 @@
 
 <script>
 import { UserInterfaceService, MenuItemService } from '../../services/controller.js';
+import MenuItem from '../../datamodels/MenuItem.js'; // Import the MenuItem class for prop type validation
 
 export default {
   name: 'MenuItems',
   props: {
     items: {
-      type: Array,
+      // Changed type from Array to a custom validator that checks for MenuItem instances
+      // or simply keep it as Array, but this demonstrates strictness if desired.
+      type: Array, // Still an array, but the contents are now MenuItem instances
       required: true,
       default: () => [],
+      // Optional: Add a custom validator for stricter type checking if desired
+      validator: (value) => {
+        return value.every(item => item instanceof MenuItem);
+      }
     },
   },
-  // --- ADD THIS 'emits' OPTION ---
-  emits: ['menu-item-clicked'], // Declare the custom event using its kebab-case name
-  // ---------------------------------
+  emits: ['menu-item-clicked'],
   methods: {
-    /**
-     * @method itemClicked
-     * @description Emits the clicked menu item to the parent component (Sidebar).
-     * @param {Object} item - The menu item object that was clicked.
-     */
     itemClicked(item) {
-      // Notify parent that a menu item was clicked
       this.$emit('menu-item-clicked', item);
     },
-    /**
-     * @method closeSidebar
-     * @description Triggers UserInterfaceService to close the entire sidebar.
-     * Corresponds to `closeAll()` in the original `MenuSidebarManager`.
-     */
     closeSidebar() {
       UserInterfaceService.closeAll();
     },

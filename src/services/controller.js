@@ -24,6 +24,9 @@ window.Cesium = Cesium;
 // 2. RxJS Subject Import (needed by the services)
 import { Subject } from 'rxjs';
 
+// NEW: Import Data Models
+import MenuItem from '../datamodels/MenuItem.js'; // Import the MenuItem data model
+
 // 3. Service Definitions
 // These classes define the logic and communication channels for different parts of your application.
 
@@ -37,7 +40,7 @@ class MapServiceClass {
     renderGraphic$ = new Subject();
     removeGraphic$ = new Subject();
     zoomToCoordinates$ = new Subject();
-    displayLocationMarker$ = new Subject();
+    displayLocationMarker$ = new Subject(); // This subject's payload would likely be a Location object
 
     // Subjects for Globe initialization status and viewer instance
     initGlobe$ = new Subject(); // Emits to tell Globe.vue to initialize Cesium
@@ -62,6 +65,7 @@ class MapServiceClass {
     zoomToCoordinates(coordinates) {
         this.zoomToCoordinates$.next(coordinates);
     }
+    // If displayLocationMarker expects a Location object, the import for Location might be needed above.
     displayLocationMarker(location) {
         this.displayLocationMarker$.next(location);
     }
@@ -109,6 +113,7 @@ class UserInterfaceServiceClass {
     }
 
     handleMenuItemClick(item) {
+        // Here, 'item' is now expected to be an instance of the MenuItem data model
         console.log('UserInterfaceService: Menu item clicked:', item);
         this.activateFeature$.next(item);
     }
@@ -141,11 +146,12 @@ class MenuItemServiceClass {
 
     retrieveAll() {
         const items = [
-            { id: 'addData', label: 'Add Data', icon: 'far fa-plus', component: 'AddDataSidebar', width: '350px' },
-            { id: 'layerManager', label: 'Layer Manager', icon: 'fas fa-layer-group', component: 'LayerManagerSidebar', width: '350px' },
-            { id: 'visualization', label: 'Visualization', icon: 'far fa-eye', component: 'VisualizationSidebar', width: '350px' },
-            { id: 'tools', label: 'Tools', icon: 'fas fa-tools', component: 'ToolsSidebar', width: '350px' },
-            { id: 'plugins', label: 'Plugins', icon: 'fas fa-plug', component: 'PluginManagerSidebar', width: '350px' },
+            // Now creating instances of the MenuItem data model
+            new MenuItem('addData', 'Add Data', 'far fa-plus', 'AddDataSidebar', '350px'),
+            new MenuItem('layerManager', 'Layer Manager', 'fas fa-layer-group', 'LayerManagerSidebar', '350px'),
+            new MenuItem('visualization', 'Visualization', 'far fa-eye', 'VisualizationSidebar', '350px'),
+            new MenuItem('tools', 'Tools', 'fas fa-tools', 'BasicToolsSidebar', '350px'), 
+            new MenuItem('plugins', 'Plugins', 'fas fa-plug', 'PluginManagerSidebar', '350px'),
         ];
         this.menuItemsLoaded$.next(items);
         console.log('MenuItemService: Menu items retrieved and loaded.');
@@ -177,7 +183,6 @@ class AppInitializerClass {
         this.globeInitializedSubscription = MapService.globeInitialized$.subscribe(isReady => {
             if (isReady) {
                 console.log('AppInitializer: Globe is ready. The menu icon should now be visible and waiting for a click.');
-                // *** REMOVED: UserInterfaceService.openInitialMenu(); ***
                 // The sidebar will now remain hidden by default until user interaction.
             } else {
                 console.error('AppInitializer: Globe failed to initialize.');

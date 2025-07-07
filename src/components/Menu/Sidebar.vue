@@ -20,13 +20,14 @@
 
 <script>
 // Corrected import paths for sub-sidebars:
-import AddDataSidebar from '../sub-sidebars/AddDataSidebar.vue'; // Corrected path
-import LayerManagerSidebar from '../sub-sidebars/LayerManagerSidebar.vue'; // Corrected path
-import VisualizationSidebar from '../sub-sidebars/VisualizationSidebar.vue'; // Corrected path
-import PluginManagerSidebar from '../sub-sidebars/PluginManagerSidebar.vue'; // Corrected path
+import AddDataSidebar from '../sub-sidebars/AddDataSidebar.vue';
+import LayerManagerSidebar from '../sub-sidebars/LayerManagerSidebar.vue';
+import VisualizationSidebar from '../sub-sidebars/VisualizationSidebar.vue';
+import PluginManagerSidebar from '../sub-sidebars/PluginManagerSidebar.vue';
+import BasicToolsSidebar from '../sub-sidebars/BasicToolsSidebar.vue';
 
-import MenuItems from './MenuItems.vue'; // This path remains the same as MenuItems.vue is a sibling in the Menu folder
-import { UserInterfaceService, MenuItemService } from '../../services/controller.js'; // This path is correct, as it needs to go up two levels to src/ then into services/
+import MenuItems from './MenuItems.vue';
+import { UserInterfaceService, MenuItemService } from '../../services/controller.js';
 
 export default {
   name: 'Sidebar',
@@ -35,6 +36,7 @@ export default {
     LayerManagerSidebar,
     VisualizationSidebar,
     PluginManagerSidebar,
+    BasicToolsSidebar,
     MenuItems,
   },
   data() {
