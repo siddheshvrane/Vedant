@@ -18,8 +18,8 @@
 </template>
 
 <script>
-import BaseSubSidebar from '../utils/BaseSubSidebar.vue'; // Adjust path if BaseSubSidebar is elsewhere
-import LayerListItem from '../utils/LayerListItem.vue'; // Adjust path based on where you put LayerListItem.vue
+import BaseSubSidebar from '../SubSidebar.vue'; // Adjust path if BaseSubSidebar is elsewhere
+import LayerListItem from './LayerListItem.vue'; // Adjust path based on where you put LayerListItem.vue
 
 export default {
   name: 'LayerManagerSidebar',

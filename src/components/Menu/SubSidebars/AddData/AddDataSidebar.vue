@@ -15,8 +15,8 @@
 </template>
 
 <script>
-import BaseSubSidebar from '../utils/BaseSubSidebar.vue';
-import GeoSpatialForm from '../utils/GeoSpatialForm.vue'; // Adjust path as needed
+import BaseSubSidebar from '../SubSidebar.vue';
+import GeoSpatialForm from './GeoSpatialForm.vue'; // Adjust path as needed
 
 export default {
   name: 'AddDataSidebar',
@@ -43,20 +43,20 @@ export default {
   },
   methods: {
     addGeoSpatialData() {
-      console.log('Adding Data:', {
-        name: this.currentName,
-        type: this.currentType,
-      });
+      // console.log('Adding Data:', {
+      //   name: this.currentName,
+      //   type: this.currentType,
+      // });
       alert(`Adding Data: ${this.currentName || 'N/A'} (${this.currentType})`);
     },
     addGeoSpatialService() {
-      console.log('Adding Service (details commented out):', {
-        name: this.currentName,
-        type: this.currentType,
-        // baseUrl: this.baseUrl, // Commented out as requested
-        // args: this.args, // Commented out as requested
-        // legendOptions: this.legendOptions, // Commented out as requested
-      });
+      // console.log('Adding Service (details commented out):', {
+      //   name: this.currentName,
+      //   type: this.currentType,
+      //   // baseUrl: this.baseUrl, // Commented out as requested
+      //   // args: this.args, // Commented out as requested
+      //   // legendOptions: this.legendOptions, // Commented out as requested
+      // });
       alert(`Adding Service: ${this.currentName || 'N/A'} (${this.currentType})\n(Details commented out)`);
     },
   },
@@ -65,5 +65,5 @@ export default {
 
 <style scoped>
 /* All styles that are specific to AddDataSidebar's container or unique elements should remain here.
-   Common form styles are now in GeoSpatialForm.vue */
+    Common form styles are now in GeoSpatialForm.vue */
 </style>

@@ -19,12 +19,11 @@
 </template>
 
 <script>
-// Corrected import paths for sub-sidebars:
-import AddDataSidebar from '../sub-sidebars/AddDataSidebar.vue';
-import LayerManagerSidebar from '../sub-sidebars/LayerManagerSidebar.vue';
-import VisualizationSidebar from '../sub-sidebars/VisualizationSidebar.vue';
-import PluginManagerSidebar from '../sub-sidebars/PluginManagerSidebar.vue';
-import BasicToolsSidebar from '../sub-sidebars/BasicToolsSidebar.vue';
+import AddDataSidebar from './SubSidebars/AddData/AddDataSidebar.vue';
+import LayerManagerSidebar from './SubSidebars/LayerManager/LayerManagerSidebar.vue';
+import VisualizationSidebar from './SubSidebars/Visualization/VisualizationSidebar.vue';
+import PluginManagerSidebar from './SubSidebars/Plugins/PluginManagerSidebar.vue';
+import BasicToolsSidebar from './SubSidebars/BasicTools/BasicToolsSidebar.vue';
 
 import MenuItems from './MenuItems.vue';
 import { UserInterfaceService, MenuItemService } from '../../services/controller.js';
@@ -55,15 +54,12 @@ export default {
   emits: ['close-sidebar', 'service-added'], // Declare emitted events to parent
 
   mounted() {
-    // Sidebar still listens to service signals for its internal state/transitions
     this.openSidebarSubscription = UserInterfaceService.openSidebarPanel$.subscribe(this.handleOpenSidebarPanel);
     this.activateFeatureSubscription = UserInterfaceService.activateFeature$.subscribe(this.handleActivateFeature);
-    // Sidebar listens to closeSidebar$ to trigger its internal close animation
     this.closeSidebarSubscription = UserInterfaceService.closeSidebar$.subscribe(this.handleCloseSidebar);
 
     this.menuItemsLoadedSubscription = MenuItemService.menuItemsLoaded$.subscribe(items => {
       this.menuItems = items;
-      // console.log('Sidebar: Menu items loaded:', this.menuItems);
     });
 
     MenuItemService.retrieveAll();
@@ -80,42 +76,30 @@ export default {
       this.activeSubMenu = null; // Ensure main menu is shown on initial open
       this.activeSubMenuComponent = null; // Ensure main menu is shown on initial open
       this.currentSidebarWidth = '300px';
-      // console.log('Sidebar: Opening internal panel.');
     },
     handleActivateFeature(item) {
       if (item && item.component) {
-        // If an item with a component is provided, activate the sub-menu
         this.activeSubMenu = item.id;
         this.activeSubMenuComponent = item.component;
         this.currentSidebarWidth = item.width || '350px';
-        // console.log(`Sidebar: Activating feature: ${item.name}`);
       } else if (item === null) {
-        // If item is null, it signals to return to the main menu
         this.activeSubMenu = null;
         this.activeSubMenuComponent = null;
         this.currentSidebarWidth = '300px'; // Reset width to default sidebar width
-        // console.log('Sidebar: Deactivating feature, returning to main menu.');
       }
     },
     handleCloseSidebar() {
-      // Sidebar sets its own internal state for closing animation
       this.isOpen = false;
       this.activeSubMenu = null; // Reset sub-menu on full sidebar close
       this.activeSubMenuComponent = null; // Reset sub-menu on full sidebar close
       this.currentSidebarWidth = '300px';
-      // Emit event to parent (Menu.vue) to handle updating global UserInterfaceService state
       this.$emit('close-sidebar');
-      // console.log('Sidebar: Closing internal panel and emitting close-sidebar event.');
     },
     handleCloseSubMenu() {
-      // This calls the UserInterfaceService to signal that the sub-menu should close.
-      // The service will then emit null via activateFeature$, which this.handleActivateFeature() will catch.
       UserInterfaceService.handleCloseSubMenu();
-      // console.log('Sidebar: Requesting sub-menu to close via service.');
     },
     handleMenuItemClick(item) {
       UserInterfaceService.handleMenuItemClick(item);
-      // console.log('Sidebar: Menu item clicked, notifying service.');
     },
   },
 };

@@ -34,7 +34,7 @@ import SearchPanel from './components/SearchPanel/SearchPanel.vue';
 import ProjectLogo from './components/ProjectLogo/ProjectLogo.vue';
 import Menu from './components/Menu/Menu.vue'; // Menu will now contain Sidebar
 
-import PopupManager from './components/utils/PopupManager';
+import PopupManager from './components/Menu/SubSidebars/AddData/PopupManager.js';
 import { MapService, UserInterfaceService } from './services/controller.js';
 
 export default {

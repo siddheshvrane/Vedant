@@ -33,8 +33,8 @@
 </template>
 
 <script>
-import BaseSubSidebar from '../utils/BaseSubSidebar.vue'; // Adjust path as needed
-import PluginListItem from '../utils/PluginListItem.vue'; // Adjust path as needed
+import BaseSubSidebar from '../SubSidebar.vue'; // Adjust path as needed
+import PluginListItem from './PluginListItem.vue'; // Adjust path as needed
 
 export default {
   name: 'PluginManagerSidebar',

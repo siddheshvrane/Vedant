@@ -15,8 +15,8 @@
 </template>
 
 <script>
-import BaseSubSidebar from '../utils/BaseSubSidebar.vue'; // Adjust path if BaseSubSidebar is elsewhere
-import ToolsListItem from '../utils/ToolListItem.vue'; // Adjust path based on where you put ToolsListItem.vue
+import BaseSubSidebar from '../SubSidebar.vue'; // Adjust path if BaseSubSidebar is elsewhere
+import ToolsListItem from './ToolListItem.vue'; // Adjust path based on where you put ToolsListItem.vue
 // Assuming ToolManagementService and its methods are globally available or imported elsewhere
 // For demonstration, these are commented out as their actual implementation is not provided.
 // import {
@@ -33,12 +33,12 @@ export default {
   data() {
     return {
       tools: [
-        { name: 'Line Measure 2D Tool', isActive: false },
-        { name: 'Area Measure 2D Tool', isActive: false },
-        { name: 'Line Measure 3D Tool', isActive: false },
-        { name: 'Area Measure 3D Tool', isActive: false },
-        { name: 'Viewshield Tool', isActive: false },
-        { name: 'Terrain Profile Tool', isActive: false },
+        { name: 'Line Measure', isActive: false },
+        { name: '3D Line Measure', isActive: false },
+        { name: 'Area Measure', isActive: false },
+        { name: '3D Area Measure', isActive: false },
+        { name: 'Viewshield Analysis', isActive: false },
+        { name: 'Terrain Profile', isActive: false },
       ],
     };
   },

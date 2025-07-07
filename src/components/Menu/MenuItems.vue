@@ -14,19 +14,16 @@
 </template>
 
 <script>
-import { UserInterfaceService, MenuItemService } from '../../services/controller.js';
-import MenuItem from '../../datamodels/MenuItem.js'; // Import the MenuItem class for prop type validation
+import { UserInterfaceService } from '../../services/controller.js';
+import MenuItem from '../../datamodels/MenuItem.js';
 
 export default {
   name: 'MenuItems',
   props: {
     items: {
-      // Changed type from Array to a custom validator that checks for MenuItem instances
-      // or simply keep it as Array, but this demonstrates strictness if desired.
-      type: Array, // Still an array, but the contents are now MenuItem instances
+      type: Array,
       required: true,
       default: () => [],
-      // Optional: Add a custom validator for stricter type checking if desired
       validator: (value) => {
         return value.every(item => item instanceof MenuItem);
       }
@@ -45,7 +42,6 @@ export default {
 </script>
 
 <style scoped>
-/* These styles are applied to individual menu items and can be reused from the original MenuSidebar.vue */
 .poppins-font {
   font-family: 'Poppins', sans-serif;
 }
@@ -58,7 +54,7 @@ export default {
   font-size: 1.1em;
   text-decoration: none;
   border-radius: 0;
-  color: white; /* Ensure text color is white */
+  color: white;
 }
 
 .sidebar-item:hover {

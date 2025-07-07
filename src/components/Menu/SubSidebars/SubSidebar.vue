@@ -20,11 +20,6 @@ export default {
       type: String,
       required: true,
     },
-    // You could add an 'icon' prop here if you want an icon in the header next to the title
-    // icon: {
-    //   type: String,
-    //   default: '',
-    // },
   },
   methods: {
     closeSubMenu() {
@@ -35,7 +30,6 @@ export default {
 </script>
 
 <style scoped>
-/* Common styling for all sub-sidebar panels */
 .sub-sidebar-panel {
   width: 100%;
   height: 100%;
@@ -62,7 +56,7 @@ export default {
   margin-bottom: 0;
   font-size: 1.2em;
   color: white;
-  margin-left: 30px; /* Offset for the close button on the right */
+  margin-left: 30px;
 }
 
 .close-btn {
@@ -82,10 +76,4 @@ export default {
   overflow-y: auto;
   color: white;
 }
-
-/* Custom styles for input fields, select dropdowns, etc.
-   You can either move these common styles here or keep them in individual sub-sidebars
-   if they are highly specific to the content within each.
-   For now, I'm keeping them in AddDataSidebar for demonstration,
-   but consider what truly is 'common' across all sub-sidebars. */
 </style>
