@@ -1,7 +1,8 @@
 <template>
   <div class="geo-spatial-form">
     <div class="form-group mb-3">
-      <div class="d-flex justify-content-center align-items-center mb-3"> <div class="form-check form-check-inline">
+      <div class="d-flex justify-content-center align-items-center mb-3">
+        <div class="form-check form-check-inline">
           <input
             class="form-check-input"
             type="radio"
@@ -50,7 +51,7 @@
           <option value="geojson">GeoJSON</option>
           <option value="kml">KML</option>
           <option value="shapefile">Shapefile</option>
-          </select>
+        </select>
         <i class="fas fa-chevron-down dropdown-icon"></i>
       </div>
     </div>
@@ -66,10 +67,96 @@
         >
           <option value="wms">WMS</option>
           <option value="wmts">WMTS</option>
-          </select>
+        </select>
         <i class="fas fa-chevron-down dropdown-icon"></i>
       </div>
-      <p class="text-white-50 mt-3">Service details are temporarily commented out.</p>
+    </div>
+
+    <div class="form-group mb-3">
+      <label for="baseUrl" class="form-label">Base URL:</label>
+      <input
+        type="text"
+        id="baseUrl"
+        class="form-control"
+        placeholder="e.g., https://example.com/data.geojson or WMS/WMTS service URL"
+        :value="baseUrl"
+        @input="$emit('update:baseUrl', $event.target.value)"
+      />
+    </div>
+
+    <div class="form-group mb-3">
+      <label for="argsInput" class="form-label">Args (JSON):</label>
+      <textarea
+        id="argsInput"
+        class="form-control"
+        rows="4"
+        placeholder='Enter JSON for arguments, e.g., {"layers": "layer_name"}'
+        :value="argsInput"
+        @input="$emit('update:argsInput', $event.target.value)"
+      ></textarea>
+    </div>
+
+    <div class="form-group mb-3">
+      <label for="legendOptionsInput" class="form-label">Legend Options (JSON):</label>
+      <textarea
+        id="legendOptionsInput"
+        class="form-control"
+        rows="4"
+        placeholder='Enter JSON for legend options, e.g., {"title": "My Legend"}'
+        :value="legendOptionsInput"
+        @input="$emit('update:legendOptionsInput', $event.target.value)"
+      ></textarea>
+    </div>
+
+    <div v-if="selectedOption === 'data' && contentType === 'geojson'" class="form-group mb-3">
+      <label class="form-label">GeoJSON Source:</label>
+      <div class="d-flex justify-content-center align-items-center mb-3">
+        <div class="form-check form-check-inline">
+          <input
+            class="form-check-input"
+            type="radio"
+            id="geojsonSourceText"
+            value="text"
+            :checked="selectedJsonSource === 'text'"
+            @change="selectedJsonSource = 'text'; uploadedJsonFile = null"
+          />
+          <label class="form-check-label" for="geojsonSourceText">Enter Text</label>
+        </div>
+        <div class="form-check form-check-inline">
+          <input
+            class="form-check-input"
+            type="radio"
+            id="geojsonSourceFile"
+            value="file"
+            :checked="selectedJsonSource === 'file'"
+            @change="selectedJsonSource = 'file'; $emit('update:jsonTextInput', '')"
+          />
+          <label class="form-check-label" for="geojsonSourceFile">Upload File</label>
+        </div>
+      </div>
+
+      <div v-if="selectedJsonSource === 'text'">
+        <label for="jsonTextInput" class="form-label">GeoJSON Text:</label>
+        <textarea
+          id="jsonTextInput"
+          class="form-control"
+          rows="8"
+          placeholder='Enter GeoJSON content here, e.g., {"type": "Feature", ...}'
+          :value="jsonTextInput"
+          @input="$emit('update:jsonTextInput', $event.target.value)"
+        ></textarea>
+      </div>
+
+      <div v-if="selectedJsonSource === 'file'">
+        <label for="jsonFileUpload" class="form-label">Upload GeoJSON File:</label>
+        <input
+          type="file"
+          id="jsonFileUpload"
+          class="form-control"
+          accept=".geojson,.json"
+          @change="handleJsonFileUpload"
+        />
+      </div>
     </div>
 
     <button
@@ -98,10 +185,57 @@ export default {
     contentType: {
       type: String,
       required: true
+    },
+    baseUrl: { // New prop
+      type: String,
+      default: ''
+    },
+    argsInput: { // New prop for Args JSON text
+      type: String,
+      default: ''
+    },
+    legendOptionsInput: { // New prop for Legend Options JSON text
+      type: String,
+      default: ''
+    },
+    jsonTextInput: { // New prop for direct GeoJSON text input
+      type: String,
+      default: ''
     }
   },
-  emits: ['update:selectedOption', 'update:contentName', 'update:contentType', 'submit-data', 'submit-service'],
+  emits: [
+    'update:selectedOption',
+    'update:contentName',
+    'update:contentType',
+    'update:baseUrl', // New emit
+    'update:argsInput', // New emit
+    'update:legendOptionsInput', // New emit
+    'update:jsonTextInput', // New emit
+    'submit-data',
+    'submit-service'
+  ],
+  data() {
+    return {
+      selectedJsonSource: 'none', // 'none', 'text', 'file'
+      uploadedJsonFile: null // To hold the File object
+    };
+  },
   methods: {
+    handleJsonFileUpload(event) {
+      this.uploadedJsonFile = event.target.files[0];
+    },
+    parseJson(jsonString, fieldName) {
+      if (!jsonString) {
+        return {};
+      }
+      try {
+        return JSON.parse(jsonString);
+      } catch (e) {
+        console.error(`Error parsing ${fieldName} JSON:`, e);
+        alert(`Invalid JSON in ${fieldName}. Please check the syntax.`);
+        return null; // Return null to indicate parsing error
+      }
+    },
     submitForm() {
       // Basic validation
       if (!this.contentName) {
@@ -109,17 +243,41 @@ export default {
         return;
       }
 
+      const parsedArgs = this.parseJson(this.argsInput, 'Args');
+      if (parsedArgs === null) return; // Stop if parsing failed
+
+      const parsedLegendOptions = this.parseJson(this.legendOptionsInput, 'Legend Options');
+      if (parsedLegendOptions === null) return; // Stop if parsing failed
+
       const payload = {
         name: this.contentName,
         type: this.contentType,
-        srcInfo: { srs: 'EPSG:4326', extent: 'Global' }, // Placeholder
-        args: { srs: 'EPSG:4326', extent: 'Global' }, // Placeholder
-        legOpts: {} // Placeholder
+        baseUrl: this.baseUrl, // Include base URL
+        args: parsedArgs,      // Include parsed args
+        legOpts: parsedLegendOptions // Include parsed legend options
       };
 
       if (this.selectedOption === 'data') {
+        if (this.contentType === 'geojson') {
+          if (this.selectedJsonSource === 'text') {
+            const parsedJsonText = this.parseJson(this.jsonTextInput, 'GeoJSON Text');
+            if (parsedJsonText === null) return; // Stop if parsing failed
+            payload.jsonContent = parsedJsonText; // Add parsed GeoJSON content
+          } else if (this.selectedJsonSource === 'file') {
+            if (!this.uploadedJsonFile) {
+              alert('Please select a GeoJSON file.');
+              return;
+            }
+            payload.jsonFile = this.uploadedJsonFile; // Add the File object
+            // Note: File content needs to be read asynchronously by the parent component
+            // or a service that receives this payload. This component only passes the File object.
+          } else {
+            alert('Please specify a GeoJSON source (text or file).');
+            return;
+          }
+        }
         this.$emit('submit-data', payload);
-      } else {
+      } else { // Service
         this.$emit('submit-service', payload);
       }
     }
@@ -128,6 +286,7 @@ export default {
 </script>
 
 <style scoped>
+/* Your existing styles remain here */
 .form-label {
   color: #fff;
   margin-bottom: 5px;

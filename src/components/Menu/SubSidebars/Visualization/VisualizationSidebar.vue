@@ -12,7 +12,8 @@
     <div class="sub-sidebar-body">
       <hr class="sidebar-divider mb-4">
 
-      <div class="form-group mb-3">
+      <div class="form-group mb-4">
+        <label class="form-label mb-2">Modes:</label>
         <div class="form-check">
           <input
             class="form-check-input"
@@ -48,24 +49,78 @@
           <label class="form-check-label" for="radioAnaglyph">Anaglyph 3D (Not yet implemented)</label>
         </div>
       </div>
+
+      <hr class="sidebar-divider mb-4">
+
+      <div class="form-group mb-3">
+        <label class="form-label d-block mb-2">Clock Time:</label>
+        <div class="d-flex justify-content-between align-items-center">
+          <div class="select-wrapper me-2">
+            <select v-model="selectedHour" @change="emitTimeChange" class="form-select time-select">
+              <option v-for="hour in hoursOptions" :key="hour" :value="hour">{{ hour }}</option>
+            </select>
+            <i class="fas fa-chevron-down dropdown-icon"></i>
+          </div>
+
+          <div class="select-wrapper me-2">
+            <select v-model="selectedMinute" @change="emitTimeChange" class="form-select time-select">
+              <option v-for="minute in minutesOptions" :key="minute" :value="minute">{{ minute }}</option>
+            </select>
+            <i class="fas fa-chevron-down dropdown-icon"></i>
+          </div>
+
+          <div class="select-wrapper">
+            <select v-model="selectedAmPm" @change="emitTimeChange" class="form-select time-select">
+              <option value="AM">AM</option>
+              <option value="PM">PM</option>
+            </select>
+            <i class="fas fa-chevron-down dropdown-icon"></i>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script>
-// Corrected import path: Go up three directories to 'src', then into 'services'
 import { MapService } from '../../../../services/controller.js';
 
 export default {
   name: 'VisualizationSidebar',
   data() {
+    const now = new Date();
+    let currentHour = now.getHours();
+    // Round current minute to the nearest 5-minute interval for initial selection
+    const currentMinute = Math.round(now.getMinutes() / 5) * 5; 
+    let ampm = 'AM';
+
+    if (currentHour >= 12) {
+      ampm = 'PM';
+      if (currentHour > 12) currentHour -= 12;
+    }
+    if (currentHour === 0) currentHour = 12;
+
     return {
       selectedMode: '3D', 
       modeSubscription: null,
+      selectedHour: String(currentHour).padStart(2, '0'),
+      selectedMinute: String(currentMinute).padStart(2, '0'), // Updated initial minute
+      selectedAmPm: ampm,
     };
   },
-  emits: ['close-all-sidebars', 'back-to-main-menu', 'update-visualization-mode'],
+  emits: ['close-all-sidebars', 'back-to-main-menu', 'update-visualization-mode', 'update-clock-time'],
   
+  computed: {
+    hoursOptions() {
+      // Generates hours from 01 to 12
+      return Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'));
+    },
+    minutesOptions() {
+      // Generates minutes with a 5-minute gap (00, 05, 10, ..., 55)
+      return Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'));
+    },
+  },
+
   mounted() {
     this.modeSubscription = MapService.visualizationModeChanged$.subscribe(mode => {
       if (this.selectedMode !== mode) {
@@ -87,10 +142,17 @@ export default {
       MapService.setVisualizationMode(this.selectedMode);
       this.$emit('update-visualization-mode', this.selectedMode); 
     },
+    emitTimeChange() {
+      this.$emit('update-clock-time', {
+        hour: this.selectedHour,
+        minute: this.selectedMinute,
+        ampm: this.selectedAmPm
+      });
+      console.log('Clock Time changed to:', this.selectedHour, this.selectedMinute, this.selectedAmPm);
+    }
   }
 };
 </script>
-
 <style scoped>
 /* Your existing styles remain unchanged */
 .sub-sidebar-panel {
@@ -148,6 +210,12 @@ export default {
   padding: 20px;
   overflow-y: auto;
   color: white;
+  padding-bottom: 50px; /* Added/adjusted padding to ensure space below dropdowns */
+}
+
+.form-label {
+    color: rgba(255, 255, 255, 0.8);
+    margin-bottom: 5px;
 }
 
 .form-check-label {
@@ -169,4 +237,44 @@ export default {
 .sidebar-divider {
   border-top: 1px solid rgba(255, 255, 255, 0.2);
 }
+
+/* Styles for dropdowns */
+.select-wrapper {
+  position: relative;
+  display: flex; /* Use flex to align icon */
+  align-items: center;
+  flex: 1; /* Allow dropdowns to take equal space */
+}
+
+.form-select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: none;
+  padding-right: 2.5rem; /* Make space for the icon */
+}
+
+.dropdown-icon {
+  position: absolute;
+  right: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(255, 255, 255, 0.7);
+  pointer-events: none;
+  font-size: 0.8em;
+}
+
+.time-select {
+  background-color: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  padding: 0.375rem 0.75rem; /* Adjust padding for better look in small dropdowns */
+  height: calc(1.5em + 0.75rem + 2px); /* Standard form control height */
+}
+
+.time-select option {
+  background-color: #333;
+  color: #fff;
+}
 </style>
+
