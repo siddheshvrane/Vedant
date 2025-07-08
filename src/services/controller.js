@@ -198,12 +198,12 @@ class MenuItemServiceClass {
 
     retrieveAll() {
         const items = [
-            new MenuItem('addData', 'Add Data', 'far fa-plus', 'AddDataSidebar', '400px'),
+            new MenuItem('addData', 'Add Data', 'far fa-plus', 'AddDataSidebar', '350px'),
             // Updated: Increased width for Layer Manager to accommodate more content
-            new MenuItem('layerManager', 'Layer Manager', 'fas fa-layer-group', 'LayerManagerSidebar', '400px'), 
+            new MenuItem('layerManager', 'Layer Manager', 'fas fa-layer-group', 'LayerManagerSidebar', '450px'), 
             new MenuItem('visualization', 'Visualization', 'far fa-eye', 'VisualizationSidebar', '350px'),
             new MenuItem('tools', 'Tools', 'fas fa-tools', 'BasicToolsSidebar', '350px'), 
-            new MenuItem('plugins', 'Plugins', 'fas fa-plug', 'PluginManagerSidebar', '400px'),
+            new MenuItem('plugins', 'Plugins', 'fas fa-plug', 'PluginManagerSidebar', '350px'),
         ];
         this.menuItemsLoaded$.next(items);
     }
@@ -312,6 +312,87 @@ class DataAddServiceClass {
     // execute(dataOrService) { /* ... */ }
 }
 export const DataAddService = new DataAddServiceClass();
+
+
+/**
+ * LayerService: Manages the collection of layers and their states.
+ * Coordinates with MapService for map-related layer actions.
+ */
+class LayerServiceClass {
+    layers$ = new BehaviorSubject([
+        { id: 'layer1', name: 'Satellite Imagery', isVisible: true },
+        { id: 'layer2', name: '3D Model', isVisible: false },
+        { id: 'layer3', name: 'Elevation Data', isVisible: true },
+        { id: 'layer4', name: 'Road Networks', isVisible: false },
+        { id: 'layer5', name: 'Land Use Zones', isVisible: true },
+    ]);
+
+    getLayers() {
+        return this.layers$.getValue();
+    }
+
+    // This method would typically interact with MapService
+    zoomToLayer(layerId) {
+        const layer = this.getLayers().find(l => l.id === layerId);
+        if (layer) {
+            console.log(`LayerService: Requesting zoom to layer: ${layer.name}`);
+            // Example: If layers had coordinates or extents, you'd pass them to MapService
+            // MapService.zoomToCoordinates({ /* coordinates from layer */ });
+        }
+    }
+
+    toggleLayerVisibility(layerId, isVisible) {
+        const currentLayers = this.getLayers();
+        const layerIndex = currentLayers.findIndex(l => l.id === layerId);
+        if (layerIndex !== -1) {
+            currentLayers[layerIndex].isVisible = isVisible;
+            this.layers$.next([...currentLayers]); // Emit updated array
+            console.log(`LayerService: Toggling visibility for layer ${currentLayers[layerIndex].name}: ${isVisible}`);
+            // Example: Call MapService to show/hide the actual map layer/graphic
+            // if (isVisible) { MapService.renderGraphic(layerId); } else { MapService.removeGraphic(layerId); }
+        }
+    }
+
+    editLayer(layerId) {
+        const layer = this.getLayers().find(l => l.id === layerId);
+        if (layer) {
+            console.log(`LayerService: Requesting edit for layer: ${layer.name}`);
+            // Example: Open a form for editing layer properties
+        }
+    }
+
+    removeLayer(layerId) {
+        const layerName = this.getLayers().find(l => l.id === layerId)?.name || 'unknown layer';
+        // IMPORTANT: In a real app, this would trigger a custom confirmation modal
+        // before actually removing the layer. For now, it's immediate deletion.
+        const updatedLayers = this.getLayers().filter(layer => layer.id !== layerId);
+        this.layers$.next(updatedLayers); // Emit updated array
+        console.log(`LayerService: Removed layer: ${layerName} (ID: ${layerId})`);
+        // Example: Call MapService to remove the actual map layer/graphic
+        // MapService.removeGraphic(layerId);
+    }
+
+    moveLayer(layerId, direction) {
+        const currentLayers = this.getLayers();
+        const index = currentLayers.findIndex(l => l.id === layerId);
+        if (index === -1) return;
+
+        let newIndex = index;
+        if (direction === 'up') {
+            newIndex = Math.max(0, index - 1);
+        } else if (direction === 'down') {
+            newIndex = Math.min(currentLayers.length - 1, index + 1);
+        }
+
+        if (newIndex !== index) {
+            const [movedLayer] = currentLayers.splice(index, 1);
+            currentLayers.splice(newIndex, 0, movedLayer);
+            this.layers$.next([...currentLayers]); // Emit updated array
+            console.log(`LayerService: Layer ${layerId} moved from ${index} to ${newIndex}`);
+        }
+    }
+}
+export const LayerService = new LayerServiceClass();
 
 
 /**

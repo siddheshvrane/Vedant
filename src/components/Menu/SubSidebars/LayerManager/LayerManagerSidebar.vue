@@ -23,6 +23,7 @@
 <script>
 import BaseSubSidebar from '../SubSidebar.vue'; // Adjust path if BaseSubSidebar is elsewhere
 import LayerListItem from './LayerListItem.vue'; // Adjust path based on where you put LayerListItem.vue
+import { LayerService } from '../../../../services/controller.js'; // Import the new LayerService
 
 export default {
   name: 'LayerManagerSidebar',
@@ -32,13 +33,8 @@ export default {
   },
   data() {
     return {
-      layers: [
-        { id: 'layer1', name: 'Satellite Imagery', isVisible: true },
-        { id: 'layer2', name: '3D Model', isVisible: false },
-        { id: 'layer3', name: 'Elevation Data', isVisible: true },
-        { id: 'layer4', name: 'Road Networks', isVisible: false },
-        { id: 'layer5', name: 'Land Use Zones', isVisible: true },
-      ],
+      layers: [], // Layers will now be populated from LayerService
+      layerServiceSubscription: null, // To manage the RxJS subscription
     };
   },
   methods: {
@@ -46,45 +42,33 @@ export default {
         this.$emit('close-sub-menu');
     },
     zoomToLayer(layerId) {
-      console.log(`Zooming to layer: ${layerId}`);
+      LayerService.zoomToLayer(layerId);
     },
     toggleLayerVisibility(layerId, isVisible) {
-      const layer = this.layers.find(l => l.id === layerId);
-      if (layer) {
-        layer.isVisible = isVisible;
-        console.log(`Toggling visibility for layer ${layerId}: ${layer.isVisible}`);
-      }
+      LayerService.toggleLayerVisibility(layerId, isVisible);
     },
     editLayer(layerId) {
-      console.log(`Editing layer: ${layerId}`);
+      LayerService.editLayer(layerId);
     },
     removeLayer(layerId) {
-      const layerName = this.layers.find(l => l.id === layerId)?.name || 'unknown layer';
-      // Temporarily removed confirm() to diagnose focus issues.
-      // Layers will now be removed without a confirmation dialog.
-      this.layers = this.layers.filter(layer => layer.id !== layerId);
-      console.log(`Layer removed (no confirmation dialog used for testing): ${layerId}`);
+      LayerService.removeLayer(layerId);
     },
     moveLayer(layerId, direction) {
-      const index = this.layers.findIndex(l => l.id === layerId);
-      if (index === -1) return;
-
-      let newIndex = index;
-      if (direction === 'up') {
-        newIndex = Math.max(0, index - 1);
-      } else if (direction === 'down') {
-        newIndex = Math.min(this.layers.length - 1, index + 1);
-      }
-
-      if (newIndex !== index) {
-        const [movedLayer] = this.layers.splice(index, 1);
-        this.layers.splice(newIndex, 0, movedLayer);
-        console.log(`Layer ${layerId} moved from ${index} to ${newIndex}`);
-      }
+      LayerService.moveLayer(layerId, direction);
     },
   },
   created() {
-  }
+    // Subscribe to the layers$ BehaviorSubject from LayerService
+    this.layerServiceSubscription = LayerService.layers$.subscribe(updatedLayers => {
+      this.layers = updatedLayers;
+    });
+  },
+  beforeUnmount() {
+    // Unsubscribe to prevent memory leaks when the component is destroyed
+    if (this.layerServiceSubscription) {
+      this.layerServiceSubscription.unsubscribe();
+    }
+  },
 };
 </script>
 
