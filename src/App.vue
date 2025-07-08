@@ -4,37 +4,31 @@
 
     <Globe />
 
-    <SceneInfo v-if="globeIsReady" :is-sidebar-open="isSidebarOpen" />
+    <SceneInfo
+      v-if="globeIsReady"
+      :is-sidebar-open="isSidebarOpen"
+      :sidebar-width="currentSidebarWidth" />
 
     <Compass v-if="viewerInstance" />
     <SearchPanel v-if="viewerInstance" />
 
-    <Menu v-show="globeIsReady" /> 
+    <Menu
+      v-show="globeIsReady"
+      />
 
-    <div v-if="showPopup" class="service-added-popup-overlay">
-      <div class="service-added-popup">
-        <h5 class="popup-title">Successfully added Service</h5>
-        <div class="popup-content">
-          <p><strong>Layer:</strong> {{ serviceParameters.layerName }}</p>
-          <p><strong>SRS:</strong> {{ serviceParameters.srs }}</p>
-          <p><strong>Extent:</strong> {{ serviceParameters.extent }}</p>
-        </div>
-        <button @click="hideServiceAddedPopup" class="btn btn-primary close-popup-btn">OK</button>
-      </div>
-    </div>
+    <Popup />
   </div>
 </template>
 
 <script>
-// UPDATE IMPORT PATHS:
 import Globe from './components/Globe/Globe.vue';
 import SceneInfo from './components/SceneInfo/SceneInfo.vue';
 import Compass from './components/Compass/Compass.vue';
 import SearchPanel from './components/SearchPanel/SearchPanel.vue';
 import ProjectLogo from './components/ProjectLogo/ProjectLogo.vue';
-import Menu from './components/Menu/Menu.vue'; // Menu will now contain Sidebar
+import Menu from './components/Menu/Menu.vue';
+import Popup from './components/Menu/SubSidebars/AddData/Popup.vue';
 
-import PopupManager from './components/Menu/SubSidebars/AddData/PopupManager.js';
 import { MapService, UserInterfaceService } from './services/controller.js';
 
 export default {
@@ -46,17 +40,19 @@ export default {
     SearchPanel,
     ProjectLogo,
     Menu,
+    Popup,
   },
   data() {
     return {
-      popupManager: new PopupManager(),
       globeIsReady: false,
       viewerInstance: null,
-      isSidebarOpen: false, // Keep this for SceneInfo and other global consumers
+      isSidebarOpen: false,
+      currentSidebarWidth: '0px', // Will be updated by service subscription
       projectLogoReadySubscription: null,
       globeInitializedSubscription: null,
       globeViewerSubscription: null,
-      sidebarVisibilitySubscription: null, // Keep this to update isSidebarOpen
+      sidebarVisibilitySubscription: null,
+      sidebarWidthSubscription: null, // NEW: Subscription for sidebar width
     };
   },
   created() {
@@ -66,30 +62,25 @@ export default {
     // console.log('App.vue: mounted');
 
     this.projectLogoReadySubscription = UserInterfaceService.projectLogoReady$.subscribe(() => {
-        // console.log('App.vue: ProjectLogo ready signal received. (AppInitializer in controller.js acts on this)');
     });
 
     this.globeInitializedSubscription = MapService.globeInitialized$.subscribe(isReady => {
       this.globeIsReady = isReady;
-      if (!isReady) {
-        // console.error('App.vue: Globe failed to initialize.');
-      }
-      // console.log('App.vue: Globe initialization status updated to:', isReady);
     });
 
     this.globeViewerSubscription = MapService.globeViewer$.subscribe(viewer => {
       this.viewerInstance = viewer;
-      if (viewer) {
-          // console.log('App.vue: Cesium Viewer instance received.');
-      } else {
-          // console.log('App.vue: Cesium Viewer instance is null (failed init or destroyed).');
-      }
     });
 
-    // App.vue still subscribes to global sidebar state
     this.sidebarVisibilitySubscription = UserInterfaceService.isSidebarOpen$.subscribe(isOpen => {
       this.isSidebarOpen = isOpen;
-      // console.log('App.vue: Sidebar visibility updated to:', this.isSidebarOpen);
+      // If the sidebar is closed via the service, its width will be reset to 0px via the service too.
+    });
+
+    // NEW: Subscribe to the sidebar width updates from the service
+    this.sidebarWidthSubscription = UserInterfaceService.sidebarWidthUpdated$.subscribe(width => {
+      this.currentSidebarWidth = width;
+      console.log('App.vue received sidebar width via service:', width); // Debugging log
     });
   },
   beforeUnmount() {
@@ -98,31 +89,21 @@ export default {
     if (this.globeInitializedSubscription) this.globeInitializedSubscription.unsubscribe();
     if (this.globeViewerSubscription) this.globeViewerSubscription.unsubscribe();
     if (this.sidebarVisibilitySubscription) this.sidebarVisibilitySubscription.unsubscribe();
+    if (this.sidebarWidthSubscription) this.sidebarWidthSubscription.unsubscribe(); // NEW: Unsubscribe
   },
   methods: {
     handleZoomToCoordinates(coordinates) {
       MapService.zoomToCoordinates(coordinates);
     },
-    showServiceAddedPopup(params) {
-      this.popupManager.show(params);
-    },
-    hideServiceAddedPopup() {
-      this.popupManager.hide();
-    }
+    // REMOVED: handleUpdateSidebarWidth method as it's no longer needed
   },
   computed: {
-    serviceParameters() {
-      return this.popupManager.getParams();
-    },
-    showPopup() {
-      return this.popupManager.isVisible();
-    },
   },
 };
 </script>
 
 <style>
-/* ... (Your existing CSS for App.vue) ... */
+/* ... (Your existing App.vue styles) ... */
 #app-container {
   width: 100vw;
   height: 100vh;
@@ -144,44 +125,5 @@ body {
 #globeContainer {
   width: 100%;
   height: 100%;
-}
-
-.service-added-popup-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 2000;
-}
-
-.service-added-popup {
-  background-color: white;
-  padding: 20px;
-  border-radius: 8px;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-  width: 300px;
-  text-align: left;
-}
-
-.popup-title {
-  color: #333;
-  font-size: 1.2em;
-  margin-bottom: 15px;
-}
-
-.popup-content p {
-  margin-bottom: 8px;
-  font-size: 0.9em;
-  color: #555;
-}
-
-.close-popup-btn {
-  margin-top: 20px;
-  width: 100%;
 }
 </style>

@@ -4,34 +4,31 @@
       v-model:selectedOption="selectedOption"
       v-model:contentName="currentName"
       v-model:contentType="currentType"
-      @add-data="addGeoSpatialData"
-      @add-service="addGeoSpatialService"
-    >
-      <div v-if="selectedOption === 'service'">
-        <p class="text-white-50 mt-3">Service details are temporarily commented out.</p>
-      </div>
-    </GeoSpatialForm>
+      @submit-data="handleAddData"
+      @submit-service="handleAddService"
+    />
   </BaseSubSidebar>
 </template>
 
 <script>
 import BaseSubSidebar from '../SubSidebar.vue';
-import GeoSpatialForm from './GeoSpatialForm.vue'; // Adjust path as needed
+import GeoSpatialForm from './GeoSpatialForm.vue';
+// Import services and data models
+import { DataAddService } from '../../../../services/controller.js'; // 
+import Data from '../../../../datamodels/Data.js'; // 
+import Service from '../../../../datamodels/Service.js'; // 
 
 export default {
-  name: 'AddDataSidebar',
+  name: 'AddDataSidebar', // Matches class diagram 
   components: {
     BaseSubSidebar,
     GeoSpatialForm,
   },
   data() {
     return {
-      selectedOption: 'data', // 'data' or 'service'
+      selectedOption: 'data', // 'data' or 'service' [cite: 2]
       currentName: '', // Holds dataName or serviceName
-      currentType: 'geojson', // Holds selectedDataType or selectedServiceType, default to 'geojson'
-      // baseUrl: '', // Commented out as requested
-      // args: '', // Commented out as requested
-      // legendOptions: '', // Commented out as requested
+      currentType: 'geojson', // Holds selectedDataType or selectedServiceType
     };
   },
   watch: {
@@ -39,31 +36,55 @@ export default {
       // Reset name and type when switching options
       this.currentName = '';
       this.currentType = newVal === 'data' ? 'geojson' : 'ridam';
+      // oselect() functionality, if it involved more complex logic. [cite: 3]
     }
   },
   methods: {
-    addGeoSpatialData() {
-      // console.log('Adding Data:', {
-      //   name: this.currentName,
-      //   type: this.currentType,
-      // });
-      alert(`Adding Data: ${this.currentName || 'N/A'} (${this.currentType})`);
+    /**
+     * Handles the submission of new data.
+     * Corresponds to oprocessInput() logic for Data. [cite: 3]
+     * @param {object} payload - Data from the form.
+     */
+    handleAddData(payload) {
+      // Create a Data model instance 
+      const dataModel = new Data(
+        `data-${Date.now()}`, // Simple unique ID
+        payload.name,
+        payload.type,
+        payload.srcInfo
+      );
+      // Call the DataAddService to process the data 
+      DataAddService.addData(dataModel);
+      // oShowSuccess() is handled by DataAddService calling PopupService [cite: 3]
     },
-    addGeoSpatialService() {
-      // console.log('Adding Service (details commented out):', {
-      //   name: this.currentName,
-      //   type: this.currentType,
-      //   // baseUrl: this.baseUrl, // Commented out as requested
-      //   // args: this.args, // Commented out as requested
-      //   // legendOptions: this.legendOptions, // Commented out as requested
-      // });
-      alert(`Adding Service: ${this.currentName || 'N/A'} (${this.currentType})\n(Details commented out)`);
+    
+    /**
+     * Handles the submission of a new service.
+     * Corresponds to oprocessInput() logic for Service. [cite: 3]
+     * @param {object} payload - Service details from the form.
+     */
+    handleAddService(payload) {
+      // Create a Service model instance 
+      const serviceModel = new Service(
+        `service-${Date.now()}`, // Simple unique ID
+        payload.name,
+        payload.type,
+        // Assuming baseUrl, args, legOpts would come from more detailed service form fields
+        // For now, using placeholders from payload
+        'http://example.com/service', // Placeholder [cite: 21]
+        payload.args, // [cite: 22]
+        payload.legOpts // [cite: 23]
+      );
+      // Call the DataAddService to process the service 
+      DataAddService.addService(serviceModel);
+      // oShowSuccess() is handled by DataAddService calling PopupService [cite: 3]
     },
+
+    // odisplayForm() is implicitly handled by rendering GeoSpatialForm.vue [cite: 3]
   },
 };
 </script>
 
 <style scoped>
-/* All styles that are specific to AddDataSidebar's container or unique elements should remain here.
-    Common form styles are now in GeoSpatialForm.vue */
+/* Any styles specific to the AddDataSidebar container if needed */
 </style>

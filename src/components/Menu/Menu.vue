@@ -8,31 +8,31 @@
       v-show="showLocalSidebar"
       @service-added="handleServiceAdded"
       @close-sidebar="handleCloseSidebarFromChild"
-    />
+      />
   </div>
 </template>
 
 <script>
 import { UserInterfaceService } from '../../services/controller.js';
-import Sidebar from './Sidebar.vue'; // Import Sidebar, as it's now a child
+import Sidebar from './Sidebar.vue';
 
 export default {
   name: 'Menu',
   components: {
-    Sidebar, // Register Sidebar
+    Sidebar,
   },
   data() {
     return {
-      showLocalSidebar: false, // Local state to control Sidebar visibility
+      showLocalSidebar: false,
       sidebarGlobalSubscription: null,
     };
   },
+  // REMOVED: 'update-sidebar-width' from emits
+  emits: ['service-added'],
+
   mounted() {
-    // Subscribe to global sidebar state changes (e.g., if a sub-menu closes via service)
-    // This keeps Menu's local 'showLocalSidebar' in sync with the global 'isSidebarOpen'
     this.sidebarGlobalSubscription = UserInterfaceService.isSidebarOpen$.subscribe(isOpen => {
       this.showLocalSidebar = isOpen;
-      // console.log('Menu.vue: Local sidebar visibility synced with global state:', isOpen);
     });
   },
   beforeUnmount() {
@@ -41,51 +41,39 @@ export default {
     }
   },
   methods: {
-    /**
-     * @method openMenu
-     * @description Triggers the UserInterfaceService to open the initial sidebar menu.
-     * This will correctly trigger Sidebar.vue's internal 'isOpen' state.
-     */
     openMenu() {
-      // UserInterfaceService.openInitialMenu() will set isSidebarOpen$ and openSidebarPanel$
       UserInterfaceService.openInitialMenu();
-      // console.log('Menu.vue: Opening sidebar via UserInterfaceService.openInitialMenu().');
-      // No need to set showLocalSidebar here, as it's updated by the subscription to isSidebarOpen$
     },
-    /**
-     * @method handleCloseSidebarFromChild
-     * @description 
-     */
     handleCloseSidebarFromChild() {
+      // Sidebar emits 'close-sidebar', and here Menu.vue ensures the global state is updated.
+      // This will trigger UserInterfaceService.isSidebarOpen$ to emit false,
+      // which in turn will cause Sidebar to set its width to 0px and publish it.
+      UserInterfaceService.setSidebarOpen(false); 
     },
-    /**
-     * @method handleServiceAdded
-     * @description Forwards the 'service-added' event from Sidebar up to App.vue.
-     */
     handleServiceAdded(params) {
       this.$emit('service-added', params);
     },
+    // REMOVED: handleSidebarWidthUpdate method as it's no longer needed
   },
 };
 </script>
 
 <style scoped>
-/* REMOVED: The empty .menu-container rule is removed to clear the linting warning. */
-
+/* ... (Your existing Menu.vue styles) ... */
 .menu-icon {
   position: absolute;
   top: 20px;
   left: 20px;
-  z-index: 1001; /* Ensure it's above other UI elements but below loading screen */
+  z-index: 1001;
   width: 45px;
   height: 45px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: rgba(52, 58, 64, 0.7); /* Dark background with transparency */
+  background-color: rgba(52, 58, 64, 0.7);
   border: none;
-  border-radius: 5px; /* Slightly rounded corners */
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3); /* Soft shadow */
+  border-radius: 5px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
 }
 
 .menu-icon.btn {
@@ -98,7 +86,6 @@ export default {
   height: 1em;
 }
 
-/* Hover effect */
 .menu-icon:hover {
   background-color: rgba(52, 58, 64, 0.9);
   cursor: pointer;

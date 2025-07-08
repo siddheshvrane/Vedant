@@ -26,7 +26,6 @@ import PluginManagerSidebar from './SubSidebars/Plugins/PluginManagerSidebar.vue
 import BasicToolsSidebar from './SubSidebars/BasicTools/BasicToolsSidebar.vue';
 
 import MenuItems from './MenuItems.vue';
-// UPDATE THIS LINE: Add MapService to the import
 import { UserInterfaceService, MenuItemService, MapService } from '../../services/controller.js';
 
 export default {
@@ -41,10 +40,10 @@ export default {
   },
   data() {
     return {
-      isOpen: false, // Sidebar's internal state for transitions and display
+      isOpen: false,
       activeSubMenu: null,
       activeSubMenuComponent: null,
-      currentSidebarWidth: '300px',
+      currentSidebarWidth: '0px', // Initialize to '0px' by default when closed
       menuItems: [],
       openSidebarSubscription: null,
       activateFeatureSubscription: null,
@@ -52,7 +51,10 @@ export default {
       menuItemsLoadedSubscription: null,
     };
   },
-  emits: ['close-sidebar', 'service-added'], // Declare emitted events to parent
+  emits: ['service-added'],
+
+  // REMOVED: The watcher for currentSidebarWidth.
+  // We will now explicitly call updateSidebarWidth in the methods below.
 
   mounted() {
     this.openSidebarSubscription = UserInterfaceService.openSidebarPanel$.subscribe(this.handleOpenSidebarPanel);
@@ -64,37 +66,48 @@ export default {
     });
 
     MenuItemService.retrieveAll();
+
+    // IMPORTANT: No initial UserInterfaceService.updateSidebarWidth(this.currentSidebarWidth) here.
+    // The BehaviorSubject in controller.js already defaults to '0px'.
   },
   beforeUnmount() {
     if (this.openSidebarSubscription) this.openSidebarSubscription.unsubscribe();
     if (this.activateFeatureSubscription) this.activateFeatureSubscription.unsubscribe();
     if (this.closeSidebarSubscription) this.closeSidebarSubscription.unsubscribe();
     if (this.menuItemsLoadedSubscription) this.menuItemsLoadedSubscription.unsubscribe();
+    
+    // When Sidebar unmounts, explicitly signal 0px width to ensure SceneInfo is reset.
+    UserInterfaceService.updateSidebarWidth('0px');
   },
   methods: {
     handleOpenSidebarPanel() {
       this.isOpen = true;
-      this.activeSubMenu = null; // Ensure main menu is shown on initial open
-      this.activeSubMenuComponent = null; // Ensure main menu is shown on initial open
-      this.currentSidebarWidth = '300px';
+      this.activeSubMenu = null;
+      this.activeSubMenuComponent = null;
+      this.currentSidebarWidth = '300px'; // Set to default open width
+      // Publish the new width to the service
+      UserInterfaceService.updateSidebarWidth(this.currentSidebarWidth);
     },
     handleActivateFeature(item) {
       if (item && item.component) {
         this.activeSubMenu = item.id;
         this.activeSubMenuComponent = item.component;
-        this.currentSidebarWidth = item.width || '350px';
+        this.currentSidebarWidth = item.width || '350px'; // Set to specific sub-menu width
       } else if (item === null) {
         this.activeSubMenu = null;
         this.activeSubMenuComponent = null;
-        this.currentSidebarWidth = '300px'; // Reset width to default sidebar width
+        this.currentSidebarWidth = '300px'; // Reset to main sidebar width
       }
+      // Publish the new width to the service
+      UserInterfaceService.updateSidebarWidth(this.currentSidebarWidth);
     },
     handleCloseSidebar() {
       this.isOpen = false;
-      this.activeSubMenu = null; // Reset sub-menu on full sidebar close
-      this.activeSubMenuComponent = null; // Reset sub-menu on full sidebar close
-      this.currentSidebarWidth = '300px';
-      this.$emit('close-sidebar');
+      this.activeSubMenu = null;
+      this.activeSubMenuComponent = null;
+      this.currentSidebarWidth = '0px'; // Set to 0px when completely closed
+      // Publish the 0px width to the service
+      UserInterfaceService.updateSidebarWidth(this.currentSidebarWidth);
     },
     handleCloseSubMenu() {
       UserInterfaceService.handleCloseSubMenu();
@@ -102,15 +115,15 @@ export default {
     handleMenuItemClick(item) {
       UserInterfaceService.handleMenuItemClick(item);
     },
-    // New method to handle visualization mode changes from VisualizationSidebar
     handleVisualizationModeChange(mode) {
-      MapService.setVisualizationMode(mode); // Notify MapService of the mode change
+      MapService.setVisualizationMode(mode);
     }
   },
 };
 </script>
 
 <style scoped>
+/* ... (Your existing Sidebar.vue styles remain unchanged) ... */
 .poppins-font {
   font-family: 'Poppins', sans-serif;
 }

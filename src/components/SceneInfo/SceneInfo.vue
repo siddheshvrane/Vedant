@@ -1,5 +1,5 @@
 <template>
-  <div class="scene-info-container poppins-font" :class="{ 'shifted-right': isSidebarOpen }" v-show="isVisible">
+  <div class="scene-info-container poppins-font" :style="sceneInfoStyle" v-show="isVisible">
     <h5 class="info-title">Scene Information</h5>
     <div class="info-item">
       <span class="info-label">Latitude:</span>
@@ -25,7 +25,6 @@
 </template>
 
 <script>
-// Corrected import path for MapService and UserInterfaceService from controller.js
 import { MapService, UserInterfaceService } from '../../services/controller.js';
 
 export default {
@@ -35,10 +34,13 @@ export default {
       type: Boolean,
       default: true
     },
-    // NEW PROP: to know when the sidebar is open
     isSidebarOpen: {
       type: Boolean,
       default: false
+    },
+    sidebarWidth: { // This is the primary driver for the transform
+      type: String,
+      default: '0px'
     }
   },
   data() {
@@ -48,7 +50,7 @@ export default {
       elevation: 0.0,
       terrainType: 'N/A',
       satelliteImageryType: 'N/A',
-      mapViewSubscription: null, // Holds the RxJS subscription
+      mapViewSubscription: null,
     };
   },
   computed: {
@@ -59,27 +61,26 @@ export default {
       return this.longitude.toFixed(4) + '°';
     },
     formattedElevation() {
-      // Assuming elevation is in meters, converting to kilometers
       return (this.elevation / 1000).toFixed(2) + ' km';
     },
+    sceneInfoStyle() {
+      // Directly use sidebarWidth for transform. If '0px', no shift.
+      // The console.log here is still useful for debugging if it doesn't shift.
+      console.log('SceneInfo calculating transform with sidebarWidth:', this.sidebarWidth);
+      return {
+        transform: `translateX(${this.sidebarWidth})`
+      };
+    }
   },
   mounted() {
-    // Subscribe to MapService to get continuous map view updates
     this.mapViewSubscription = MapService.updateView$.subscribe(this.updateSceneInfoHandler);
   },
   beforeUnmount() {
-    // Unsubscribe to prevent memory leaks when the component is destroyed
     if (this.mapViewSubscription) {
       this.mapViewSubscription.unsubscribe();
     }
   },
   methods: {
-    /**
-     * @method updateSceneInfoHandler
-     * @description Updates the component's data with new scene information from MapService.
-     * @param {Object} sceneData - Object containing currentCoordinates ({latitude, longitude, elevation}), terrainType, satelliteImageryType.
-     * @returns {void}
-     */
     updateSceneInfoHandler(sceneData) {
       if (sceneData && sceneData.currentCoordinates) {
         this.latitude = sceneData.currentCoordinates.latitude;
@@ -98,53 +99,46 @@ export default {
 </script>
 
 <style scoped>
-/* Scoped styles ensure these CSS rules only apply to this component. */
 .scene-info-container {
-  position: fixed; /* Positions the component relative to the viewport */
-  bottom: 20px;    /* Distance from the bottom of the viewport */
-  left: 20px;      /* Distance from the left of the viewport */
-  background-color: rgba(30, 30, 30, 0.7); /* Semi-transparent dark background */
-  color: white;    /* White text color */
-  padding: 15px 20px; /* Padding inside the container */
-  border-radius: 10px; /* Rounded corners */
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3); /* Subtle shadow for depth */
-  z-index: 1001;   /* Ensures it's above the Cesium globe and other elements */
-  font-family: 'Poppins', sans-serif; /* Consistent font */
-  width: 250px;    /* Fixed width */
-  backdrop-filter: blur(5px); /* Blurs content behind the element */
-  -webkit-backdrop-filter: blur(5px); /* Safari support for backdrop-filter */
-  /* Add transition for smooth movement */
-  transition: transform 0.3s ease-out; /* Match sidebar's transition duration */
-}
-
-/* New style for when the sidebar is open */
-.scene-info-container.shifted-right {
-  transform: translateX(300px); /* Adjust this value as needed */
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  background-color: rgba(30, 30, 30, 0.7);
+  color: white;
+  padding: 15px 20px;
+  border-radius: 10px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  z-index: 1060; /* Higher than sidebar */
+  font-family: 'Poppins', sans-serif;
+  width: 250px;
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  transition: transform 0.3s ease-out; /* Keep the transition for smooth movement */
 }
 
 .info-title {
   font-size: 1.2em;
   font-weight: 600;
   margin-bottom: 10px;
-  color: #007bff; /* Blue title color */
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2); /* Light separator line */
+  color: #007bff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
   padding-bottom: 8px;
 }
 
 .info-item {
-  display: flex; /* Uses flexbox for label and value alignment */
-  justify-content: space-between; /* Pushes label to left, value to right */
+  display: flex;
+  justify-content: space-between;
   margin-bottom: 5px;
   font-size: 0.95em;
 }
 
 .info-label {
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.8); /* Slightly transparent white for labels */
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .info-value {
-  color: rgba(255, 255, 255, 0.95); /* Nearly opaque white for values */
+  color: rgba(255, 255, 255, 0.95);
   text-align: right;
 }
 </style>
