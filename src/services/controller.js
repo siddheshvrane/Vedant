@@ -118,7 +118,7 @@ class MapServiceClass {
                     return; // Exit for unknown mode
             }
 
-            // REVERTED: Direct assignment for immediate mode change
+            // Direct assignment for immediate mode change
             viewer.scene.mode = targetCesiumMode;
 
         } else {
@@ -198,11 +198,12 @@ class MenuItemServiceClass {
 
     retrieveAll() {
         const items = [
-            new MenuItem('addData', 'Add Data', 'far fa-plus', 'AddDataSidebar', '350px'),
-            new MenuItem('layerManager', 'Layer Manager', 'fas fa-layer-group', 'LayerManagerSidebar', '350px'),
+            new MenuItem('addData', 'Add Data', 'far fa-plus', 'AddDataSidebar', '400px'),
+            // Updated: Increased width for Layer Manager to accommodate more content
+            new MenuItem('layerManager', 'Layer Manager', 'fas fa-layer-group', 'LayerManagerSidebar', '400px'), 
             new MenuItem('visualization', 'Visualization', 'far fa-eye', 'VisualizationSidebar', '350px'),
             new MenuItem('tools', 'Tools', 'fas fa-tools', 'BasicToolsSidebar', '350px'), 
-            new MenuItem('plugins', 'Plugins', 'fas fa-plug', 'PluginManagerSidebar', '350px'),
+            new MenuItem('plugins', 'Plugins', 'fas fa-plug', 'PluginManagerSidebar', '400px'),
         ];
         this.menuItemsLoaded$.next(items);
     }

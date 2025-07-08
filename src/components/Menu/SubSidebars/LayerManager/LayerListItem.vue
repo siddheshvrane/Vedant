@@ -17,13 +17,28 @@
       </label>
     </div>
 
-    <button @click="$emit('edit-layer', layer.id)" class="btn btn-sm btn-link text-white edit-icon">
-      <i class="fas fa-edit"></i>
-    </button>
-
-    <button @click="$emit('remove-layer', layer.id)" class="btn btn-sm btn-link text-danger remove-icon">
-      <i class="fas fa-trash-alt"></i>
-    </button>
+    <div class="layer-actions-group">
+      <button 
+        @click="$emit('move-layer', layer.id, 'up')" 
+        class="btn btn-sm btn-link text-white move-up-icon"
+        :disabled="isFirst"
+      >
+        <i class="fas fa-arrow-up"></i>
+      </button>
+      <button 
+        @click="$emit('move-layer', layer.id, 'down')" 
+        class="btn btn-sm btn-link text-white move-down-icon"
+        :disabled="isLast"
+      >
+        <i class="fas fa-arrow-down"></i>
+      </button>
+      <button @click="$emit('edit-layer', layer.id)" class="btn btn-sm btn-link text-white edit-icon">
+        <i class="fas fa-edit"></i>
+      </button>
+      <button @click="$emit('remove-layer', layer.id)" class="btn btn-sm btn-link text-danger remove-icon">
+        <i class="fas fa-trash-alt"></i>
+      </button>
+    </div>
   </li>
 </template>
 
@@ -38,18 +53,23 @@ export default {
         return 'id' in value && 'name' in value && 'isVisible' in value;
       },
     },
+    // New props to determine if layer is first/last for disabling buttons
+    isFirst: {
+      type: Boolean,
+      default: false
+    },
+    isLast: {
+      type: Boolean,
+      default: false
+    }
   },
-  emits: ['zoom-to-layer', 'toggle-visibility', 'edit-layer', 'remove-layer'],
+  emits: ['zoom-to-layer', 'toggle-visibility', 'edit-layer', 'remove-layer', 'move-layer'],
   data() {
     return {
-      // Use internal data to bind v-model for the checkbox
-      // and emit changes back to the parent
       internalIsVisible: this.layer.isVisible,
     };
   },
   watch: {
-    // Watch for changes in the prop 'layer.isVisible' from the parent
-    // to keep internal state in sync, if the parent modifies it
     'layer.isVisible'(newVal) {
       this.internalIsVisible = newVal;
     },
@@ -106,8 +126,16 @@ export default {
   cursor: pointer;
 }
 
+/* Group for action icons */
+.layer-actions-group {
+    display: flex;
+    align-items: center;
+    margin-left: auto; /* Pushes the group to the right */
+    gap: 5px; /* Spacing between buttons */
+}
+
 /* Icons styling */
-.zoom-icon, .edit-icon, .remove-icon {
+.zoom-icon, .edit-icon, .remove-icon, .move-up-icon, .move-down-icon {
   width: 30px;
   height: 30px;
   display: flex;
@@ -135,5 +163,17 @@ export default {
 }
 .remove-icon:hover {
     color: #dc3545;
+}
+
+/* New move icons styling */
+.move-up-icon, .move-down-icon {
+    color: rgba(108, 117, 125, 0.7); /* A neutral gray similar to Bootstrap secondary */
+}
+.move-up-icon:hover:not(:disabled), .move-down-icon:hover:not(:disabled) {
+    color: #6c757d; /* Darker gray on hover */
+}
+.move-up-icon:disabled, .move-down-icon:disabled {
+    opacity: 0.3; /* Visually indicate disabled state */
+    cursor: not-allowed;
 }
 </style>
