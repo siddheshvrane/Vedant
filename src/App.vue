@@ -12,9 +12,7 @@
     <Compass v-if="viewerInstance" />
     <SearchPanel v-if="viewerInstance" />
 
-    <Menu
-      v-show="globeIsReady"
-      />
+    <Menu v-show="globeIsReady" />
 
     <Popup />
   </div>
@@ -56,11 +54,8 @@ export default {
     };
   },
   created() {
-    // console.log('App.vue: created. AppInitializer handled in controller.js.');
   },
   mounted() {
-    // console.log('App.vue: mounted');
-
     this.projectLogoReadySubscription = UserInterfaceService.projectLogoReady$.subscribe(() => {
     });
 
@@ -80,11 +75,9 @@ export default {
     // NEW: Subscribe to the sidebar width updates from the service
     this.sidebarWidthSubscription = UserInterfaceService.sidebarWidthUpdated$.subscribe(width => {
       this.currentSidebarWidth = width;
-      console.log('App.vue received sidebar width via service:', width); // Debugging log
     });
   },
   beforeUnmount() {
-    // console.log('App.vue: beforeUnmount - Cleaning up subscriptions.');
     if (this.projectLogoReadySubscription) this.projectLogoReadySubscription.unsubscribe();
     if (this.globeInitializedSubscription) this.globeInitializedSubscription.unsubscribe();
     if (this.globeViewerSubscription) this.globeViewerSubscription.unsubscribe();
@@ -95,7 +88,6 @@ export default {
     handleZoomToCoordinates(coordinates) {
       MapService.zoomToCoordinates(coordinates);
     },
-    // REMOVED: handleUpdateSidebarWidth method as it's no longer needed
   },
   computed: {
   },

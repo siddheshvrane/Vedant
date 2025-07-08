@@ -64,9 +64,6 @@ export default {
       return (this.elevation / 1000).toFixed(2) + ' km';
     },
     sceneInfoStyle() {
-      // Directly use sidebarWidth for transform. If '0px', no shift.
-      // The console.log here is still useful for debugging if it doesn't shift.
-      console.log('SceneInfo calculating transform with sidebarWidth:', this.sidebarWidth);
       return {
         transform: `translateX(${this.sidebarWidth})`
       };

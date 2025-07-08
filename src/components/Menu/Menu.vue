@@ -1,3 +1,4 @@
+// menu.vue
 <template>
   <div class="menu-container">
     <button @click="openMenu" class="btn btn-dark menu-icon" v-show="!showLocalSidebar">
@@ -6,7 +7,6 @@
 
     <Sidebar
       v-show="showLocalSidebar"
-      @service-added="handleServiceAdded"
       @close-sidebar="handleCloseSidebarFromChild"
       />
   </div>
@@ -27,8 +27,8 @@ export default {
       sidebarGlobalSubscription: null,
     };
   },
-  // REMOVED: 'update-sidebar-width' from emits
-  emits: ['service-added'],
+  
+  emits: [], 
 
   mounted() {
     this.sidebarGlobalSubscription = UserInterfaceService.isSidebarOpen$.subscribe(isOpen => {
@@ -45,15 +45,8 @@ export default {
       UserInterfaceService.openInitialMenu();
     },
     handleCloseSidebarFromChild() {
-      // Sidebar emits 'close-sidebar', and here Menu.vue ensures the global state is updated.
-      // This will trigger UserInterfaceService.isSidebarOpen$ to emit false,
-      // which in turn will cause Sidebar to set its width to 0px and publish it.
       UserInterfaceService.setSidebarOpen(false); 
     },
-    handleServiceAdded(params) {
-      this.$emit('service-added', params);
-    },
-    // REMOVED: handleSidebarWidthUpdate method as it's no longer needed
   },
 };
 </script>

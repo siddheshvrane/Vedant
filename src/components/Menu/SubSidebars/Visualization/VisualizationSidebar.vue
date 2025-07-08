@@ -1,8 +1,11 @@
 <template>
   <div class="sub-sidebar-panel poppins-font">
     <div class="sub-sidebar-header">
+      <button @click="$emit('back-to-main-menu')" class="btn btn-link text-white back-btn">
+        <i class="fas fa-arrow-left"></i>
+      </button>
       <h5 class="sub-sidebar-title">Visualization Mode</h5>
-      <button @click="goBack" class="btn btn-link text-white close-btn">
+      <button @click="$emit('close-all-sidebars')" class="btn btn-link text-white close-btn">
         <i class="fas fa-times"></i>
       </button>
     </div>
@@ -50,32 +53,46 @@
 </template>
 
 <script>
+// Corrected import path: Go up three directories to 'src', then into 'services'
+import { MapService } from '../../../../services/controller.js';
+
 export default {
   name: 'VisualizationSidebar',
   data() {
     return {
-      selectedMode: '3D', // Default to 3D Globe
+      selectedMode: '3D', 
+      modeSubscription: null,
     };
   },
+  emits: ['close-all-sidebars', 'back-to-main-menu', 'update-visualization-mode'],
+  
   mounted() {
-    // Emit the initial mode when the component is mounted
-    this.emitModeChange();
+    this.modeSubscription = MapService.visualizationModeChanged$.subscribe(mode => {
+      if (this.selectedMode !== mode) {
+        this.selectedMode = mode;
+      }
+    });
+
+    MapService.setVisualizationMode(this.selectedMode);
   },
-  methods: {
-    goBack() {
-      // Emits an event to the parent component to close this sidebar
-      this.$emit('close-sub-menu');
-    },
-    emitModeChange() {
-      // Emits the currently selected visualization mode to the parent component
-      this.$emit('update-visualization-mode', this.selectedMode);
+
+  beforeUnmount() {
+    if (this.modeSubscription) {
+      this.modeSubscription.unsubscribe();
     }
+  },
+
+  methods: {
+    emitModeChange() {
+      MapService.setVisualizationMode(this.selectedMode);
+      this.$emit('update-visualization-mode', this.selectedMode); 
+    },
   }
 };
 </script>
 
 <style scoped>
-/* Reusing styles from AddDataSidebar for consistency */
+/* Your existing styles remain unchanged */
 .sub-sidebar-panel {
   width: 100%;
   height: 100%;
@@ -90,7 +107,7 @@ export default {
 .sub-sidebar-header {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   padding: 15px 15px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   background-color: rgba(30, 30, 30, 0);
@@ -102,7 +119,17 @@ export default {
   margin-bottom: 0;
   font-size: 1.2em;
   color: white;
-  margin-left: 30px;
+}
+
+.back-btn {
+  font-size: 1em;
+  color: white !important;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+}
+
+.back-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
 }
 
 .close-btn {
@@ -123,12 +150,11 @@ export default {
   color: white;
 }
 
-.sub-sidebar-body label {
+.form-check-label {
     color: rgba(255, 255, 255, 0.8);
     margin-bottom: 5px;
 }
 
-/* Custom styles for radio buttons */
 .form-check-input {
     background-color: rgba(255, 255, 255, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.2);
@@ -138,10 +164,6 @@ export default {
 .form-check-input:checked {
     background-color: #007bff;
     border-color: #007bff;
-}
-
-.form-check-label {
-    color: rgba(255, 255, 255, 0.9);
 }
 
 .sidebar-divider {

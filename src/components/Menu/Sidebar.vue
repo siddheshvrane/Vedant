@@ -10,7 +10,8 @@
       <component
         :is="activeSubMenuComponent"
         v-if="activeSubMenu"
-        @close-sub-menu="handleCloseSubMenu"
+        @close-all-sidebars="handleCloseAllSidebars"
+        @back-to-main-menu="handleBackToMainMenu"
         @update-visualization-mode="handleVisualizationModeChange"
         class="sub-sidebar-transition-target"
       />
@@ -51,10 +52,8 @@ export default {
       menuItemsLoadedSubscription: null,
     };
   },
-  emits: ['service-added'],
-
-  // REMOVED: The watcher for currentSidebarWidth.
-  // We will now explicitly call updateSidebarWidth in the methods below.
+  
+  emits: [],
 
   mounted() {
     this.openSidebarSubscription = UserInterfaceService.openSidebarPanel$.subscribe(this.handleOpenSidebarPanel);
@@ -109,7 +108,14 @@ export default {
       // Publish the 0px width to the service
       UserInterfaceService.updateSidebarWidth(this.currentSidebarWidth);
     },
-    handleCloseSubMenu() {
+    // This method is now specifically for the "Close all sidebars" action
+    handleCloseAllSidebars() {
+      // Corrected: Call the existing 'closeAll' method in UserInterfaceService
+      UserInterfaceService.closeAll();
+    },
+    // This method is for the "Back to main menu" action
+    handleBackToMainMenu() {
+      // Corrected: Call the existing 'handleCloseSubMenu' method in UserInterfaceService
       UserInterfaceService.handleCloseSubMenu();
     },
     handleMenuItemClick(item) {

@@ -1,3 +1,4 @@
+// controller.js
 // src/services/controller.js - This file now serves as the main entry point and service container.
 
 // Set CESIUM_BASE_URL to tell Cesium where to find its assets (Workers, Assets, etc.).
@@ -50,8 +51,8 @@ class MapServiceClass {
     globeInitialized$ = new Subject(); // Globe.vue emits true/false after init attempt
     globeViewer$ = new BehaviorSubject(null); // Globe.vue emits the Cesium viewer instance, using BehaviorSubject for current value
 
-    // NEW: Subject for visualization mode changes
-    visualizationModeChanged$ = new Subject();
+    // Changed this from Subject to BehaviorSubject to hold the current state
+    visualizationModeChanged$ = new BehaviorSubject('3D'); // Default to 3D Globe
 
     updateView(updateData) {
         this.updateView$.next(updateData);
@@ -89,9 +90,40 @@ class MapServiceClass {
         return this.globeViewer$.getValue();
     }
 
-    // NEW: Method to set the visualization mode
+    /**
+     * Sets the visualization mode for the Cesium globe.
+     * Also updates the internal state.
+     * @param {string} mode - The desired visualization mode ('2D', '3D', 'Anaglyph').
+     */
     setVisualizationMode(mode) {
-        this.visualizationModeChanged$.next(mode);
+        console.log("MapService: Setting visualization mode to", mode);
+        this.visualizationModeChanged$.next(mode); // Update the internal state
+
+        const viewer = this.getGlobeViewer(); // Get the current Cesium Viewer instance
+        if (viewer) {
+            let targetCesiumMode;
+
+            switch (mode) {
+                case '2D':
+                    targetCesiumMode = Cesium.SceneMode.SCENE2D;
+                    break;
+                case '3D': // Corresponds to "2.5D (3D Globe)"
+                    targetCesiumMode = Cesium.SceneMode.SCENE3D;
+                    break;
+                case 'Anaglyph':
+                    console.warn("MapService: Anaglyph 3D mode is not yet implemented.");
+                    return; // Exit if not implemented
+                default:
+                    console.warn("MapService: Unknown visualization mode requested:", mode);
+                    return; // Exit for unknown mode
+            }
+
+            // REVERTED: Direct assignment for immediate mode change
+            viewer.scene.mode = targetCesiumMode;
+
+        } else {
+            console.warn("MapService: Cesium Viewer not available when attempting to set visualization mode.");
+        }
     }
 }
 // Export an instance of MapServiceClass as MapService
@@ -149,6 +181,9 @@ class UserInterfaceServiceClass {
     // NEW: Method to update sidebar width from Sidebar.vue
     updateSidebarWidth(width) {
         this.sidebarWidthUpdated$.next(width);
+    }
+    setSidebarOpen(isOpen) {
+        this.isSidebarOpen$.next(isOpen);
     }
 }
 // Export an instance of UserInterfaceServiceClass as UserInterfaceService

@@ -1,3 +1,4 @@
+// MenuItems.vue
 <template>
   <li>
     <button @click="closeSidebar" class="btn btn-link text-white sidebar-item poppins-font">
