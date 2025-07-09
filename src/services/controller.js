@@ -244,8 +244,6 @@ class PopupServiceClass {
             extent: ''
         });
     }
-    // Note: getD() and submitForm() from Popup Form diagram are typically handled
-    // by the component (e.g., GeoSpatialForm) that collects input, not the display popup itself.
 }
 export const PopupService = new PopupServiceClass();
 
@@ -254,10 +252,118 @@ export const PopupService = new PopupServiceClass();
  * Matches 'DataAddService: RequestAddData' from diagram. 
  */
 class DataAddServiceClass {
-    // This subject could be used to notify other parts of the app about a successful add,
-    // though the PopupService already handles the immediate feedback.
     dataAdded$ = new Subject();
     serviceAdded$ = new Subject();
+    submissionSuccess$ = new Subject(); // For success messages to UI
+    submissionError$ = new Subject();   // For error messages to UI
+
+    /**
+     * Internal helper to read file content as text.
+     * @param {File} file - The File object to read.
+     * @returns {Promise<string>} - A promise that resolves with the file content.
+     */
+    async #readFileAsText(file) { // Using private class field syntax (#)
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = (e) => reject(e);
+            reader.readAsText(file);
+        });
+    }
+
+    /**
+     * Internal helper to parse JSON string.
+     * @param {string} jsonString - The JSON string to parse.
+     * @param {string} fieldName - The name of the field for error reporting.
+     * @returns {object|null} - The parsed JSON object or null if parsing fails.
+     */
+    #parseJson(jsonString, fieldName) { // Using private class field syntax (#)
+        if (!jsonString) {
+            return {};
+        }
+        try {
+            return JSON.parse(jsonString);
+        } catch (e) {
+            console.error(`Error parsing ${fieldName} JSON:`, e);
+            this.submissionError$.next(`Invalid JSON in ${fieldName}. Please check the syntax.`);
+            return null;
+        }
+    }
+
+    /**
+     * Processes the complete geo-spatial content submission from the form.
+     * This method handles validation, file reading, and model construction.
+     * @param {object} payload - The raw form data payload from GeoSpatialForm.
+     * @param {File|null} file - The uploaded File object, if any.
+     */
+    async processGeoSpatialSubmission(payload, file) {
+        // 1. Basic Validation
+        if (!payload.contentName) {
+            this.submissionError$.next('Please enter a name for the content.');
+            return;
+        }
+
+        if (payload.selectedOption === 'data') {
+            // Data submission
+            if (payload.contentType === 'geojson') {
+                if (!file) {
+                    this.submissionError$.next('Please select a JSON file for GeoJSON data.');
+                    return;
+                }
+                try {
+                    const fileContent = await this.#readFileAsText(file);
+                    const jsonData = JSON.parse(fileContent);
+
+                    const dataModel = new Data(
+                        `data-${Date.now()}`,
+                        payload.contentName,
+                        payload.contentType,
+                        { jsonContent: jsonData }
+                    );
+                    this.addData(dataModel);
+                    this.submissionSuccess$.next('GeoJSON Data Added Successfully!');
+                } catch (error) {
+                    console.error('DataAddService: Error processing GeoJSON file:', error);
+                    this.submissionError$.next(`Failed to process GeoJSON file: ${error.message || error}. Please check file content.`);
+                }
+            } else {
+                // Handle other data types (kml, shapefile) that might not involve files or use different sources
+                // For now, they just have name and type
+                const dataModel = new Data(
+                    `data-${Date.now()}`,
+                    payload.contentName,
+                    payload.contentType,
+                    {} // No specific srcInfo for now if no file/URL
+                );
+                this.addData(dataModel);
+                this.submissionSuccess$.next(`${payload.contentType.toUpperCase()} Data Added Successfully!`);
+            }
+        } else {
+            // Service submission
+            if (!payload.baseUrl) {
+                this.submissionError$.next('Please enter a Base URL for the service.');
+                return;
+            }
+
+            const parsedArgs = this.#parseJson(payload.argsInput, 'Args');
+            if (parsedArgs === null) return; // Error already emitted by #parseJson
+
+            const parsedLegendOptions = this.#parseJson(payload.legendOptionsInput, 'Legend Options');
+            if (parsedLegendOptions === null) return; // Error already emitted by #parseJson
+
+            const serviceModel = new Service(
+                `service-${Date.now()}`,
+                payload.contentName,
+                payload.contentType,
+                payload.baseUrl,
+                parsedArgs,
+                parsedLegendOptions
+            );
+            this.addService(serviceModel);
+            this.submissionSuccess$.next('Service Added Successfully!');
+        }
+    }
+
 
     /**
      * Processes the request to add geospatial data.
@@ -266,20 +372,37 @@ class DataAddServiceClass {
     addData(dataModel) {
         if (!(dataModel instanceof Data)) {
             console.error('DataAddService: Invalid data model provided.', dataModel);
+            this.submissionError$.next('Internal Error: Invalid data model.');
             return;
         }
         console.log('DataAddService: Processing data addition for:', dataModel);
-        // Simulate data processing/API call
-        // In a real app, this would involve network requests, then potentially
-        // calling MapService.renderGraphic or similar.
         
-        // On success, show popup
+        let srs = 'N/A';
+        let extent = 'N/A';
+
+        // If it's GeoJSON, try to extract SRS/extent from jsonContent if available
+        if (dataModel.type === 'geojson' && dataModel.srcInfo && dataModel.srcInfo.jsonContent) {
+            const jsonContent = dataModel.srcInfo.jsonContent;
+            if (jsonContent.crs && jsonContent.crs.properties && jsonContent.crs.properties.name) {
+                srs = jsonContent.crs.properties.name;
+            }
+            if (jsonContent.bbox) {
+                extent = JSON.stringify(jsonContent.bbox);
+            }
+        }
+        if (srs === 'N/A' && dataModel.srcInfo && dataModel.srcInfo.srs) {
+            srs = dataModel.srcInfo.srs;
+        }
+        if (extent === 'N/A' && dataModel.srcInfo && dataModel.srcInfo.extent) {
+            extent = dataModel.srcInfo.extent;
+        }
+
         PopupService.show({
             layerName: dataModel.name,
-            srs: dataModel.srcInfo.srs || 'N/A', // Assuming srs is part of srcInfo
-            extent: dataModel.srcInfo.extent || 'N/A' // Assuming extent is part of srcInfo
+            srs: srs,
+            extent: extent
         });
-        this.dataAdded$.next(dataModel); // Notify other subscribers
+        this.dataAdded$.next(dataModel);
     }
 
     /**
@@ -289,27 +412,18 @@ class DataAddServiceClass {
     addService(serviceModel) {
         if (!(serviceModel instanceof Service)) {
             console.error('DataAddService: Invalid service model provided.', serviceModel);
+            this.submissionError$.next('Internal Error: Invalid service model.');
             return;
         }
         console.log('DataAddService: Processing service addition for:', serviceModel);
-        // Simulate service processing/API call
-        // This might involve validating the service URL, fetching capabilities, etc.
-        // Then potentially calling MapService to add a layer based on the service.
         
-        // On success, show popup
         PopupService.show({
             layerName: serviceModel.name,
-            srs: serviceModel.args.srs || 'N/A', // Assuming srs is part of args for a service
-            extent: serviceModel.args.extent || 'N/A' // Assuming extent is part of args
+            srs: serviceModel.args.srs || 'N/A',
+            extent: serviceModel.args.extent || 'N/A'
         });
-        this.serviceAdded$.next(serviceModel); // Notify other subscribers
+        this.serviceAdded$.next(serviceModel);
     }
-
-    // Methods corresponding to prepareGraphic() and execute() for Service
-    // These would be internal to the DataAddService or GraphicProductionService
-    // For now, they are conceptual, but would be called during addData/addService if needed.
-    // prepareGraphic(dataOrService) { /* ... */ }
-    // execute(dataOrService) { /* ... */ }
 }
 export const DataAddService = new DataAddServiceClass();
 
@@ -331,13 +445,10 @@ class LayerServiceClass {
         return this.layers$.getValue();
     }
 
-    // This method would typically interact with MapService
     zoomToLayer(layerId) {
         const layer = this.getLayers().find(l => l.id === layerId);
         if (layer) {
             console.log(`LayerService: Requesting zoom to layer: ${layer.name}`);
-            // Example: If layers had coordinates or extents, you'd pass them to MapService
-            // MapService.zoomToCoordinates({ /* coordinates from layer */ });
         }
     }
 
@@ -346,10 +457,8 @@ class LayerServiceClass {
         const layerIndex = currentLayers.findIndex(l => l.id === layerId);
         if (layerIndex !== -1) {
             currentLayers[layerIndex].isVisible = isVisible;
-            this.layers$.next([...currentLayers]); // Emit updated array
+            this.layers$.next([...currentLayers]);
             console.log(`LayerService: Toggling visibility for layer ${currentLayers[layerIndex].name}: ${isVisible}`);
-            // Example: Call MapService to show/hide the actual map layer/graphic
-            // if (isVisible) { MapService.renderGraphic(layerId); } else { MapService.removeGraphic(layerId); }
         }
     }
 
@@ -357,19 +466,14 @@ class LayerServiceClass {
         const layer = this.getLayers().find(l => l.id === layerId);
         if (layer) {
             console.log(`LayerService: Requesting edit for layer: ${layer.name}`);
-            // Example: Open a form for editing layer properties
         }
     }
 
     removeLayer(layerId) {
         const layerName = this.getLayers().find(l => l.id === layerId)?.name || 'unknown layer';
-        // IMPORTANT: In a real app, this would trigger a custom confirmation modal
-        // before actually removing the layer. For now, it's immediate deletion.
         const updatedLayers = this.getLayers().filter(layer => layer.id !== layerId);
-        this.layers$.next(updatedLayers); // Emit updated array
+        this.layers$.next(updatedLayers);
         console.log(`LayerService: Removed layer: ${layerName} (ID: ${layerId})`);
-        // Example: Call MapService to remove the actual map layer/graphic
-        // MapService.removeGraphic(layerId);
     }
 
     moveLayer(layerId, direction) {
@@ -387,7 +491,7 @@ class LayerServiceClass {
         if (newIndex !== index) {
             const [movedLayer] = currentLayers.splice(index, 1);
             currentLayers.splice(newIndex, 0, movedLayer);
-            this.layers$.next([...currentLayers]); // Emit updated array
+            this.layers$.next([...currentLayers]);
             console.log(`LayerService: Layer ${layerId} moved from ${index} to ${newIndex}`);
         }
     }

@@ -4,8 +4,11 @@
       v-model:selectedOption="selectedOption"
       v-model:contentName="currentName"
       v-model:contentType="currentType"
-      @submit-data="handleAddData"
-      @submit-service="handleAddService"
+      v-model:baseUrl="currentBaseUrl"
+      v-model:argsInput="currentArgsInput"
+      v-model:legendOptionsInput="currentLegendOptionsInput"
+      @submit-form="handleSubmitForm"
+      @file-selected="handleFileSelected"
     />
   </BaseSubSidebar>
 </template>
@@ -13,74 +16,84 @@
 <script>
 import BaseSubSidebar from '../SubSidebar.vue';
 import GeoSpatialForm from './GeoSpatialForm.vue';
-// Import services and data models
-import { DataAddService } from '../../../../services/controller.js'; // 
-import Data from '../../../../datamodels/Data.js'; // 
-import Service from '../../../../datamodels/Service.js'; // 
+import { DataAddService } from '../../../../services/controller.js'; // Import DataAddService
 
 export default {
-  name: 'AddDataSidebar', // Matches class diagram 
+  name: 'AddDataSidebar',
   components: {
     BaseSubSidebar,
     GeoSpatialForm,
   },
   data() {
     return {
-      selectedOption: 'data', // 'data' or 'service' [cite: 2]
-      currentName: '', // Holds dataName or serviceName
-      currentType: 'geojson', // Holds selectedDataType or selectedServiceType
+      selectedOption: 'data',
+      currentName: '',
+      currentType: 'geojson',
+      currentBaseUrl: '',
+      currentArgsInput: '',
+      currentLegendOptionsInput: '',
+      selectedFile: null,
     };
   },
   watch: {
     selectedOption(newVal) {
-      // Reset name and type when switching options
+      // Reset relevant fields when switching options
       this.currentName = '';
-      this.currentType = newVal === 'data' ? 'geojson' : 'ridam';
-      // oselect() functionality, if it involved more complex logic. [cite: 3]
+      this.currentBaseUrl = '';
+      this.currentArgsInput = '';
+      this.currentLegendOptionsInput = '';
+      this.selectedFile = null;
+
+      if (newVal === 'data') {
+        this.currentType = 'geojson';
+      } else { // service
+        this.currentType = 'wms';
+      }
+      // Reset validation errors if you're using them
+      // this.validationErrors = {};
+    }
+  },
+  created() {
+    // Subscribe to success and error events from DataAddService
+    this.successSubscription = DataAddService.submissionSuccess$.subscribe(message => {
+      alert(message); // Using alert for simplicity, replace with a proper notification system
+      this.resetForm();
+    });
+
+    this.errorSubscription = DataAddService.submissionError$.subscribe(errorMessage => {
+      alert(`Submission Error: ${errorMessage}`); // Using alert, replace as needed
+      // You could also populate specific validationErrors here
+    });
+  },
+  beforeUnmount() {
+    // Unsubscribe to prevent memory leaks
+    if (this.successSubscription) {
+      this.successSubscription.unsubscribe();
+    }
+    if (this.errorSubscription) {
+      this.errorSubscription.unsubscribe();
     }
   },
   methods: {
-    /**
-     * Handles the submission of new data.
-     * Corresponds to oprocessInput() logic for Data. [cite: 3]
-     * @param {object} payload - Data from the form.
-     */
-    handleAddData(payload) {
-      // Create a Data model instance 
-      const dataModel = new Data(
-        `data-${Date.now()}`, // Simple unique ID
-        payload.name,
-        payload.type,
-        payload.srcInfo
-      );
-      // Call the DataAddService to process the data 
-      DataAddService.addData(dataModel);
-      // oShowSuccess() is handled by DataAddService calling PopupService [cite: 3]
+    handleFileSelected(file) {
+      this.selectedFile = file;
     },
-    
-    /**
-     * Handles the submission of a new service.
-     * Corresponds to oprocessInput() logic for Service. [cite: 3]
-     * @param {object} payload - Service details from the form.
-     */
-    handleAddService(payload) {
-      // Create a Service model instance 
-      const serviceModel = new Service(
-        `service-${Date.now()}`, // Simple unique ID
-        payload.name,
-        payload.type,
-        // Assuming baseUrl, args, legOpts would come from more detailed service form fields
-        // For now, using placeholders from payload
-        'http://example.com/service', // Placeholder [cite: 21]
-        payload.args, // [cite: 22]
-        payload.legOpts // [cite: 23]
-      );
-      // Call the DataAddService to process the service 
-      DataAddService.addService(serviceModel);
-      // oShowSuccess() is handled by DataAddService calling PopupService [cite: 3]
+    async handleSubmitForm(payload) {
+      // Pass the raw payload and file directly to the DataAddService
+      // The service will handle all processing, validation, and file reading
+      DataAddService.processGeoSpatialSubmission(payload, this.selectedFile);
     },
-
-    // odisplayForm() is implicitly handled by rendering GeoSpatialForm.vue [cite: 3]
+    resetForm() {
+      // Reset form fields after successful submission
+      this.currentName = '';
+      this.currentBaseUrl = '';
+      this.currentArgsInput = '';
+      this.currentLegendOptionsInput = '';
+      this.selectedFile = null;
+      // this.validationErrors = {};
+      this.selectedOption = 'data'; // Reset to default tab
+      this.currentType = 'geojson'; // Reset to default type for data
+    }
   },
 };
 </script>

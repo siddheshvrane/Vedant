@@ -72,19 +72,21 @@
       </div>
     </div>
 
-    <div class="form-group mb-3">
+    <!-- Base URL is now only visible for Add Service -->
+    <div v-if="selectedOption === 'service'" class="form-group mb-3">
       <label for="baseUrl" class="form-label">Base URL:</label>
       <input
         type="text"
         id="baseUrl"
         class="form-control"
-        placeholder="e.g., https://example.com/data.geojson or WMS/WMTS service URL"
+        placeholder="e.g., WMS/WMTS service URL"
         :value="baseUrl"
         @input="$emit('update:baseUrl', $event.target.value)"
       />
     </div>
 
-    <div class="form-group mb-3">
+    <!-- Args (JSON) is now only visible for Add Service -->
+    <div v-if="selectedOption === 'service'" class="form-group mb-3">
       <label for="argsInput" class="form-label">Args (JSON):</label>
       <textarea
         id="argsInput"
@@ -96,7 +98,8 @@
       ></textarea>
     </div>
 
-    <div class="form-group mb-3">
+    <!-- Legend Options (JSON) is now only visible for Add Service -->
+    <div v-if="selectedOption === 'service'" class="form-group mb-3">
       <label for="legendOptionsInput" class="form-label">Legend Options (JSON):</label>
       <textarea
         id="legendOptionsInput"
@@ -108,55 +111,16 @@
       ></textarea>
     </div>
 
+    <!-- Upload JSON File section: now only for GeoJSON Data -->
     <div v-if="selectedOption === 'data' && contentType === 'geojson'" class="form-group mb-3">
-      <label class="form-label">GeoJSON Source:</label>
-      <div class="d-flex justify-content-center align-items-center mb-3">
-        <div class="form-check form-check-inline">
-          <input
-            class="form-check-input"
-            type="radio"
-            id="geojsonSourceText"
-            value="text"
-            :checked="selectedJsonSource === 'text'"
-            @change="selectedJsonSource = 'text'; uploadedJsonFile = null"
-          />
-          <label class="form-check-label" for="geojsonSourceText">Enter Text</label>
-        </div>
-        <div class="form-check form-check-inline">
-          <input
-            class="form-check-input"
-            type="radio"
-            id="geojsonSourceFile"
-            value="file"
-            :checked="selectedJsonSource === 'file'"
-            @change="selectedJsonSource = 'file'; $emit('update:jsonTextInput', '')"
-          />
-          <label class="form-check-label" for="geojsonSourceFile">Upload File</label>
-        </div>
-      </div>
-
-      <div v-if="selectedJsonSource === 'text'">
-        <label for="jsonTextInput" class="form-label">GeoJSON Text:</label>
-        <textarea
-          id="jsonTextInput"
-          class="form-control"
-          rows="8"
-          placeholder='Enter GeoJSON content here, e.g., {"type": "Feature", ...}'
-          :value="jsonTextInput"
-          @input="$emit('update:jsonTextInput', $event.target.value)"
-        ></textarea>
-      </div>
-
-      <div v-if="selectedJsonSource === 'file'">
-        <label for="jsonFileUpload" class="form-label">Upload GeoJSON File:</label>
-        <input
-          type="file"
-          id="jsonFileUpload"
-          class="form-control"
-          accept=".geojson,.json"
-          @change="handleJsonFileUpload"
-        />
-      </div>
+      <label for="jsonFileUpload" class="form-label">Upload JSON File:</label>
+      <input
+        type="file"
+        id="jsonFileUpload"
+        class="form-control"
+        accept=".geojson,.json"
+        @change="handleJsonFileUpload"
+      />
     </div>
 
     <button
@@ -186,100 +150,59 @@ export default {
       type: String,
       required: true
     },
-    baseUrl: { // New prop
+    baseUrl: { // Only used for services now
       type: String,
       default: ''
     },
-    argsInput: { // New prop for Args JSON text
+    argsInput: { // Only used for services now
       type: String,
       default: ''
     },
-    legendOptionsInput: { // New prop for Legend Options JSON text
+    legendOptionsInput: { // Only used for services now
       type: String,
       default: ''
     },
-    jsonTextInput: { // New prop for direct GeoJSON text input
-      type: String,
-      default: ''
-    }
   },
   emits: [
     'update:selectedOption',
     'update:contentName',
     'update:contentType',
-    'update:baseUrl', // New emit
-    'update:argsInput', // New emit
-    'update:legendOptionsInput', // New emit
-    'update:jsonTextInput', // New emit
-    'submit-data',
-    'submit-service'
+    'update:baseUrl',
+    'update:argsInput',
+    'update:legendOptionsInput',
+    'submit-form', // Single submit event
+    'file-selected' // New event for file selection
   ],
   data() {
     return {
-      selectedJsonSource: 'none', // 'none', 'text', 'file'
-      uploadedJsonFile: null // To hold the File object
+      // No internal state for uploadedJsonFile here, it's emitted directly
     };
+  },
+  watch: {
+    selectedOption(newVal) {
+      if (newVal === 'service' && this.contentType !== 'wms' && this.contentType !== 'wmts') {
+        this.$emit('update:contentType', 'wms');
+      } else if (newVal === 'data' && this.contentType !== 'geojson' && this.contentType !== 'kml' && this.contentType !== 'shapefile') {
+         this.$emit('update:contentType', 'geojson');
+      }
+    }
   },
   methods: {
     handleJsonFileUpload(event) {
-      this.uploadedJsonFile = event.target.files[0];
-    },
-    parseJson(jsonString, fieldName) {
-      if (!jsonString) {
-        return {};
-      }
-      try {
-        return JSON.parse(jsonString);
-      } catch (e) {
-        console.error(`Error parsing ${fieldName} JSON:`, e);
-        alert(`Invalid JSON in ${fieldName}. Please check the syntax.`);
-        return null; // Return null to indicate parsing error
-      }
+      // Emit the file directly, parent will handle reading
+      this.$emit('file-selected', event.target.files[0]);
     },
     submitForm() {
-      // Basic validation
-      if (!this.contentName) {
-        alert('Please enter a name for the content.');
-        return;
-      }
-
-      const parsedArgs = this.parseJson(this.argsInput, 'Args');
-      if (parsedArgs === null) return; // Stop if parsing failed
-
-      const parsedLegendOptions = this.parseJson(this.legendOptionsInput, 'Legend Options');
-      if (parsedLegendOptions === null) return; // Stop if parsing failed
-
+      // Emit all relevant data, parent will handle validation and processing
       const payload = {
-        name: this.contentName,
-        type: this.contentType,
-        baseUrl: this.baseUrl, // Include base URL
-        args: parsedArgs,      // Include parsed args
-        legOpts: parsedLegendOptions // Include parsed legend options
+        selectedOption: this.selectedOption,
+        contentName: this.contentName,
+        contentType: this.contentType,
+        baseUrl: this.baseUrl,
+        argsInput: this.argsInput,
+        legendOptionsInput: this.legendOptionsInput,
       };
-
-      if (this.selectedOption === 'data') {
-        if (this.contentType === 'geojson') {
-          if (this.selectedJsonSource === 'text') {
-            const parsedJsonText = this.parseJson(this.jsonTextInput, 'GeoJSON Text');
-            if (parsedJsonText === null) return; // Stop if parsing failed
-            payload.jsonContent = parsedJsonText; // Add parsed GeoJSON content
-          } else if (this.selectedJsonSource === 'file') {
-            if (!this.uploadedJsonFile) {
-              alert('Please select a GeoJSON file.');
-              return;
-            }
-            payload.jsonFile = this.uploadedJsonFile; // Add the File object
-            // Note: File content needs to be read asynchronously by the parent component
-            // or a service that receives this payload. This component only passes the File object.
-          } else {
-            alert('Please specify a GeoJSON source (text or file).');
-            return;
-          }
-        }
-        this.$emit('submit-data', payload);
-      } else { // Service
-        this.$emit('submit-service', payload);
-      }
+      this.$emit('submit-form', payload);
     }
   }
 };
