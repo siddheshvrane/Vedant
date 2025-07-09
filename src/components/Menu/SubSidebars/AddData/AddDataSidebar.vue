@@ -56,13 +56,11 @@ export default {
   created() {
     // Subscribe to success and error events from DataAddService
     this.successSubscription = DataAddService.submissionSuccess$.subscribe(message => {
-      alert(message); // Using alert for simplicity, replace with a proper notification system
       this.resetForm();
     });
 
     this.errorSubscription = DataAddService.submissionError$.subscribe(errorMessage => {
-      alert(`Submission Error: ${errorMessage}`); // Using alert, replace as needed
-      // You could also populate specific validationErrors here
+
     });
   },
   beforeUnmount() {
