@@ -4,7 +4,6 @@ class CesiumGlobeManager {
     constructor(containerId, options = {}) {
         this.viewer = null;
         this.containerId = containerId;
-
         this.defaultViewerOptions = {
             animation: false,
             baseLayerPicker: false,
@@ -22,8 +21,13 @@ class CesiumGlobeManager {
             terrainExaggeration: 1.0,
         };
         this.currentLocationMarkerEntity = null;
-
         this.viewerOptions = { ...this.defaultViewerOptions, ...options };
+
+        // Internal map to store Cesium layer objects by their ID
+        this.cesiumLayersMap = new Map(); 
+        
+        // Reference to the explicitly added base imagery layer
+        this.baseImageryLayer = null; 
     }
 
     init() {
@@ -41,11 +45,11 @@ class CesiumGlobeManager {
             selectionIndicator: this.viewerOptions.selectionIndicator,
             timeline: this.viewerOptions.timeline,
             navigationHelpButton: this.viewerOptions.navigationHelpButton,
-            navigationInstructionsInitiallyVisible: this.viewerOptions.navigationInstructionsInitiallyVisible,
+            navigationInstructionsInitiallyVisible: false, 
             creditContainer: this.viewerOptions.creditContainer,
             fullscreenButton: this.viewerOptions.fullscreenButton,
             
-            imageryProvider: false, 
+            imageryProvider: false, // Start with no default imagery, we add our own
             
             sceneMode: this.viewerOptions.sceneMode,
             terrainExaggeration: this.viewerOptions.terrainExaggeration,
@@ -53,7 +57,9 @@ class CesiumGlobeManager {
             terrain: new Cesium.Terrain(Cesium.CesiumTerrainProvider.fromUrl('https://vedas.sac.gov.in/elevation/cdem_10m_2016/'))
         });
 
-        this._addImageryLayer();
+        // --- IMPORTANT CHANGE HERE: Add the base imagery and store its reference ---
+        this._addBaseImageryLayer(); 
+        
         this.viewer.scene.globe.depthTestAgainstTerrain = false;
 
         this.viewer.camera.flyTo({
@@ -69,11 +75,11 @@ class CesiumGlobeManager {
         return this.viewer;
     }
 
-    _addImageryLayer() {
+    _addBaseImageryLayer() {
         if (!this.viewer) {
             return;
         }
-        this.viewer.imageryLayers.addImageryProvider(new Cesium.WebMapServiceImageryProvider({
+        const imageryProvider = new Cesium.WebMapServiceImageryProvider({
             url: 'https://bhuvan-ras1.nrsc.gov.in/tilecache/tilecache.py',
             layers: 'bhuvan_img',
             parameters: {
@@ -87,8 +93,191 @@ class CesiumGlobeManager {
                 height: 256
             },
             srs: 'EPSG:4326'
-        }));
+        });
+        
+        // Add the imagery layer and store its reference
+        this.baseImageryLayer = this.viewer.imageryLayers.addImageryProvider(imageryProvider);
+        
+        // --- Store this base layer in the map using the ID from LayerService ---
+        // Ensure this ID matches the one in LayerService.js: 'vedas-satellite-imagery'
+        this.baseImageryLayer.id = 'vedas-satellite-imagery'; 
+        this.cesiumLayersMap.set(this.baseImageryLayer.id, this.baseImageryLayer);
+        console.log('CesiumGlobeManager: Base Vedas Satellite Imagery added and registered.');
     }
+
+    /**
+     * Adds a geospatial layer to the Cesium globe based on its type.
+     * @param {object} layerEntry - The full Data or Service model (e.g., Data or Service instance).
+     */
+    addCesiumLayer(layerEntry) {
+        if (!this.viewer) {
+            console.warn('CesiumGlobeManager: Viewer not initialized, cannot add layer:', layerEntry.name);
+            return;
+        }
+        // If the layer is already in our map (e.g., it's the base Vedas layer)
+        if (this.cesiumLayersMap.has(layerEntry.id)) {
+             // Only log a warning, don't try to re-add the same layer
+            console.warn(`CesiumGlobeManager: Layer with ID ${layerEntry.id} is already on globe or being processed.`);
+            // Ensure its visibility is correctly set if it was re-added during sync and toggled off previously
+            const existingLayer = this.cesiumLayersMap.get(layerEntry.id);
+            if (existingLayer && existingLayer.show !== layerEntry.isVisible) {
+                existingLayer.show = layerEntry.isVisible; // Update visibility if different
+                console.log(`CesiumGlobeManager: Updated visibility for existing layer ${layerEntry.id} to ${layerEntry.isVisible}`);
+            }
+            return;
+        }
+
+        let cesiumLayer = null;
+
+        // Handle GeoJSON data
+        if (layerEntry.type === 'geojson' && layerEntry.srcInfo && layerEntry.srcInfo.jsonContent) {
+            const dataSource = Cesium.GeoJsonDataSource.load(layerEntry.srcInfo.jsonContent, {
+                stroke: Cesium.Color.HOTPINK,
+                fill: Cesium.Color.PINK.withAlpha(0.5),
+                strokeWidth: 3,
+                markerSymbol: '?'
+            });
+            this.viewer.dataSources.add(dataSource).then(ds => {
+                ds.name = layerEntry.name; 
+                ds.show = layerEntry.isVisible; 
+                this.cesiumLayersMap.set(layerEntry.id, ds);
+                console.log(`CesiumGlobeManager: Added GeoJSON layer: ${layerEntry.name}`);
+            }).otherwise(error => {
+                console.error(`CesiumGlobeManager: Error loading GeoJSON for ${layerEntry.name}:`, error);
+            });
+            return; 
+        } 
+        // Handle WMS services (for any *other* WMS layers, not the base Vedas one)
+        else if (layerEntry.type === 'wms' && layerEntry.baseUrl && layerEntry.args) {
+            // This condition is for adding *new* WMS layers, not the base Vedas layer
+            // which is handled by _addBaseImageryLayer.
+            // You might want to prevent adding the Vedas base layer again if it comes through here.
+            if (layerEntry.id === 'vedas-satellite-imagery') {
+                 console.warn('CesiumGlobeManager: Attempted to add base Vedas Satellite Imagery via addCesiumLayer. It is handled as a base layer.');
+                 return;
+            }
+
+            try {
+                const wmsParameters = {
+                    service: 'WMS',
+                    version: layerEntry.args.version || '1.1.1',
+                    request: 'GetMap',
+                    format: layerEntry.args.format || 'image/png',
+                    transparent: layerEntry.args.transparent !== undefined ? layerEntry.args.transparent : true,
+                    layers: layerEntry.args.layers || layerEntry.name, 
+                    srs: layerEntry.args.srs || 'EPSG:4326',
+                    tiled: layerEntry.args.tiled !== undefined ? layerEntry.args.tiled : true,
+                    width: 256,
+                    height: 256,
+                    ...layerEntry.args 
+                };
+
+                const imageryProvider = new Cesium.WebMapServiceImageryProvider({
+                    url: layerEntry.baseUrl,
+                    layers: wmsParameters.layers,
+                    parameters: wmsParameters
+                });
+
+                cesiumLayer = this.viewer.imageryLayers.addImageryProvider(imageryProvider);
+                cesiumLayer.id = layerEntry.id; 
+                cesiumLayer.name = layerEntry.name; 
+                cesiumLayer.show = layerEntry.isVisible; 
+                
+                this.cesiumLayersMap.set(layerEntry.id, cesiumLayer);
+                console.log(`CesiumGlobeManager: Added WMS layer: ${layerEntry.name}`);
+            } catch (error) {
+                console.error(`CesiumGlobeManager: Error creating WMS layer for ${layerEntry.name}:`, error);
+            }
+        }
+        else {
+            console.warn(`CesiumGlobeManager: Unsupported layer type or missing data for ${layerEntry.name} (Type: ${layerEntry.type}).`);
+        }
+    }
+
+    /**
+     * Removes a geospatial layer from the Cesium globe.
+     * @param {string} layerId - The ID of the layer to remove.
+     */
+    removeCesiumLayer(layerId) {
+        if (!this.viewer) return;
+
+        const cesiumLayer = this.cesiumLayersMap.get(layerId);
+        if (cesiumLayer) {
+            // Special handling for the base imagery layer if you want to prevent its removal
+            if (layerId === 'vedas-satellite-imagery' && this.baseImageryLayer) {
+                // Instead of removing, just hide it
+                this.baseImageryLayer.show = false;
+                console.log(`CesiumGlobeManager: Hiding base Vedas Satellite Imagery for ID: ${layerId}`);
+                // Don't delete from map if it's a fixed base layer you just want to toggle
+                // If you genuinely want to remove it permanently, then uncomment next line
+                // this.cesiumLayersMap.delete(layerId); 
+                return;
+            }
+
+            // Check if it's an ImageryLayer
+            if (cesiumLayer instanceof Cesium.ImageryLayer) {
+                this.viewer.imageryLayers.remove(cesiumLayer, true); 
+                console.log(`CesiumGlobeManager: Removed ImageryLayer for ID: ${layerId}`);
+            }
+            // Check if it's a DataSource (like GeoJSON)
+            else if (cesiumLayer instanceof Cesium.DataSource) {
+                this.viewer.dataSources.remove(cesiumLayer, true); 
+                console.log(`CesiumGlobeManager: Removed DataSource for ID: ${layerId}`);
+            }
+            else {
+                console.warn(`CesiumGlobeManager: Could not remove layer type for ID ${layerId}. Not an ImageryLayer or DataSource.`);
+            }
+            this.cesiumLayersMap.delete(layerId);
+        } else {
+            console.warn(`CesiumGlobeManager: Layer with ID ${layerId} not found on globe to remove.`);
+        }
+    }
+
+    /**
+     * Toggles the visibility of a geospatial layer on the Cesium globe.
+     * @param {string} layerId - The ID of the layer.
+     * @param {boolean} isVisible - The desired visibility state.
+     */
+    toggleCesiumLayerVisibility(layerId, isVisible) {
+        if (!this.viewer) return;
+
+        const cesiumLayer = this.cesiumLayersMap.get(layerId);
+        if (cesiumLayer) {
+            cesiumLayer.show = isVisible;
+            console.log(`CesiumGlobeManager: Toggled visibility for layer ${layerId} to ${isVisible}`);
+        } else {
+            console.warn(`CesiumGlobeManager: Layer with ID ${layerId} not found to toggle visibility.`);
+        }
+    }
+
+    /**
+     * Clears all custom (non-base) layers added by the application from the globe.
+     * This is useful when re-syncing layers to maintain order or after major changes.
+     */
+    clearCustomLayers() {
+        if (!this.viewer) return;
+
+        // Clear all data sources (e.g., GeoJSON, KML)
+        this.viewer.dataSources.removeAll();
+        
+        // Clear all imagery layers except the explicitly defined base one
+        for (let i = this.viewer.imageryLayers.length - 1; i >= 0; i--) {
+            const layer = this.viewer.imageryLayers.get(i);
+            // Only remove if it's not the baseImageryLayer we explicitly set
+            if (layer !== this.baseImageryLayer) { 
+                this.viewer.imageryLayers.remove(layer, true);
+            }
+        }
+
+        // Only clear custom layers from the map, not the base layer
+        for (const [id, layer] of this.cesiumLayersMap.entries()) {
+            if (id !== 'vedas-satellite-imagery') {
+                this.cesiumLayersMap.delete(id);
+            }
+        }
+        console.log('CesiumGlobeManager: All custom layers cleared from globe.');
+    }
+
 
     addCameraChangeListener(callback) {
         if (this.viewer) {
@@ -106,12 +295,12 @@ class CesiumGlobeManager {
         if (!this.viewer) return {};
         const cameraPosition = this.viewer.camera.positionCartographic;
         if (!cameraPosition) {
-             return {
+            return {
                 currentCoordinates: { latitude: 0, longitude: 0, elevation: 0 },
                 terrainType: 'N/A',
                 satelliteImageryType: 'N/A',
                 angle: 0
-             };
+            };
         }
 
         let terrainTypeName = 'Unknown';
@@ -272,14 +461,12 @@ class CesiumGlobeManager {
 
         switch (mode) {
             case '2D':
-                // For 2D mode, activate Columbus View
                 this.viewer.scene.mode = Cesium.SceneMode.COLUMBUS_VIEW;
-                this.viewer.scene.screenSpaceCameraController.enableTilt = false; // Disable tilting in Columbus View
+                this.viewer.scene.screenSpaceCameraController.enableTilt = false;
                 break;
             case '3D':
-                // For 2.5D (3D Globe), activate 3D mode
                 this.viewer.scene.mode = Cesium.SceneMode.SCENE3D;
-                this.viewer.scene.screenSpaceCameraController.enableTilt = true; // Enable tilting back for 3D
+                this.viewer.scene.screenSpaceCameraController.enableTilt = true;
                 break;
             default:
                 console.warn(`CesiumGlobeManager: Unknown visualization mode: ${mode}.`);
@@ -292,6 +479,8 @@ class CesiumGlobeManager {
             this.viewer.destroy();
             this.viewer = null;
             this.currentLocationMarkerEntity = null;
+            this.cesiumLayersMap.clear(); 
+            this.baseImageryLayer = null; // Clear reference
         }
     }
 }

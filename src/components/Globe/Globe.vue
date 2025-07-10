@@ -25,7 +25,13 @@ export default {
       zoomToCoordinatesSubscription: null,
       displayLocationMarkerSubscription: null,
       initGlobeSubscription: null,
-      visualizationModeSubscription: null, // New subscription for visualization mode changes
+      visualizationModeSubscription: null, 
+
+      // --- New Subscriptions for Layer Management on Globe ---
+      addLayerToGlobeSubscription: null,
+      removeLayerFromGlobeSubscription: null,
+      toggleLayerVisibilityOnGlobeSubscription: null,
+      clearCustomGlobeLayersSubscription: null,
     };
   },
   mounted() {
@@ -37,8 +43,21 @@ export default {
     this.zoomToCoordinatesSubscription = MapService.zoomToCoordinates$.subscribe(this.zoomToCoordinates);
     this.displayLocationMarkerSubscription = MapService.displayLocationMarker$.subscribe(this.displayLocationMarker);
 
-    // New subscription to handle visualization mode changes
     this.visualizationModeSubscription = MapService.visualizationModeChanged$.subscribe(this.updateGlobeViewMode);
+
+    // --- New Subscriptions for Layer Management on Globe ---
+    this.addLayerToGlobeSubscription = MapService.addLayerToGlobe$.subscribe(layerEntry => {
+        this.addLayerToGlobe(layerEntry);
+    });
+    this.removeLayerFromGlobeSubscription = MapService.removeLayerFromGlobe$.subscribe(layerId => {
+        this.removeLayerFromGlobe(layerId);
+    });
+    this.toggleLayerVisibilityOnGlobeSubscription = MapService.toggleLayerVisibilityOnGlobe$.subscribe(({ layerId, isVisible }) => {
+        this.toggleLayerVisibilityOnGlobe(layerId, isVisible);
+    });
+    this.clearCustomGlobeLayersSubscription = MapService.clearCustomGlobeLayers$.subscribe(() => {
+        this.clearCustomGlobeLayers();
+    });
 
 
     this.initGlobeSubscription = MapService.initGlobe$.subscribe(() => {
@@ -51,6 +70,7 @@ export default {
           MapService.notifyGlobeInitialized(true);
           MapService.setGlobeViewer(viewer);
         } catch (error) {
+          console.error('Globe initialization error:', error);
           MapService.notifyGlobeInitialized(false);
           MapService.setGlobeViewer(null);
         }
@@ -68,7 +88,13 @@ export default {
     if (this.zoomToCoordinatesSubscription) this.zoomToCoordinatesSubscription.unsubscribe();
     if (this.displayLocationMarkerSubscription) this.displayLocationMarkerSubscription.unsubscribe();
     if (this.initGlobeSubscription) this.initGlobeSubscription.unsubscribe();
-    if (this.visualizationModeSubscription) this.visualizationModeSubscription.unsubscribe(); // Unsubscribe new subscription
+    if (this.visualizationModeSubscription) this.visualizationModeSubscription.unsubscribe(); 
+
+    // --- New Unsubscriptions ---
+    if (this.addLayerToGlobeSubscription) this.addLayerToGlobeSubscription.unsubscribe();
+    if (this.removeLayerFromGlobeSubscription) this.removeLayerFromGlobeSubscription.unsubscribe();
+    if (this.toggleLayerVisibilityOnGlobeSubscription) this.toggleLayerVisibilityOnGlobeSubscription.unsubscribe();
+    if (this.clearCustomGlobeLayersSubscription) this.clearCustomGlobeLayersSubscription.unsubscribe();
   },
   methods: {
     onCameraChanged() {
@@ -97,11 +123,31 @@ export default {
     orientToNorth() {
       if (this.globeManager) this.globeManager.orientToNorth();
     },
-    // New method to update the globe's view mode
     updateGlobeViewMode(mode) {
       if (this.globeManager) {
         this.globeManager.setGlobeVisualizationMode(mode);
       }
+    },
+    // --- New methods to bridge to CesiumGlobeManager for Layer Management ---
+    addLayerToGlobe(layerEntry) {
+        if (this.globeManager) {
+            this.globeManager.addCesiumLayer(layerEntry);
+        }
+    },
+    removeLayerFromGlobe(layerId) {
+        if (this.globeManager) {
+            this.globeManager.removeCesiumLayer(layerId);
+        }
+    },
+    toggleLayerVisibilityOnGlobe(layerId, isVisible) {
+        if (this.globeManager) {
+            this.globeManager.toggleCesiumLayerVisibility(layerId, isVisible);
+        }
+    },
+    clearCustomGlobeLayers() {
+        if (this.globeManager) {
+            this.globeManager.clearCustomLayers(); // A new method we'll add
+        }
     }
   }
 };

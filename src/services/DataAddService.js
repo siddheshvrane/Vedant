@@ -3,6 +3,7 @@ import { Subject } from 'rxjs';
 import Data from '../datamodels/Data.js';
 import Service from '../datamodels/Service.js';
 import { PopupService } from './PopupService.js'; // Import PopupService
+import { LayerService } from './LayerService.js'; // <<< IMPORTANT: New import for LayerService
 
 /**
  * DataAddService: Handles the logic for adding new data or services.
@@ -123,6 +124,9 @@ class DataAddServiceClass {
         }
         console.log('DataAddService: Processing data addition for:', dataModel);
         
+        // --- NEW: Call LayerService to add the new data ---
+        LayerService.addGeoSpatialEntry(dataModel); 
+        
         let srs = 'N/A';
         let extent = 'N/A';
 
@@ -157,6 +161,9 @@ class DataAddServiceClass {
             return;
         }
         console.log('DataAddService: Processing service addition for:', serviceModel);
+        
+        // --- NEW: Call LayerService to add the new service ---
+        LayerService.addGeoSpatialEntry(serviceModel); 
         
         PopupService.show({
             layerName: serviceModel.name,
