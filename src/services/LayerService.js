@@ -7,14 +7,14 @@ import { MapService } from './MapService.js'; // Import MapService
  * Coordinates with MapService for map-related layer actions.
  */
 class LayerServiceClass {
-    // Initialize with only the Vedas Satellite Imagery
+    // Initialize with only the Vedas Satellite Imagery as a regular layer
     layers$ = new BehaviorSubject([
-        { 
+        {
             id: 'vedas-satellite-imagery', // Unique ID for Vedas imagery
-            name: 'Vedas Satellite Imagery', 
-            isVisible: true, 
-            type: 'wms', 
-            source: 'service' 
+            name: 'Vedas Satellite Imagery',
+            isVisible: true,
+            type: 'wms',
+            source: 'service'
         },
     ]);
 
@@ -22,12 +22,9 @@ class LayerServiceClass {
     #layerDataMap = new Map(); // Stores Data/Service models by ID
     #cesiumViewer = null; // Holds the Cesium viewer instance
 
-    // Subscription to manage internal layer updates for the globe
-    #layersSubscription = null;
-
     constructor() {
         // Prepare the initial layer data for #layerDataMap
-        // This simulates receiving the full Data/Service model for the Vedas imagery
+        // Vedas is now just a regular WMS layer
         const initialVedasLayer = {
             id: 'vedas-satellite-imagery',
             name: 'Vedas Satellite Imagery',
@@ -46,27 +43,24 @@ class LayerServiceClass {
         };
         this.#layerDataMap.set(initialVedasLayer.id, initialVedasLayer);
 
-
         // Subscribe to globe viewer changes from MapService
         MapService.globeViewer$.subscribe(viewer => {
             this.#cesiumViewer = viewer;
             if (viewer) {
                 console.log('LayerService: Cesium Viewer is available. Initializing globe layers.');
-                // Re-sync all current layers with the globe.
-                // This will add 'Vedas Satellite Imagery' to Cesium via addCesiumLayer
-                this.syncGlobeLayers(); 
+                // When viewer becomes available, sync all layers to it.
+                // This will now properly add Vedas as well.
+                this.syncGlobeLayers();
             } else {
                 console.log('LayerService: Cesium Viewer is no longer available.');
-                // Potentially clear all layers from Cesium if viewer is destroyed/nullified
             }
         });
 
-        // Subscribe to our own layers$ to react to list changes
-        this.#layersSubscription = this.layers$.subscribe(updatedLayers => {
-            // This observable now drives the UI AND can be used to re-sync the globe
-            // We'll call syncGlobeLayers() specifically when needed, not on every change
-            // as individual methods (add/remove/toggle) will trigger their own globe updates.
-            // This subscription is more for general monitoring or for complex re-syncs.
+        // IMPORTANT: Subscribe to MapService's toggle events if external
+        // interactions (not through LayerService) can change layer visibility.
+        // This ensures LayerService's internal state (layers$.value) is always in sync.
+        MapService.toggleLayerVisibilityOnGlobe$.subscribe(({ layerId, isVisible }) => {
+            this.updateLayerVisibilityInService(layerId, isVisible);
         });
     }
 
@@ -103,69 +97,56 @@ class LayerServiceClass {
         // Store the full entry model for Cesium handling later
         this.#layerDataMap.set(entry.id, entry);
 
-        const updatedLayers = [newLayer, ...currentLayers]; 
+        // Update the UI list immediately by adding new layer at the beginning
+        const updatedLayers = [newLayer, ...currentLayers];
         this.layers$.next(updatedLayers);
         console.log(`LayerService: Added new layer to top: ${newLayer.name}`);
 
-        // Add to Cesium Globe if viewer is ready and layer is visible
-        if (this.#cesiumViewer && newLayer.isVisible) {
-            this.addCesiumLayer(entry); // Pass the full entry model
-        }
+        // Trigger a full synchronization of globe layers to ensure new layer is added
+        // and all layers retain correct visibility and Z-order.
+        this.syncGlobeLayers();
     }
 
     /**
-     * Attempts to add a layer to the Cesium Globe.
-     * This method needs to understand different layer types (GeoJSON, WMS, etc.).
-     * @param {object} layerEntry - The full Data or Service model.
-     */
-    addCesiumLayer(layerEntry) {
-        if (!this.#cesiumViewer) {
-            console.warn('LayerService: Cesium Viewer not available, cannot add layer to globe.');
-            return;
-        }
-        if (!layerEntry.id) {
-            console.error('LayerService: Cannot add Cesium layer, missing ID:', layerEntry);
-            return;
-        }
-
-        // We use MapService to interact with CesiumGlobeManager
-        // MapService will then call the appropriate method on globeManager
-        MapService.addLayerToGlobe(layerEntry);
-        console.log(`LayerService: Requested addition of ${layerEntry.name} to Cesium globe.`);
-    }
-
-    /**
-     * Removes a layer from the Cesium Globe.
+     * Removes a layer from the internal state and triggers a globe sync.
      * @param {string} layerId - The ID of the layer to remove.
      */
-    removeCesiumLayer(layerId) {
-        if (!this.#cesiumViewer) {
-            console.warn('LayerService: Cesium Viewer not available, cannot remove layer from globe.');
-            return;
-        }
-        MapService.removeLayerFromGlobe(layerId);
-        console.log(`LayerService: Requested removal of layer ${layerId} from Cesium globe.`);
+    removeLayer(layerId) {
+        const layerName = this.getLayers().find(l => l.id === layerId)?.name || 'unknown layer';
+        const updatedLayers = this.getLayers().filter(layer => layer.id !== layerId);
+        this.layers$.next(updatedLayers);
+        this.#layerDataMap.delete(layerId); // Also remove from our internal map
+
+        console.log(`LayerService: Removed UI layer: ${layerName} (ID: ${layerId})`);
+
+        // Trigger a full synchronization to remove the layer from the globe.
+        this.syncGlobeLayers();
     }
 
     /**
-     * Toggles visibility of a layer on the Cesium Globe.
+     * Toggles visibility of a layer in the internal state and on the Cesium Globe.
      * @param {string} layerId - The ID of the layer.
      * @param {boolean} isVisible - The desired visibility state.
      */
-    toggleCesiumLayerVisibility(layerId, isVisible) {
-        if (!this.#cesiumViewer) {
-            console.warn('LayerService: Cesium Viewer not available, cannot toggle layer visibility.');
-            return;
+    toggleLayerVisibility(layerId, isVisible) {
+        const currentLayers = this.getLayers();
+        const layerIndex = currentLayers.findIndex(l => l.id === layerId);
+        if (layerIndex !== -1) {
+            const layersCopy = [...currentLayers];
+            layersCopy[layerIndex] = { ...layersCopy[layerIndex], isVisible: isVisible };
+
+            this.layers$.next(layersCopy);
+            console.log(`LayerService: Toggling visibility for UI layer ${layersCopy[layerIndex].name}: ${isVisible}`);
+
+            // Direct call to MapService to toggle visibility for a single layer.
+            // This is efficient and doesn't require a full re-sync for just visibility.
+            MapService.toggleLayerVisibilityOnGlobe(layerId, isVisible);
         }
-        MapService.toggleLayerVisibilityOnGlobe(layerId, isVisible);
-        console.log(`LayerService: Requested toggle visibility for layer ${layerId} to ${isVisible}.`);
     }
 
     /**
      * Reconciles the list of layers in LayerService with the layers displayed on the Cesium Globe.
-     * This is useful for initial setup or after major state changes.
-     * In this basic implementation, we'll just add all visible layers.
-     * A more sophisticated sync would compare existing layers and update accordingly.
+     * This is useful for initial setup, after major state changes (like viewer initialization, add, remove, or reordering).
      */
     syncGlobeLayers() {
         if (!this.#cesiumViewer) {
@@ -173,76 +154,43 @@ class LayerServiceClass {
             return;
         }
 
-        // Clear existing custom layers from globe (excluding base imagery/terrain handled by CesiumGlobeManager itself)
-        MapService.clearCustomGlobeLayers(); // Needs to be implemented in MapService/CesiumGlobeManager
+        const currentLayersInServiceOrder = this.getLayers();
+        // For reconciliation, we need the full layer data (including baseUrl, args, srcInfo.jsonContent)
+        // merged with the current isVisible state from the UI list.
+        const layersToReconcile = currentLayersInServiceOrder.map(uiLayer => {
+            const fullData = this.#layerDataMap.get(uiLayer.id);
+            // Ensure fullData exists and merge the current isVisible state
+            return fullData ? { ...fullData, isVisible: uiLayer.isVisible } : null;
+        }).filter(Boolean); // Filter out any nulls if a layer's full data isn't found
 
-        const currentLayers = this.getLayers();
-        currentLayers.forEach(uiLayer => {
-            if (uiLayer.isVisible) {
-                const fullLayerData = this.#layerDataMap.get(uiLayer.id);
-                if (fullLayerData) {
-                    // Important: The Vedas Satellite Imagery is already added as a base layer
-                    // by CesiumGlobeManager's init method. We only add it here if it's
-                    // intended to be a *managed* layer, meaning it can be toggled/removed.
-                    // If it's a fixed base layer, you might skip adding it here to avoid duplicates
-                    // or handle it specially in CesiumGlobeManager.
-                    // For now, we'll assume it's a managed layer.
-                    this.addCesiumLayer(fullLayerData);
-                } else {
-                    console.warn(`LayerService: Full data for layer ${uiLayer.id} not found during sync. Cannot add to globe.`);
-                }
-            }
-        });
-        console.log('LayerService: Globe layers synchronized with UI state.');
+        // This crucial call tells MapService to orchestrate the globe update.
+        // MapService will then tell CesiumGlobeManager to clear and re-add/update layers.
+        MapService.reconcileGlobeLayers(layersToReconcile);
+        console.log('LayerService: Globe layers synchronized with UI state based on current order and visibility.');
     }
 
-    // --- Existing methods, now with calls to update Cesium via MapService ---
+    // --- Existing methods ---
 
     zoomToLayer(layerId) {
         const layer = this.#layerDataMap.get(layerId); // Get full data for zoom
         if (layer) {
             console.log(`LayerService: Requesting zoom to layer: ${layer.name}`);
-            // You'll need to define a proper bounding box or entity for zoom for each layer type
-            // For now, let's assume a generic zoom, or enhance this based on layer type
             MapService.zoomToLayer(layer);
         } else {
             console.warn(`LayerService: Layer ${layerId} not found for zoom.`);
         }
     }
 
-    toggleLayerVisibility(layerId, isVisible) {
+    // Internal method to update LayerService's state if globe-side visibility changes
+    updateLayerVisibilityInService(layerId, isVisible) {
         const currentLayers = this.getLayers();
         const layerIndex = currentLayers.findIndex(l => l.id === layerId);
         if (layerIndex !== -1) {
             const layersCopy = [...currentLayers];
             layersCopy[layerIndex] = { ...layersCopy[layerIndex], isVisible: isVisible };
-            
             this.layers$.next(layersCopy);
-            console.log(`LayerService: Toggling visibility for UI layer ${layersCopy[layerIndex].name}: ${isVisible}`);
-            
-            // --- NEW: Update Cesium layer visibility ---
-            this.toggleCesiumLayerVisibility(layerId, isVisible);
+            console.log(`LayerService: Internal state updated for layer ${layerId} visibility to ${isVisible}.`);
         }
-    }
-
-    editLayer(layerId) {
-        const layer = this.#layerDataMap.get(layerId);
-        if (layer) {
-            console.log(`LayerService: Requesting edit for layer: ${layer.name}`);
-            // TODO: Implement actual layer editing UI/logic
-        }
-    }
-
-    removeLayer(layerId) {
-        const layerName = this.getLayers().find(l => l.id === layerId)?.name || 'unknown layer';
-        const updatedLayers = this.getLayers().filter(layer => layer.id !== layerId);
-        this.layers$.next(updatedLayers);
-        this.#layerDataMap.delete(layerId); // Also remove from our internal map
-        
-        console.log(`LayerService: Removed UI layer: ${layerName} (ID: ${layerId})`);
-        
-        // --- NEW: Remove from Cesium Globe ---
-        this.removeCesiumLayer(layerId);
     }
 
     moveLayer(layerId, direction) {
@@ -263,10 +211,10 @@ class LayerServiceClass {
             layersCopy.splice(newIndex, 0, movedLayer);
             this.layers$.next(layersCopy); // Emit the new copy
             console.log(`LayerService: UI Layer ${layerId} moved from ${index} to ${newIndex}`);
-            
-            // --- IMPORTANT: This requires Cesium layers to also be reordered. ---
-            // For now, let's trigger a full re-sync for simplicity, which will re-add them in order.
-            this.syncGlobeLayers(); 
+
+            // --- CRITICAL CHANGE: Trigger a full re-sync for the globe's Z-order ---
+            // This is necessary because Cesium's imagery/data sources need to be re-ordered.
+            this.syncGlobeLayers();
         }
     }
 }

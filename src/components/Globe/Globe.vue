@@ -8,93 +8,132 @@
 import * as Cesium from 'cesium';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 
+// Ensure this token is for your production environment if it's sensitive
 Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJjNmUzZWU3Ni1kYzM3LTQyNzYtOTk0MS03YWVkMTZlNTU0MDMiLCJpZCI6MzEwMzcwLCJpYXQiOjE3NDk0NjMxNzl9.K7YHyi1fwwi5ICQKn4C82gUnv60u9nVs783T_UpHxG0';
 
-import { MapService } from '../../services/controller.js';
+// Adjust import paths relative to your file structure
+import { MapService } from '../../services/MapService.js'; // Corrected path to MapService.js
 import CesiumGlobeManager from './CesiumGlobeManager.js';
+import { Subscription } from 'rxjs'; // Import Subscription for managing multiple subscriptions
 
 export default {
   name: 'Globe',
   data() {
     return {
       globeManager: null,
-
-      compassRedirectSubscription: null,
-      graphicRenderSubscription: null,
-      graphicRemovalSubscription: null,
-      zoomToCoordinatesSubscription: null,
-      displayLocationMarkerSubscription: null,
-      initGlobeSubscription: null,
-      visualizationModeSubscription: null, 
-
-      // --- New Subscriptions for Layer Management on Globe ---
-      addLayerToGlobeSubscription: null,
-      removeLayerFromGlobeSubscription: null,
-      toggleLayerVisibilityOnGlobeSubscription: null,
-      clearCustomGlobeLayersSubscription: null,
+      subscriptions: new Subscription(), // Single Subscription to manage all
     };
   },
   mounted() {
+    console.log('Globe.vue: Mounted, initializing CesiumGlobeManager...');
     this.globeManager = new CesiumGlobeManager('globeContainer');
 
-    this.compassRedirectSubscription = MapService.orientToNorth$.subscribe(this.orientToNorth);
-    this.graphicRenderSubscription = MapService.renderGraphic$.subscribe(this.renderGraphic);
-    this.graphicRemovalSubscription = MapService.removeGraphic$.subscribe(this.removeGraphic);
-    this.zoomToCoordinatesSubscription = MapService.zoomToCoordinates$.subscribe(this.zoomToCoordinates);
-    this.displayLocationMarkerSubscription = MapService.displayLocationMarker$.subscribe(this.displayLocationMarker);
+    // Consolidate subscriptions using the single 'subscriptions' object
+    this.subscriptions.add(
+      MapService.orientToNorth$.subscribe(() => {
+        this.orientToNorth();
+      })
+    );
+    this.subscriptions.add(
+      MapService.renderGraphic$.subscribe(graphic => {
+        this.renderGraphic(graphic);
+      })
+    );
+    this.subscriptions.add(
+      MapService.removeGraphic$.subscribe(graphicIdentifier => {
+        this.removeGraphic(graphicIdentifier);
+      })
+    );
+    this.subscriptions.add(
+      MapService.zoomToCoordinates$.subscribe(coordinates => {
+        this.zoomToCoordinates(coordinates);
+      })
+    );
+    this.subscriptions.add(
+      MapService.displayLocationMarker$.subscribe(location => {
+        this.displayLocationMarker(location);
+      })
+    );
+    this.subscriptions.add(
+      MapService.visualizationModeChanged$.subscribe(mode => {
+        this.updateGlobeViewMode(mode);
+      })
+    );
 
-    this.visualizationModeSubscription = MapService.visualizationModeChanged$.subscribe(this.updateGlobeViewMode);
-
-    // --- New Subscriptions for Layer Management on Globe ---
-    this.addLayerToGlobeSubscription = MapService.addLayerToGlobe$.subscribe(layerEntry => {
+    // --- Subscriptions for Layer Management on Globe ---
+    // Note: addLayerToGlobe, removeLayerFromGlobe, toggleLayerVisibilityOnGlobe
+    // are still valid for direct (non-reconcile) operations, but for full sync,
+    // reconcileGlobeLayers will be used.
+    // However, it's generally best to let reconcileGlobeLayers handle all additions/removals
+    // to maintain consistent Z-order. You might eventually deprecate direct add/remove/toggle
+    // calls to `globeManager` and always funnel through `reconcileGlobeLayers` where appropriate.
+    // For now, keep them if you have direct use cases.
+    this.subscriptions.add(
+      MapService.addLayerToGlobe$.subscribe(layerEntry => {
         this.addLayerToGlobe(layerEntry);
-    });
-    this.removeLayerFromGlobeSubscription = MapService.removeLayerFromGlobe$.subscribe(layerId => {
+      })
+    );
+    this.subscriptions.add(
+      MapService.removeLayerFromGlobe$.subscribe(layerId => {
         this.removeLayerFromGlobe(layerId);
-    });
-    this.toggleLayerVisibilityOnGlobeSubscription = MapService.toggleLayerVisibilityOnGlobe$.subscribe(({ layerId, isVisible }) => {
+      })
+    );
+    this.subscriptions.add(
+      MapService.toggleLayerVisibilityOnGlobe$.subscribe(({ layerId, isVisible }) => {
         this.toggleLayerVisibilityOnGlobe(layerId, isVisible);
-    });
-    this.clearCustomGlobeLayersSubscription = MapService.clearCustomGlobeLayers$.subscribe(() => {
-        this.clearCustomGlobeLayers();
-    });
+      })
+    );
 
+    // CRUCIAL: Subscribe to the new reconcileGlobeLayers$
+    this.subscriptions.add(
+      MapService.reconcileGlobeLayers$.subscribe(layersToReconcile => {
+        this.reconcileGlobeLayers(layersToReconcile);
+      })
+    );
 
-    this.initGlobeSubscription = MapService.initGlobe$.subscribe(() => {
-      this.$nextTick(() => {
-        try {
-          const viewer = this.globeManager.init();
-          this.globeManager.addCameraChangeListener(this.onCameraChanged);
-          this.onCameraChanged();
+    // NEW: Subscribe to zoomToLayerOnGlobe$
+    this.subscriptions.add(
+      MapService.zoomToLayerOnGlobe$.subscribe(layerEntry => {
+        this.zoomToLayerOnGlobe(layerEntry);
+      })
+    );
 
-          MapService.notifyGlobeInitialized(true);
-          MapService.setGlobeViewer(viewer);
-        } catch (error) {
-          console.error('Globe initialization error:', error);
-          MapService.notifyGlobeInitialized(false);
-          MapService.setGlobeViewer(null);
-        }
-      });
-    });
+    // Initiate globe initialization.
+    // This part should ensure the globe is created, and then MapService is informed.
+    this.subscriptions.add(
+      MapService.initGlobe$.subscribe(() => {
+        this.$nextTick(() => {
+          try {
+            const viewer = this.globeManager.init();
+            this.globeManager.addCameraChangeListener(this.onCameraChanged);
+            this.onCameraChanged(); // Initial camera update
+
+            MapService.notifyGlobeInitialized(true);
+            MapService.setGlobeViewer(viewer); // This makes the viewer available to other services
+          } catch (error) {
+            console.error('Globe initialization error:', error);
+            MapService.notifyGlobeInitialized(false);
+            MapService.setGlobeViewer(null);
+          }
+        });
+      })
+    );
+    // If you need the globe to initialize immediately on mount without an explicit MapService.initGlobe$ trigger
+    // then you might want to call `MapService.triggerGlobeInitialization()` here, or just execute the `try...catch` block directly.
+    // Given the `initGlobeSubscription`, it seems you expect an external trigger. Ensure that trigger happens.
   },
   beforeUnmount() {
+    console.log('Globe.vue: Unmounting, destroying CesiumGlobeManager and subscriptions...');
+    // Unsubscribe all RxJS subscriptions
+    this.subscriptions.unsubscribe();
+
     if (this.globeManager) {
       this.globeManager.removeCameraChangeListener(this.onCameraChanged);
-      this.globeManager.destroy();
+      this.globeManager.destroy(); // Clean up Cesium viewer
     }
-    if (this.compassRedirectSubscription) this.compassRedirectSubscription.unsubscribe();
-    if (this.graphicRenderSubscription) this.graphicRenderSubscription.unsubscribe();
-    if (this.graphicRemovalSubscription) this.graphicRemovalSubscription.unsubscribe();
-    if (this.zoomToCoordinatesSubscription) this.zoomToCoordinatesSubscription.unsubscribe();
-    if (this.displayLocationMarkerSubscription) this.displayLocationMarkerSubscription.unsubscribe();
-    if (this.initGlobeSubscription) this.initGlobeSubscription.unsubscribe();
-    if (this.visualizationModeSubscription) this.visualizationModeSubscription.unsubscribe(); 
-
-    // --- New Unsubscriptions ---
-    if (this.addLayerToGlobeSubscription) this.addLayerToGlobeSubscription.unsubscribe();
-    if (this.removeLayerFromGlobeSubscription) this.removeLayerFromGlobeSubscription.unsubscribe();
-    if (this.toggleLayerVisibilityOnGlobeSubscription) this.toggleLayerVisibilityOnGlobeSubscription.unsubscribe();
-    if (this.clearCustomGlobeLayersSubscription) this.clearCustomGlobeLayersSubscription.unsubscribe();
+    // Inform MapService that the viewer is no longer available
+    MapService.setGlobeViewer(null);
+    MapService.notifyGlobeInitialized(false);
   },
   methods: {
     onCameraChanged() {
@@ -102,40 +141,45 @@ export default {
         MapService.updateView(this.globeManager.getSceneInformation());
       }
     },
+    // ... (existing methods like zoomIn, zoomOut, renderGraphic, removeGraphic,
+    // zoomToCoordinates, displayLocationMarker, orientToNorth, updateGlobeViewMode)
     zoomIn() {
-      if (this.globeManager) this.globeManager.zoomIn();
+        if (this.globeManager) this.globeManager.zoomIn();
     },
     zoomOut() {
-      if (this.globeManager) this.globeManager.zoomOut();
+        if (this.globeManager) this.globeManager.zoomOut();
     },
     renderGraphic(graphic) {
-      if (this.globeManager) this.globeManager.renderGraphic(graphic);
+        if (this.globeManager) this.globeManager.renderGraphic(graphic);
     },
     removeGraphic(graphicIdentifier) {
-      if (this.globeManager) this.globeManager.removeGraphic(graphicIdentifier);
+        if (this.globeManager) this.globeManager.removeGraphic(graphicIdentifier);
     },
     zoomToCoordinates(coordinates) {
-      if (this.globeManager) this.globeManager.zoomToCoordinates(coordinates);
+        if (this.globeManager) this.globeManager.zoomToCoordinates(coordinates);
     },
     displayLocationMarker(location) {
-      if (this.globeManager) this.globeManager.displayLocationMarker(location);
+        if (this.globeManager) this.globeManager.displayLocationMarker(location);
     },
     orientToNorth() {
-      if (this.globeManager) this.globeManager.orientToNorth();
+        if (this.globeManager) this.globeManager.orientToNorth();
     },
     updateGlobeViewMode(mode) {
-      if (this.globeManager) {
-        this.globeManager.setGlobeVisualizationMode(mode);
-      }
+        if (this.globeManager) {
+            this.globeManager.setGlobeVisualizationMode(mode);
+        }
     },
-    // --- New methods to bridge to CesiumGlobeManager for Layer Management ---
+    // --- Methods to bridge to CesiumGlobeManager for Layer Management ---
     addLayerToGlobe(layerEntry) {
         if (this.globeManager) {
+            // Note: This individual add is mostly for direct operations,
+            // the full sync will use reconcileGlobeLayers.
             this.globeManager.addCesiumLayer(layerEntry);
         }
     },
     removeLayerFromGlobe(layerId) {
         if (this.globeManager) {
+            // Similar to add, for direct removal. Full sync will use reconcile.
             this.globeManager.removeCesiumLayer(layerId);
         }
     },
@@ -144,10 +188,17 @@ export default {
             this.globeManager.toggleCesiumLayerVisibility(layerId, isVisible);
         }
     },
-    clearCustomGlobeLayers() {
-        if (this.globeManager) {
-            this.globeManager.clearCustomLayers(); // A new method we'll add
-        }
+    // CRUCIAL: Method to handle the full layer reconciliation
+    reconcileGlobeLayers(layersToReconcile) {
+      if (this.globeManager) {
+        this.globeManager.reconcileGlobeLayers(layersToReconcile);
+      }
+    },
+    // NEW: Method to handle zoom to layer
+    zoomToLayerOnGlobe(layerEntry) {
+      if (this.globeManager) {
+        this.globeManager.zoomToLayer(layerEntry);
+      }
     }
   }
 };

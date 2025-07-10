@@ -1,6 +1,6 @@
 // src/services/MapService.js
 import { Subject, BehaviorSubject } from 'rxjs';
-import * as Cesium from 'cesium'; // Import Cesium directly where needed
+import * as Cesium from 'cesium';
 
 /**
  * MapService: Manages map view updates, graphic rendering, and globe redirection.
@@ -12,7 +12,7 @@ class MapServiceClass {
     orientToNorth$ = new Subject();
     renderGraphic$ = new Subject();
     removeGraphic$ = new Subject();
-    zoomToCoordinates$ = new Subject();
+    zoomToCoordinates$ = new Subject(); // Still useful for generic coordinate zooms
     displayLocationMarker$ = new Subject();
 
     initGlobe$ = new Subject();
@@ -21,11 +21,18 @@ class MapServiceClass {
 
     visualizationModeChanged$ = new BehaviorSubject('3D');
 
-    // --- New Subjects for Layer Management on the Globe ---
+    // --- Subjects for Layer Management on the Globe (for CesiumGlobeManager to listen) ---
+    // These are individual operations.
     addLayerToGlobe$ = new Subject();
     removeLayerFromGlobe$ = new Subject();
     toggleLayerVisibilityOnGlobe$ = new Subject();
-    clearCustomGlobeLayers$ = new Subject(); // For re-syncing
+
+    // NEW: Subject for full globe layer reconciliation (clear all custom and re-add in order)
+    reconcileGlobeLayers$ = new Subject();
+
+    // NEW: Subject for zooming to a specific layer
+    zoomToLayerOnGlobe$ = new Subject();
+
 
     updateView(updateData) {
         this.updateView$.next(updateData);
@@ -84,13 +91,13 @@ class MapServiceClass {
                     console.warn("MapService: Unknown visualization mode requested:", mode);
                     return;
             }
-            viewer.scene.mode = targetCesiumMode; // This directly updates the viewer, but CesiumGlobeManager's method is better
+            viewer.scene.mode = targetCesiumMode;
         } else {
             console.warn("MapService: Cesium Viewer not available when attempting to set visualization mode.");
         }
     }
 
-    // --- New Methods for Layer Management on Globe ---
+    // --- Methods for Layer Management on Globe ---
     addLayerToGlobe(layerEntry) {
         this.addLayerToGlobe$.next(layerEntry);
     }
@@ -102,18 +109,25 @@ class MapServiceClass {
     toggleLayerVisibilityOnGlobe(layerId, isVisible) {
         this.toggleLayerVisibilityOnGlobe$.next({ layerId, isVisible });
     }
-    
-    clearCustomGlobeLayers() {
-        this.clearCustomGlobeLayers$.next();
+
+    /**
+     * Dispatches a command to CesiumGlobeManager to clear all custom layers
+     * and then add a new list of layers in the specified order.
+     * This is used for initial sync or reordering.
+     * @param {Array<Object>} layersToReconcile - An ordered array of full layer entry objects
+     * (including id, type, isVisible, and all source info). The order here is UI-defined (top to bottom).
+     */
+    reconcileGlobeLayers(layersToReconcile) {
+        this.reconcileGlobeLayers$.next(layersToReconcile);
     }
-    
-    // Existing zoomToLayer now handles the full layerEntry
+
+    /**
+     * Dispatches a command to CesiumGlobeManager to zoom to a specific layer's extent.
+     * @param {object} layerEntry - The full layer entry object (including type and source info
+     * like `bbox` for GeoJSON or `coordinates` for WMS if available, etc.).
+     */
     zoomToLayer(layerEntry) {
-        // This will be handled by Globe.vue/CesiumGlobeManager
-        // You'll need to pass specific geographic info from layerEntry to zoom to it correctly.
-        // For GeoJSON, it might be the bounding box; for WMS, it might be a predefined extent.
-        this.zoomToCoordinates$.next({ /* coordinates/bbox from layerEntry */ });
-        // Or create a dedicated zoomToLayerOnGlobe$ subject if it's more complex
+        this.zoomToLayerOnGlobe$.next(layerEntry);
     }
 }
 export const MapService = new MapServiceClass();
