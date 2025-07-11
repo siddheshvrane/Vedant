@@ -17,12 +17,7 @@
 <script>
 import BaseSubSidebar from '../SubSidebar.vue'; // Adjust path if BaseSubSidebar is elsewhere
 import ToolsListItem from './ToolListItem.vue'; // Adjust path based on where you put ToolsListItem.vue
-// Assuming ToolManagementService and its methods are globally available or imported elsewhere
-// For demonstration, these are commented out as their actual implementation is not provided.
-// import {
-//   oactivateTool,
-//   OexecuteAction
-// } from '../services/ToolManagementService';
+import { ToolManagementService } from '../../../../services/ToolManagementService'; // NEW: Import the service
 
 export default {
   name: 'BasicToolsSidebar',
@@ -40,49 +35,51 @@ export default {
         { name: 'Viewshield Analysis', isActive: false },
         { name: 'Terrain Profile', isActive: false },
       ],
+      activeToolSubscription: null, // NEW: For listening to active tool changes
     };
+  },
+  mounted() {
+    // Subscribe to the activeTool$ in ToolManagementService
+    // This keeps the UI state synchronized with the service's active tool
+    this.activeToolSubscription = ToolManagementService.activeTool$.subscribe(activeToolName => {
+        this.tools.forEach(tool => {
+            tool.isActive = (tool.name === activeToolName);
+        });
+        if (activeToolName) {
+            console.log(`UI: Tool '${activeToolName}' is now active.`);
+        } else {
+            console.log('UI: No tool is active.');
+        }
+    });
+  },
+  beforeUnmount() {
+    // Deactivate any active tool in the service when the sidebar unmounts
+    ToolManagementService.deactivateCurrentTool();
+    if (this.activeToolSubscription) {
+        this.activeToolSubscription.unsubscribe();
+    }
   },
   methods: {
     // This method is called by ToolsListItem events when a tool is selected via radio button.
     async activateTool(toolName) {
-      console.log(`Attempting to activate tool: ${toolName}`);
+      console.log(`BasicToolsSidebar: Request to activate tool: ${toolName}`);
 
-      // Find the tool that was clicked
       const clickedTool = this.tools.find(tool => tool.name === toolName);
 
       if (clickedTool) {
-        // If the clicked tool is already active, deactivate it (radio buttons typically don't allow unchecking,
-        // but this adds explicit deactivation logic if a "none selected" state is desired or another tool is chosen).
         if (clickedTool.isActive) {
-          console.log(`${toolName} was already active. Deactivating.`);
-          clickedTool.isActive = false;
-          // Implement actual tool deactivation logic here
-          alert(`Action: Deactivated ${clickedTool.name}`);
+          // If the clicked tool is already active, it means the user clicked the active radio.
+          // In a radio button context, clicking an active radio usually doesn't unselect it.
+          // If you want it to toggle OFF, you'd need custom radio button behavior or a "None" option.
+          // For now, if active, we interpret it as a re-selection (no change in active tool in service)
+          // or a desire to deactivate if it's the only one selected.
+          // For true radio behavior, this block might be removed, relying on the new selection to deactivate.
+          console.log(`${toolName} was already active. Sending deactivate command.`);
+          ToolManagementService.deactivateCurrentTool(); // Deactivate it
         } else {
-          // Deactivate all other tools first to ensure only one is active (radio button behavior)
-          this.tools.forEach(tool => {
-            if (tool.name !== toolName && tool.isActive) {
-              tool.isActive = false;
-              console.log(`Deactivating previously active tool: ${tool.name}`);
-              // Implement actual tool deactivation logic for previously active tool
-            }
-          });
-
-          // Activate the clicked tool
-          clickedTool.isActive = true;
-          alert(`Action: Activated ${clickedTool.name}`);
-          console.log(`${clickedTool.name} activated.`);
-
-          // Simulate tool activation through a service
-          // try {
-          //   oactivateTool(clickedTool.name);
-          //   console.log(`${clickedTool.name} activated successfully.`);
-          //   OexecuteAction(); // Or execute action specific to the activated tool
-          // } catch (error) {
-          //   console.error(`Error activating ${clickedTool.name}:`, error);
-          //   clickedTool.isActive = false; // Revert state if activation fails
-          //   alert(`Failed to activate ${clickedTool.name}.`);
-          // }
+          // Activate the tool via the service
+          ToolManagementService.activateTool(toolName);
+          // The subscription to activeTool$ will handle updating this.tools to reflect the new state.
         }
       }
     },

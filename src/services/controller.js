@@ -23,7 +23,8 @@ export { MenuItemService } from './MenuItemService.js';
 export { PopupService } from './PopupService.js';
 export { DataAddService } from './DataAddService.js';
 export { LayerService } from './LayerService.js';
-export { AppInitializerClass } from './AppInitializer.js';
+export { ToolManagementService } from './ToolManagementService.js'; // NEW: Import ToolManagementService
+export { AppInitializerClass } from './AppInitializer.js'; // Keep this export if AppInitializerClass is used elsewhere as a named export
 
 // Mount Vue App
 createApp(App).mount('#app');
