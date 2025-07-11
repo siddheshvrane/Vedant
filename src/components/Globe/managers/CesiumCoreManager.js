@@ -61,6 +61,14 @@ class CesiumCoreManager {
 
         this.viewer.camera.flyTo(DEFAULT_INITIAL_CAMERA_POSITION);
 
+        // Enable natural lighting effects
+        this.viewer.scene.globe.enableLighting = true; // Crucial for day/night
+        this.viewer.shadows = true; // Enable shadows from the sun
+        this.viewer.scene.sun.show = true; // Show the sun
+        this.viewer.scene.moon.show = true; // Show the moon
+        this.viewer.scene.skyBox.show = true; // Show the sky box (stars, etc.)
+        this.viewer.scene.skyAtmosphere.show = true; // Show atmosphere
+
         console.log('CesiumCoreManager: Viewer initialized.');
         return this.viewer;
     }
@@ -218,6 +226,38 @@ class CesiumCoreManager {
                 console.warn(`CesiumCoreManager: Unknown visualization mode: ${mode}.`);
                 break;
         }
+    }
+
+    /**
+     * Sets the globe's clock to a specific time, affecting day/night rendering.
+     * @param {object} time - An object containing hour, minute, and ampm properties.
+     */
+    setGlobeClockTime(time) {
+        if (!this.viewer) {
+            console.warn('CesiumCoreManager: Viewer not initialized, cannot set globe clock time.');
+            return;
+        }
+
+        const { hour, minute, ampm } = time;
+        let militaryHour = parseInt(hour, 10);
+        const parsedMinute = parseInt(minute, 10);
+
+        if (ampm === 'PM' && militaryHour !== 12) {
+            militaryHour += 12;
+        } else if (ampm === 'AM' && militaryHour === 12) {
+            militaryHour = 0; // 12 AM is 00:00 military time
+        }
+
+        // Get the current date to combine with the new time
+        const now = Cesium.JulianDate.toDate(this.viewer.clock.currentTime);
+        const newDateTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), militaryHour, parsedMinute, 0, 0);
+
+        // Convert the new Date object to Cesium.JulianDate
+        const newJulianDate = Cesium.JulianDate.fromDate(newDateTime);
+
+        // Set the Cesium viewer's clock current time
+        this.viewer.clock.currentTime = newJulianDate;
+        console.log(`CesiumCoreManager: Globe clock time set to: ${newDateTime.toLocaleTimeString()}`);
     }
 }
 

@@ -20,6 +20,11 @@ class MapServiceClass {
     globeViewer$ = new BehaviorSubject(null); // Holds the Cesium.Viewer instance
 
     visualizationModeChanged$ = new BehaviorSubject('3D');
+    
+    // NEW: BehaviorSubject to hold the current globe clock time
+    // Initialize with a default time (e.g., the current time when the service is created)
+    globeClockTimeChanged$ = new Subject(); // Keep this for triggering updates
+    currentGlobeClockTime$ = new BehaviorSubject(this.initializeCurrentTime()); // NEW: Stores the current time
 
     // --- Subjects for Layer Management on the Globe (for CesiumGlobeManager to listen) ---
     // These are individual operations.
@@ -33,6 +38,25 @@ class MapServiceClass {
     // NEW: Subject for zooming to a specific layer
     zoomToLayerOnGlobe$ = new Subject();
 
+    // NEW: Helper to get initial time
+    initializeCurrentTime() {
+        const now = new Date();
+        let currentHour = now.getHours();
+        const currentMinute = Math.round(now.getMinutes() / 5) * 5;
+        let ampm = 'AM';
+
+        if (currentHour >= 12) {
+            ampm = 'PM';
+            if (currentHour > 12) currentHour -= 12;
+        }
+        if (currentHour === 0) currentHour = 12; // 12 AM
+
+        return {
+            hour: String(currentHour).padStart(2, '0'),
+            minute: String(currentMinute).padStart(2, '0'),
+            ampm: ampm
+        };
+    }
 
     updateView(updateData) {
         this.updateView$.next(updateData);
@@ -80,9 +104,15 @@ class MapServiceClass {
             switch (mode) {
                 case '2D':
                     targetCesiumMode = Cesium.SceneMode.SCENE2D;
+                    // For 2D, also ensure lighting is off as it doesn't apply
+                    viewer.scene.globe.enableLighting = false;
+                    viewer.shadows = false;
                     break;
                 case '3D':
                     targetCesiumMode = Cesium.SceneMode.SCENE3D;
+                    // For 3D, enable lighting
+                    viewer.scene.globe.enableLighting = true;
+                    viewer.shadows = true;
                     break;
                 case 'Anaglyph':
                     console.warn("MapService: Anaglyph 3D mode is not yet implemented.");
@@ -95,6 +125,24 @@ class MapServiceClass {
         } else {
             console.warn("MapService: Cesium Viewer not available when attempting to set visualization mode.");
         }
+    }
+
+    /**
+     * Dispatches a command to update the globe's clock time.
+     * @param {object} time - An object containing hour, minute, and ampm.
+     */
+    setGlobeClockTime(time) {
+        this.globeClockTimeChanged$.next(time);
+        this.currentGlobeClockTime$.next(time); // NEW: Update the stored time
+        console.log("MapService: Dispatching globe clock time change:", time);
+    }
+
+    /**
+     * Gets the current stored globe clock time.
+     * @returns {object} The current time {hour, minute, ampm}.
+     */
+    getCurrentGlobeClockTime() {
+        return this.currentGlobeClockTime$.getValue();
     }
 
     // --- Methods for Layer Management on Globe ---

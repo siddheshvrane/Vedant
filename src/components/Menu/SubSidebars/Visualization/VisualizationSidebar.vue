@@ -83,29 +83,22 @@
 </template>
 
 <script>
-import { MapService } from '../../../../services/controller.js';
+// Ensure this path is correct based on your project structure
+import { MapService } from '../../../../services/MapService.js'; 
 
 export default {
   name: 'VisualizationSidebar',
   data() {
-    const now = new Date();
-    let currentHour = now.getHours();
-    // Round current minute to the nearest 5-minute interval for initial selection
-    const currentMinute = Math.round(now.getMinutes() / 5) * 5; 
-    let ampm = 'AM';
-
-    if (currentHour >= 12) {
-      ampm = 'PM';
-      if (currentHour > 12) currentHour -= 12;
-    }
-    if (currentHour === 0) currentHour = 12;
+    // Get the initial time from MapService
+    const initialTime = MapService.getCurrentGlobeClockTime();
 
     return {
       selectedMode: '3D', 
       modeSubscription: null,
-      selectedHour: String(currentHour).padStart(2, '0'),
-      selectedMinute: String(currentMinute).padStart(2, '0'), // Updated initial minute
-      selectedAmPm: ampm,
+      selectedHour: initialTime.hour, // Use persisted time
+      selectedMinute: initialTime.minute, // Use persisted time
+      selectedAmPm: initialTime.ampm, // Use persisted time
+      timeSubscription: null, // NEW: Subscription for time updates from MapService
     };
   },
   emits: ['close-all-sidebars', 'back-to-main-menu', 'update-visualization-mode', 'update-clock-time'],
@@ -128,12 +121,35 @@ export default {
       }
     });
 
-    MapService.setVisualizationMode(this.selectedMode);
+    // NEW: Subscribe to MapService's currentGlobeClockTime$ to keep UI in sync
+    this.timeSubscription = MapService.currentGlobeClockTime$.subscribe(time => {
+        if (this.selectedHour !== time.hour || 
+            this.selectedMinute !== time.minute || 
+            this.selectedAmPm !== time.ampm) {
+            this.selectedHour = time.hour;
+            this.selectedMinute = time.minute;
+            this.selectedAmPm = time.ampm;
+        }
+    });
+
+    // Ensure the initial visualization mode is set on the globe
+    MapService.setVisualizationMode(this.selectedMode); 
+    
+    // Set the initial time on the globe when mounted.
+    // This will use the time retrieved from MapService in data(), ensuring consistency.
+    MapService.setGlobeClockTime({ 
+      hour: this.selectedHour,
+      minute: this.selectedMinute,
+      ampm: this.selectedAmPm
+    });
   },
 
   beforeUnmount() {
     if (this.modeSubscription) {
       this.modeSubscription.unsubscribe();
+    }
+    if (this.timeSubscription) { // NEW: Unsubscribe from time updates
+        this.timeSubscription.unsubscribe();
     }
   },
 
@@ -143,6 +159,13 @@ export default {
       this.$emit('update-visualization-mode', this.selectedMode); 
     },
     emitTimeChange() {
+      // Dispatch time change to MapService
+      MapService.setGlobeClockTime({ 
+        hour: this.selectedHour,
+        minute: this.selectedMinute,
+        ampm: this.selectedAmPm
+      });
+      // Also emit to parent if parent needs to react, but MapService already handles globe update
       this.$emit('update-clock-time', {
         hour: this.selectedHour,
         minute: this.selectedMinute,
@@ -277,4 +300,3 @@ export default {
   color: #fff;
 }
 </style>
-
