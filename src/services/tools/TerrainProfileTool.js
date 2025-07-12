@@ -8,6 +8,7 @@ import {
     getToolState,
     setToolState // For updating groundPolyline
 } from '../tool-helpers/tools-helpers.js';
+import { PopupService } from '../../services/PopupService.js'; // IMPORTANT: Import PopupService
 
 export function setupTerrainProfileTool() {
     clearDrawing();
@@ -15,7 +16,16 @@ export function setupTerrainProfileTool() {
 
     const { handler, viewer } = getToolState();
 
-    alert("Terrain Profile: Left-click to define start and end points of a profile line. Right-click to clear. The profile will appear in a panel.");
+    // --- OLD: alert() for initial instructions ---
+    // alert("Terrain Profile: Left-click to define start and end points of a profile line. Right-click to clear. The profile will appear in a panel.");
+    
+    // --- NEW: Using PopupService for instructions ---
+    PopupService.showToolInstruction(
+        `Left-click to define start and end points of a profile line. Right-click to clear. The profile will appear in a panel.`,
+        `Terrain Profile`
+    );
+    // --- END NEW ---
+
     console.warn("Terrain Profile tool will now display a basic profile in an HTML panel.");
 
     let startPoint = null;
@@ -45,7 +55,14 @@ export function setupTerrainProfileTool() {
 
                 generateTerrainProfile(startPoint, endPoint);
 
-                alert("End point set. Right-click to clear.");
+                // --- OLD: alert() after end point set ---
+                // alert("End point set. Right-click to clear.");
+                // --- NEW: Using PopupService for instruction update ---
+                PopupService.showToolInstruction(
+                    `End point set. Right-click to clear the profile.`,
+                    `Terrain Profile`
+                );
+                // --- END NEW ---
             }
         }
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
@@ -56,7 +73,15 @@ export function setupTerrainProfileTool() {
         endPoint = null;
         removeEventHandlers();
         console.log("Terrain Profile cleared.");
-        alert("Terrain Profile cleared. Click to define new profile line.");
+        
+        // --- OLD: alert() on clear ---
+        // alert("Terrain Profile cleared. Click to define new profile line.");
+        // --- NEW: Using PopupService for instruction update ---
+        PopupService.showToolInstruction(
+            `Terrain Profile cleared. Left-click to define new profile line.`,
+            `Terrain Profile`
+        );
+        // --- END NEW ---
         // This is handled by the ToolManagementService's deactivateCurrentTool
     }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
 }
@@ -96,7 +121,16 @@ async function generateTerrainProfile(startPoint, endPoint) {
 
     } catch (error) {
         console.error("Error generating terrain profile:", error);
-        alert("Error generating terrain profile: Could not sample terrain heights.");
+        // --- OLD: alert() for error ---
+        // alert("Error generating terrain profile: Could not sample terrain heights.");
+        // --- NEW: Using PopupService for error notification ---
+        PopupService.show('toolInstruction', { // Using 'toolInstruction' type for error as well
+            message: `Could not sample terrain heights. Error: ${error.message || 'Unknown error.'}`,
+            title: `Terrain Profile Error`,
+            showDismissButton: true // Ensure dismiss button for errors
+        });
+        // --- END NEW ---
+
         // Hide the panel if there's an error
         const panel = document.getElementById('terrainProfilePanel');
         if (panel) {
@@ -111,6 +145,12 @@ function displayTerrainProfileInPanel(profileData) {
 
     if (!panel || !chartDataContainer) {
         console.error("Terrain profile panel or data container not found in HTML.");
+        // If the panel isn't found, we should inform the user via popup too.
+        PopupService.show('toolInstruction', {
+            message: `Terrain profile display panel not found. Ensure 'terrainProfilePanel' and 'profileChartData' elements exist in your HTML.`,
+            title: `Terrain Profile Setup Error`,
+            showDismissButton: true
+        });
         return;
     }
 

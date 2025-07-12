@@ -25,7 +25,7 @@ import Compass from './components/Compass/Compass.vue';
 import SearchPanel from './components/SearchPanel/SearchPanel.vue';
 import ProjectLogo from './components/ProjectLogo/ProjectLogo.vue';
 import Menu from './components/Menu/Menu.vue';
-import Popup from './components/Menu/SubSidebars/AddData/Popup.vue';
+import Popup from './components/Popup/Popup.vue';
 
 import { MapService, UserInterfaceService } from './services/controller.js';
 

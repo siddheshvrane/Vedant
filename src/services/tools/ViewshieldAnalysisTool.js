@@ -8,6 +8,7 @@ import {
     getToolState,
     setToolState // For updating viewshieldPolylines
 } from '../tool-helpers/tools-helpers.js';
+import { PopupService } from '../../services/PopupService.js'; // IMPORTANT: Import PopupService
 
 export function setupViewshieldAnalysisTool() {
     clearDrawing();
@@ -15,7 +16,16 @@ export function setupViewshieldAnalysisTool() {
 
     const { handler, viewer } = getToolState();
 
-    alert("Viewshield Analysis: Left-click to define an Observer point. Then left-click for a Target point. The line will show visible (green) and obstructed (red) segments. Right-click to clear.");
+    // --- OLD: alert() for initial instructions ---
+    // alert("Viewshield Analysis: Left-click to define an Observer point. Then left-click for a Target point. The line will show visible (green) and obstructed (red) segments. Right-click to clear.");
+
+    // --- NEW: Using PopupService for instructions ---
+    PopupService.showToolInstruction(
+        `Left-click to define an Observer point. Then left-click for a Target point. The line will show visible (green) and obstructed (red) segments. Right-click to clear.`,
+        `Viewshield Analysis`
+    );
+    // --- END NEW ---
+
     console.warn("Viewshield Analysis: This provides a visual line-of-sight analysis with color-coded segments.");
 
     let observerPoint = null;
@@ -35,7 +45,14 @@ export function setupViewshieldAnalysisTool() {
 
                 analyzeLineOfSight(observerPoint, targetPoint);
 
-                alert("Target point set. Right-click to clear analysis.");
+                // --- OLD: alert() after target point set ---
+                // alert("Target point set. Right-click to clear analysis.");
+                // --- NEW: Using PopupService for instruction update ---
+                PopupService.showToolInstruction(
+                    `Target point set. Right-click to clear analysis.`,
+                    `Viewshield Analysis`
+                );
+                // --- END NEW ---
             }
         }
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
@@ -46,7 +63,15 @@ export function setupViewshieldAnalysisTool() {
         targetPoint = null;
         removeEventHandlers();
         console.log("Viewshield Analysis cleared.");
-        alert("Viewshield Analysis cleared. Click to define new observer point.");
+        
+        // --- OLD: alert() on clear ---
+        // alert("Viewshield Analysis cleared. Click to define new observer point.");
+        // --- NEW: Using PopupService for instruction update ---
+        PopupService.showToolInstruction(
+            `Viewshield Analysis cleared. Left-click to define new observer point.`,
+            `Viewshield Analysis`
+        );
+        // --- END NEW ---
         // This is handled by the ToolManagementService's deactivateCurrentTool
         // which calls removeEventHandlers and then activeTool$.next(null)
     }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
@@ -134,6 +159,14 @@ async function analyzeLineOfSight(observerPoint, targetPoint) {
         drawViewshieldSegment([observerPoint, targetPoint], Cesium.Color.ORANGE);
         const midPoint = Cesium.Cartesian3.midpoint(observerPoint, targetPoint, new Cesium.Cartesian3());
         addPersistentLabel(midPoint, `Visibility: Error`);
+
+        // --- NEW: Using PopupService for error notification ---
+        PopupService.show('toolInstruction', {
+            message: `An error occurred during viewshield analysis: ${error.message || 'Unknown error.'}`,
+            title: `Viewshield Analysis Error`,
+            showDismissButton: true
+        });
+        // --- END NEW ---
     }
 }
 

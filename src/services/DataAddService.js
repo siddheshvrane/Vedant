@@ -91,7 +91,7 @@ class DataAddServiceClass {
                 this.addData(dataModel);
                 this.submissionSuccess$.next(`${payload.contentType.toUpperCase()} Data Added Successfully!`);
             }
-        } else {
+        } else { // Handle 'service' option
             if (!payload.baseUrl) {
                 this.submissionError$.next('Please enter a Base URL for the service.');
                 return;
@@ -111,7 +111,7 @@ class DataAddServiceClass {
                 parsedArgs,
                 parsedLegendOptions
             );
-            this.addService(serviceModel);
+            this.addService(serviceModel); // This will now trigger the correct popup call
             this.submissionSuccess$.next('Service Added Successfully!');
         }
     }
@@ -123,10 +123,10 @@ class DataAddServiceClass {
             return;
         }
         console.log('DataAddService: Processing data addition for:', dataModel);
-        
+
         // --- NEW: Call LayerService to add the new data ---
-        LayerService.addGeoSpatialEntry(dataModel); 
-        
+        LayerService.addGeoSpatialEntry(dataModel);
+
         let srs = 'N/A';
         let extent = 'N/A';
 
@@ -146,7 +146,8 @@ class DataAddServiceClass {
             extent = dataModel.srcInfo.extent;
         }
 
-        PopupService.show({
+        // --- FIX HERE: Pass 'serviceAdded' (or 'dataAdded' if you define one) as the first argument ---
+        PopupService.show('serviceAdded', { // Changed to 'serviceAdded' as per requirement, or make a separate 'dataAdded' type
             layerName: dataModel.name,
             srs: srs,
             extent: extent
@@ -161,14 +162,15 @@ class DataAddServiceClass {
             return;
         }
         console.log('DataAddService: Processing service addition for:', serviceModel);
-        
+
         // --- NEW: Call LayerService to add the new service ---
-        LayerService.addGeoSpatialEntry(serviceModel); 
-        
-        PopupService.show({
+        LayerService.addGeoSpatialEntry(serviceModel);
+
+        // --- FIX HERE: Pass 'serviceAdded' as the first argument ---
+        PopupService.show('serviceAdded', {
             layerName: serviceModel.name,
-            srs: serviceModel.args.srs || 'N/A',
-            extent: serviceModel.args.extent || 'N/A'
+            srs: serviceModel.args.srs || 'N/A', // Assuming SRS might be in args
+            extent: serviceModel.args.extent || 'N/A' // Assuming Extent might be in args
         });
         this.serviceAdded$.next(serviceModel);
     }

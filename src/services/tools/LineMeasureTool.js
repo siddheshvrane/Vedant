@@ -10,6 +10,7 @@ import {
     getToolState,
     setToolState // Import setter to update drawingPoints and activeShape
 } from '../tool-helpers/tools-helpers.js';
+import { PopupService } from '../../services/PopupService.js'; // IMPORTANT: Import PopupService
 
 export function setupLineMeasureTool(isDisplacement, clampShapeToGround) {
     clearDrawing();
@@ -18,8 +19,15 @@ export function setupLineMeasureTool(isDisplacement, clampShapeToGround) {
     const { handler, viewer } = getToolState();
     setToolState({ drawingPoints: [] }); // Reset drawing points specifically for this tool
 
-    const measureType = isDisplacement ? "3D Displacement" : "3D Elevation Terrain (Geodesic)";
-    alert(`Line Measure (${measureType}): Left-click to add points. Right-click to finish.`);
+    // --- MODIFIED: Simplify title for Line Measure ---
+    const toolTitle = isDisplacement ? "2D Line Measure" : "3D Line Measure"; // Changed for clarity, will be simplified below
+    const displayTitle = toolTitle.replace(/\s*\(.*?\)/g, ''); // Remove content in parentheses
+    
+    PopupService.showToolInstruction(
+        `Left-click to add points. Right-click to finish.`,
+        displayTitle // Use the simplified title
+    );
+    // --- END MODIFIED ---
 
     handler.setInputAction((click) => {
         let cartesian;
@@ -100,7 +108,8 @@ export function setupLineMeasureTool(isDisplacement, clampShapeToGround) {
         if (activeShape && activeShape.polyline) {
             activeShape.polyline.positions = drawingPoints;
         }
-        console.log(`Line Measure (${measureType}) Finished.`);
+        // Removed console.log that used original measureType
+        console.log(`Line Measure Finished.`);
     }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
 }
 

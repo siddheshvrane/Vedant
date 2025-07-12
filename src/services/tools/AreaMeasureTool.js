@@ -10,6 +10,7 @@ import {
     getToolState,
     setToolState
 } from '../tool-helpers/tools-helpers.js';
+import { PopupService } from '../../services/PopupService.js'; // IMPORTANT: Import PopupService
 
 export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
     clearDrawing();
@@ -18,8 +19,18 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
     const { handler, viewer } = getToolState();
     setToolState({ drawingPoints: [] }); // Reset drawing points specifically for this tool
 
+    // --- MODIFIED: Simplify title for Area Measure ---
     const measureType = isProjectedArea ? "3D Projected Area" : "3D Elevation Terrain Area";
-    alert(`Area Measure (${measureType}): Left-click to add points. Right-click or Double-click to finish.`);
+    const displayTitle = measureType.includes('Projected') ? "3D Area Measure (Projected)" : "3D Area Measure (Terrain)";
+    // Further simplifying to just "3D Area Measure" if that's the ultimate goal
+    const finalDisplayTitle = isProjectedArea ? "2D Area Measure" : "3D Area Measure"; // Both are 3D measurements, just different types.
+                                                                                        // If you have a true 2D option, you'd differentiate here.
+
+    PopupService.showToolInstruction(
+        `Left-click to add points. Right-click or Double-click to finish.`,
+        finalDisplayTitle // Use the simplified title
+    );
+    // --- END MODIFIED ---
 
     handler.setInputAction((click) => {
         let cartesian;
@@ -117,7 +128,8 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
             activeShape.polygon.hierarchy = new Cesium.PolygonHierarchy(drawingPoints);
             activeShape.polyline.positions = [...drawingPoints, drawingPoints[0]];
         }
-        console.log(`Area Measure (${measureType}) Finished.`);
+        // Removed console.log that used original measureType
+        console.log(`Area Measure Finished.`);
     };
 
     handler.setInputAction(finishArea, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
@@ -157,7 +169,11 @@ function finalizeAreaMeasure(isProjectedArea, points) {
 
     if (points.length < 3) {
         clearDrawing();
-        alert("Minimum 3 points required for Area Measurement.");
+        PopupService.show('toolInstruction', {
+            message: `Minimum 3 points are required to measure an area.`,
+            title: `Area Measurement Error`,
+            showDismissButton: true
+        });
         return;
     }
 
