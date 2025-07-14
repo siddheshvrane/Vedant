@@ -10,7 +10,12 @@ import {
     setToolState,
     throttle
 } from '../tool-helpers/tools-helpers.js';
-import { PopupService } from '../../services/PopupService.js';
+import { PopupService } from '../../../../../services/PopupService.js';
+
+// Import the Web Worker. The '?worker' suffix is a bundler-specific feature (e.g., Vite, Webpack 5)
+// that tells the bundler to process this file as a Web Worker.
+// Adjust the path based on your project structure.
+import TerrainSamplerWorker from '../workers/terrain-sampler-worker.js?worker';
 
 /**
  * Sets up the Area Measure tool for either 2D projected area or 3D terrain-following area.
@@ -29,7 +34,7 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
         mousePosition: null
     });
 
-    const toolName = isProjectedArea ? "2D Area Measure (Projected)" : "3D Area Measure (Terrain)";
+    const toolName = isProjectedArea ? "2D Area Measure" : "3D Area Measure";
     PopupService.showToolInstruction(
         `Left-click to add points. Right-click or Double-click to finish.`,
         toolName
@@ -113,7 +118,7 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
         if (drawingPoints.length >= 1) {
             let cartesian;
 
-            // *** UPDATED: Use pickPosition for more accurate mouse following ***
+            // Use pickPosition for more accurate mouse following
             // This attempts to pick on 3D content first, then terrain.
             cartesian = viewer.scene.pickPosition(move.endPosition);
 
@@ -141,17 +146,17 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
                 }
             }
         }
-    }, 50); // Keep throttle at 50ms now that picking is more accurate/consistent
+    }, 75); // Adjusted throttle to 75ms
 
     handler.setInputAction(throttledMouseMoveHandler, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
     // --- Finalize Function (shared by Right-Click and Double-Click) ---
-    const finishArea = async () => { // Added 'async'
+    const finishArea = async () => {
         removeEventHandlers();
 
         const { drawingPoints, temporaryMeasureLabel, activeShape, viewer } = getToolState();
 
-        PopupService.hide();
+        PopupService.hide(); // Hide current instruction
 
         if (drawingPoints.length < 3) {
             console.warn("AreaMeasureTool: Finalize triggered before enough points. Clearing drawing.");
@@ -165,16 +170,28 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
             setToolState({ temporaryMeasureLabel: null });
         }
 
+        // Show a "Calculating..." popup while terrain sampling happens in the worker
+        PopupService.show('toolInstruction', {
+            message: 'Calculating accurate terrain data...',
+            title: 'Processing Area Measurement',
+            showDismissButton: false
+        });
+
         // Finalize measurement - this is where we do the expensive, accurate terrain sampling
-        await finalizeAreaMeasure(isProjectedArea, drawingPoints);
+        const finalSampledPoints = await finalizeAreaMeasure(isProjectedArea, drawingPoints);
+
+        // Hide the "Calculating..." popup
+        PopupService.hide();
 
         if (Cesium.defined(activeShape)) {
-            // After finalization, update the activeShape to static, accurate positions if needed.
+            // After finalization, update the activeShape to static, accurate positions from the worker
             if (Cesium.defined(activeShape.polygon)) {
-                activeShape.polygon.hierarchy = new Cesium.PolygonHierarchy(drawingPoints);
+                activeShape.polygon.hierarchy = new Cesium.PolygonHierarchy(finalSampledPoints);
+                activeShape.polygon.clampToGround = clampShapeToGround; // Ensure final shape respects clamping
             }
             if (Cesium.defined(activeShape.polyline)) {
-                activeShape.polyline.positions = [...drawingPoints, drawingPoints[0]];
+                activeShape.polyline.positions = [...finalSampledPoints, finalSampledPoints[0]];
+                activeShape.polyline.clampToGround = clampShapeToGround; // Ensure final shape respects clamping
             }
         }
 
@@ -227,9 +244,10 @@ function updateTemporaryAreaMeasure(isProjectedArea, points) {
 
 /**
  * Finalizes the area measure, calculates total area, and adds a persistent label.
- * This function will now perform accurate terrain sampling for '3D Area Measure'.
+ * This function will now perform accurate terrain sampling for '3D Area Measure' using a Web Worker.
  * @param {boolean} isProjectedArea - True for 2D projected area, false for 3D terrain-following area.
  * @param {Array<Cesium.Cartesian3>} points - All the clicked points for the polygon (from LEFT_CLICK).
+ * @returns {Promise<Array<Cesium.Cartesian3>>} A promise that resolves with the final sampled points.
  */
 async function finalizeAreaMeasure(isProjectedArea, points) {
     const { viewer } = getToolState();
@@ -242,48 +260,144 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
             showDismissButton: true
         });
         console.warn("AreaMeasureTool: finalizeAreaMeasure called with insufficient points. Clearing drawing and showing error.");
-        return;
+        return [];
     }
 
     const { labels } = getToolState();
     labels.forEach(label => viewer.entities.remove(label));
     setToolState({ labels: [] });
 
-    let totalArea = 0;
-    let centerPoint = Cesium.Cartesian3.ZERO;
-    const finalPoints = [];
+    let finalPoints = [];
 
-    // If it's a terrain area, sample the terrain for accurate height for final calculation.
+    // If it's a terrain area, sample the terrain for accurate height for final calculation using a Web Worker.
     if (!isProjectedArea && Cesium.defined(viewer.terrainProvider) && viewer.terrainProvider.ready) {
         const cartographicPoints = points.map(p => viewer.scene.globe.ellipsoid.cartesianToCartographic(p));
-        try {
-            const sampledCartographics = await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, cartographicPoints);
-            sampledCartographics.forEach(c => finalPoints.push(viewer.scene.globe.ellipsoid.cartographicToCartesian(c)));
-        } catch (error) {
-            console.error("Error sampling terrain for area measure:", error);
-            // Fallback to original points if terrain sampling fails
-            finalPoints.push(...points);
-        }
+
+        const terrainProviderUrl = viewer.terrainProvider.url; // Assuming your terrainProvider has a .url property
+
+        return new Promise((resolve, reject) => {
+            const worker = new TerrainSamplerWorker();
+
+            worker.postMessage({
+                type: 'sampleTerrain',
+                cartographicPoints: cartographicPoints,
+                terrainProviderUrl: terrainProviderUrl // Pass URL to worker
+            });
+
+            worker.onmessage = (e) => {
+                if (e.data.type === 'sampledResult') {
+                    finalPoints = e.data.sampledPoints;
+
+                    // Calculate and add label after receiving sampled points
+                    let totalArea = 0;
+                    let centerPoint = Cesium.Cartesian3.ZERO;
+
+                    // For 3D terrain area, computeArea2D with ellipsoid for the sampled points
+                    totalArea = Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid);
+                    const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
+                    centerPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
+                        ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
+                        : centroid;
+
+                    const labelOffset = new Cesium.Cartesian3(0, 0, 50);
+                    const labelPosition = Cesium.Cartesian3.add(centerPoint, labelOffset, new Cesium.Cartesian3());
+                    addPersistentLabel(labelPosition, `Total Area: ${formatArea(totalArea)}`);
+
+                    console.log(`AreaMeasureTool: Finalized total area: ${formatArea(totalArea)}`);
+                    worker.terminate(); // Terminate the worker
+                    resolve(finalPoints);
+
+                } else if (e.data.type === 'error') {
+                    console.error("AreaMeasureTool: Web Worker error during terrain sampling:", e.data.message);
+                    PopupService.show('toolInstruction', {
+                        message: `Error calculating terrain data: ${e.data.message}. Falling back to ellipsoid calculation.`,
+                        title: `Terrain Error`,
+                        showDismissButton: true
+                    });
+                    // Fallback to original points if terrain sampling fails
+                    finalPoints.push(...points);
+                    // Proceed with calculations using original points
+                    let totalArea = 0;
+                    let centerPoint = Cesium.Cartesian3.ZERO;
+
+                    if (isProjectedArea) {
+                         totalArea = Cesium.PolygonPipeline.computeArea2D(finalPoints);
+                         const boundingSphere = Cesium.BoundingSphere.fromPoints(finalPoints);
+                         centerPoint = boundingSphere.center;
+                    } else {
+                         totalArea = Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid);
+                         const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
+                         centerPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
+                             ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
+                             : centroid;
+                    }
+                    const labelOffset = new Cesium.Cartesian3(0, 0, 50);
+                    const labelPosition = Cesium.Cartesian3.add(centerPoint, labelOffset, new Cesium.Cartesian3());
+                    addPersistentLabel(labelPosition, `Total Area: ${formatArea(totalArea)}`);
+
+                    worker.terminate();
+                    resolve(finalPoints);
+                }
+            };
+
+            worker.onerror = (error) => {
+                console.error("AreaMeasureTool: Web Worker unhandled error:", error);
+                PopupService.show('toolInstruction', {
+                    message: `An unexpected error occurred during terrain calculation. Falling back to ellipsoid calculation.`,
+                    title: `Calculation Error`,
+                    showDismissButton: true
+                });
+                // Fallback to original points and resolve
+                finalPoints.push(...points);
+                // Proceed with calculations using original points
+                let totalArea = 0;
+                let centerPoint = Cesium.Cartesian3.ZERO;
+
+                if (isProjectedArea) {
+                     totalArea = Cesium.PolygonPipeline.computeArea2D(finalPoints);
+                     const boundingSphere = Cesium.BoundingSphere.fromPoints(finalPoints);
+                     centerPoint = boundingSphere.center;
+                } else {
+                     totalArea = Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid);
+                     const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
+                     centerPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
+                         ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
+                         : centroid;
+                }
+                const labelOffset = new Cesium.Cartesian3(0, 0, 50);
+                const labelPosition = Cesium.Cartesian3.add(centerPoint, labelOffset, new Cesium.Cartesian3());
+                addPersistentLabel(labelPosition, `Total Area: ${formatArea(totalArea)}`);
+
+                worker.terminate();
+                resolve(finalPoints);
+            };
+        });
     } else {
+        // For projected area or if no terrain is available/ready, no sampling needed.
         finalPoints.push(...points);
+
+        let totalArea = 0;
+        let centerPoint = Cesium.Cartesian3.ZERO;
+
+        if (isProjectedArea) {
+            totalArea = Cesium.PolygonPipeline.computeArea2D(finalPoints);
+            const boundingSphere = Cesium.BoundingSphere.fromPoints(finalPoints);
+            centerPoint = boundingSphere.center;
+        } else {
+            // This branch should ideally not be hit if !isProjectedArea and terrain is ready.
+            // But as a fallback, if terrainProvider is not ready, we use ellipsoid projected area.
+            totalArea = Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid);
+            const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
+            centerPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
+                ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
+                : centroid;
+        }
+
+        const labelOffset = new Cesium.Cartesian3(0, 0, 50);
+        const labelPosition = Cesium.Cartesian3.add(centerPoint, labelOffset, new Cesium.Cartesian3());
+        addPersistentLabel(labelPosition, `Total Area: ${formatArea(totalArea)}`);
+
+        console.log(`AreaMeasureTool: Finalized total area (no terrain sampling): ${formatArea(totalArea)}`);
+        return finalPoints;
     }
-
-    if (isProjectedArea) {
-        totalArea = Cesium.PolygonPipeline.computeArea2D(finalPoints);
-        const boundingSphere = Cesium.BoundingSphere.fromPoints(finalPoints);
-        centerPoint = boundingSphere.center;
-    } else {
-        // For 3D terrain area, computeArea2D with ellipsoid for the sampled points
-        totalArea = Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid);
-        const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
-        centerPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
-            ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
-            : centroid;
-    }
-
-    const labelOffset = new Cesium.Cartesian3(0, 0, 50);
-    const labelPosition = Cesium.Cartesian3.add(centerPoint, labelOffset, new Cesium.Cartesian3());
-    addPersistentLabel(labelPosition, `Total Area: ${formatArea(totalArea)}`);
-
-    console.log(`AreaMeasureTool: Finalized total area: ${formatArea(totalArea)}`);
 }

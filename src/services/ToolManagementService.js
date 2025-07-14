@@ -3,10 +3,10 @@ import * as Cesium from 'cesium';
 import { MapService } from './MapService.js';
 
 // Import individual tool setup functions
-import { setupLineMeasureTool } from './tools/LineMeasureTool.js';
-import { setupAreaMeasureTool } from './tools/AreaMeasureTool.js';
-import { setupViewshieldAnalysisTool } from './tools/ViewshieldAnalysisTool.js';
-import { setupTerrainProfileTool } from './tools/TerrainProfileTool.js';
+import { setupLineMeasureTool } from '../components/Menu/SubSidebars/BasicTools/tools/LineMeasureTool.js';
+import { setupAreaMeasureTool } from '../components/Menu/SubSidebars/BasicTools/tools/AreaMeasureTool.js';
+import { setupViewshieldAnalysisTool } from '../components/Menu/SubSidebars/BasicTools/tools/ViewshieldAnalysisTool.js';
+import { setupTerrainProfileTool } from '../components/Menu/SubSidebars/BasicTools/tools/TerrainProfileTool.js';
 
 // Import helper functions and common drawing methods
 import {
@@ -17,7 +17,7 @@ import {
     updateTemporaryLabel,
     getToolState,
     setToolState
-} from './tool-helpers/tools-helpers.js';
+} from '../components/Menu/SubSidebars/BasicTools/tool-helpers/tools-helpers.js';
 
 class ToolManagementServiceClass {
     // FIX: Removed the extra 'new' keyword here.

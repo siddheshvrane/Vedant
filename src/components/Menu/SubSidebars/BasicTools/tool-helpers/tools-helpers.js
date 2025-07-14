@@ -131,7 +131,7 @@ export function clearDrawing() {
 
         // Optional: Request a render if viewer is in requestRenderMode
         // if (viewer.scene.requestRenderMode) {
-        //      viewer.scene.requestRender();
+        //      viewer.scene.requestRender();
         // }
     }
 
@@ -177,7 +177,7 @@ export function addTemporaryPoint(position) {
 
     // Optional: Request a render if viewer is in requestRenderMode
     // if (viewer.scene.requestRenderMode) {
-    //      viewer.scene.requestRender();
+    //      viewer.scene.requestRender();
     // }
 }
 
@@ -210,7 +210,7 @@ export function addPersistentLabel(position, text) {
 
     // Optional: Request a render if viewer is in requestRenderMode
     // if (viewer.scene.requestRenderMode) {
-    //      viewer.scene.requestRender();
+    //      viewer.scene.requestRender();
     // }
 }
 
@@ -254,6 +254,6 @@ export function updateTemporaryLabel(position, text) {
 
     // Optional: Request a render if viewer is in requestRenderMode
     // if (viewer.scene.requestRenderMode) {
-    //      viewer.scene.requestRender();
+    //      viewer.scene.requestRender();
     // }
 }

@@ -8,7 +8,7 @@ import {
     getToolState,
     setToolState // For updating viewshieldPolylines
 } from '../tool-helpers/tools-helpers.js';
-import { PopupService } from '../../services/PopupService.js'; // IMPORTANT: Import PopupService
+import { PopupService } from '../../../../../services/PopupService.js'; // IMPORTANT: Import PopupService
 
 export function setupViewshieldAnalysisTool() {
     clearDrawing();
