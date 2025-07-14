@@ -1,4 +1,3 @@
-// src/services/ToolManagementService.js
 import { Subject, BehaviorSubject } from 'rxjs';
 import * as Cesium from 'cesium';
 import { MapService } from './MapService.js';
@@ -17,26 +16,38 @@ import {
     addPersistentLabel,
     updateTemporaryLabel,
     getToolState,
-    setToolState // Import the new setter
+    setToolState
 } from './tool-helpers/tools-helpers.js';
 
 class ToolManagementServiceClass {
+    // FIX: Removed the extra 'new' keyword here.
     activeTool$ = new BehaviorSubject(null); // Stores the name of the active tool
 
     constructor() {
         // Subscribe to MapService to get the Cesium viewer instance
         MapService.globeViewer$.subscribe(viewer => {
-            // Update the viewer and handler in the tool state
+            // Always deactivate current tool and clear drawing before potentially updating viewer/handler.
+            // This ensures a clean state and proper cleanup if the viewer changes or becomes null.
+            this.deactivateCurrentTool();
+
+            // Update the viewer and handler in the tool state.
+            // setToolState now explicitly handles destroying the old handler if a new one is provided
+            // or if the handler is being set to null.
             setToolState({
                 viewer: viewer,
+                // Create a new handler only if a viewer exists.
+                // If viewer is null, the handler property will be set to null,
+                // triggering destruction of any existing handler within setToolState.
                 handler: viewer ? new Cesium.ScreenSpaceEventHandler(viewer.canvas) : null
             });
 
             if (viewer) {
-                console.log("ToolManagementService: Received Cesium Viewer instance.");
+                console.log("ToolManagementService: Received Cesium Viewer instance. Handler initialized.");
+                // Optional: For performance, if you only render on changes, enable requestRenderMode
+                // viewer.scene.requestRenderMode = true;
+                // viewer.scene.maximumRenderTimeChange = Infinity;
             } else {
-                this.deactivateCurrentTool();
-                // Handler will be destroyed if viewer is null via setToolState
+                console.log("ToolManagementService: Cesium Viewer is null. Tools deactivated and resources cleaned.");
             }
         });
     }
@@ -59,11 +70,17 @@ class ToolManagementServiceClass {
         }
 
         // Deactivate current tool if different
+        // This will clean up drawings and remove old event handlers.
         this.deactivateCurrentTool();
 
         // Activate the new tool
         this.activeTool$.next(toolName);
         console.log(`ToolManagementService: Activating tool: ${toolName}`);
+
+        // If requestRenderMode is enabled, request a render after tool activation
+        // if (viewer.scene.requestRenderMode) {
+        //     viewer.scene.requestRender();
+        // }
 
         switch (toolName) {
             case 'Line Measure': // User wants this to be 3D Displacement
@@ -86,22 +103,29 @@ class ToolManagementServiceClass {
                 break;
             default:
                 console.warn(`ToolManagementService: Unknown tool requested: ${toolName}`);
-                this.deactivateCurrentTool();
+                this.deactivateCurrentTool(); // Deactivate to ensure a clean state
                 break;
         }
     }
 
     /**
      * Deactivates the currently active tool and cleans up its resources.
+     * This function now primarily orchestrates cleanup by calling helper functions.
      */
     deactivateCurrentTool() {
         const activeTool = this.activeTool$.getValue();
         if (activeTool) {
             console.log(`ToolManagementService: Deactivating tool: ${activeTool}`);
-            clearDrawing();
-            removeEventHandlers();
+            clearDrawing(); // Clears all entities related to drawing
+            removeEventHandlers(); // Removes input actions from the current handler
         }
         this.activeTool$.next(null);
+
+        // If requestRenderMode is enabled, request a render after deactivation/cleanup
+        // const { viewer } = getToolState();
+        // if (viewer && viewer.scene.requestRenderMode) {
+        //     viewer.scene.requestRender();
+        // }
     }
 }
 

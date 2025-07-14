@@ -1,4 +1,4 @@
-// src/utils/tools/ViewshieldAnalysisTool.js
+// src/services/tools/ViewshieldAnalysisTool.js
 import * as Cesium from 'cesium';
 import {
     clearDrawing,

@@ -1,4 +1,4 @@
-// src/utils/tools/TerrainProfileTool.js
+// src/services/tools/TerrainProfileTool.js
 import * as Cesium from 'cesium';
 import {
     clearDrawing,
