@@ -1,22 +1,41 @@
 // tool-helpers/tools-helpers.js
 import * as Cesium from 'cesium';
+import { recordAction, getHistory, clearHistory } from './history'; // Import history functions
 
-// Internal state for tools
+// Re-export history functions directly from this file for a single import point
+export { recordAction, getHistory, clearHistory };
+
+/**
+ * @typedef {object} ToolState
+ * @property {Cesium.Viewer|null} viewer - Cesium Viewer instance.
+ * @property {Cesium.ScreenSpaceEventHandler|null} handler - ScreenSpaceEventHandler.
+ * @property {Cesium.Cartesian3[]} drawingPoints - Array of Cesium.Cartesian3 (clicked points for current drawing).
+ * @property {Cesium.Entity|null} activeShape - The temporary polyline/polygon entity for rubber-banding.
+ * @property {Cesium.Entity[]} labels - Array of *temporary* label entities (segment lengths, total length, final area for current drawing).
+ * @property {Cesium.Entity[]} points - Array of *temporary* point entities.
+ * @property {Cesium.Entity|null} temporaryMeasureLabel - The single, dynamic label shown during mouse move.
+ * @property {Cesium.Cartesian3|null} mousePosition - Variable to store the current mouse position for rubber-banding.
+ * @property {Cesium.Entity|null} groundPolyline - Specific for Terrain Profile.
+ * @property {Cesium.Entity[]} viewshieldPolylines - For Viewshield Analysis segments.
+ */
+
+/**
+ * Internal state for tools.
+ * This state is managed directly within this file.
+ * @type {ToolState}
+ */
 let toolState = {
-    viewer: null, // Cesium Viewer instance
-    handler: null, // ScreenSpaceEventHandler
-    drawingPoints: [], // Array of Cesium.Cartesian3 (clicked points for current drawing)
-    activeShape: null, // The temporary polyline/polygon entity for rubber-banding
-    labels: [], // Array of *temporary* label entities (segment lengths, total length, final area for current drawing)
-    points: [], // Array of *temporary* point entities
-    temporaryMeasureLabel: null, // The single, dynamic label shown during mouse move
-    mousePosition: null, // Variable to store the current mouse position for rubber-banding
-    groundPolyline: null, // Specific for Terrain Profile
-    viewshieldPolylines: [], // For Viewshield Analysis segments
+    viewer: null,
+    handler: null,
+    drawingPoints: [],
+    activeShape: null,
+    labels: [],
+    points: [],
+    temporaryMeasureLabel: null,
+    mousePosition: null,
+    groundPolyline: null,
+    viewshieldPolylines: [],
 };
-
-// Internal array to store application history/actions
-const applicationHistory = [];
 
 /**
  * Sets (or updates) the internal tool state.
@@ -31,11 +50,11 @@ export function setToolState(newState) {
     //   OR
     //   2. newState explicitly sets `handler` to `null` or `undefined`.
     if (toolState.handler &&
-       ( (newState.handler !== undefined && newState.handler !== toolState.handler) ||
-         (newState.hasOwnProperty('handler') && newState.handler === null) )
+        ((newState.handler !== undefined && newState.handler !== toolState.handler) ||
+         (newState.hasOwnProperty('handler') && newState.handler === null))
     ) {
         toolState.handler.destroy();
-        console.log("tool-helpers: Old ScreenSpaceEventHandler destroyed.");
+        console.log("tools-helpers: Old ScreenSpaceEventHandler destroyed during state update.");
     }
 
     // Apply the new state
@@ -44,7 +63,7 @@ export function setToolState(newState) {
 
 /**
  * Returns the current internal tool state.
- * @returns {object} The toolState object.
+ * @returns {ToolState} The toolState object.
  */
 export function getToolState() {
     return toolState;
@@ -75,8 +94,11 @@ export function throttle(func, delay) {
     };
 }
 
-
-// Helper function for formatting distances
+/**
+ * Helper function for formatting distances.
+ * @param {number} meters - Distance in meters.
+ * @returns {string} Formatted distance string.
+ */
 export function formatDistance(meters) {
     if (meters < 1000) {
         return `${meters.toFixed(2)} m`;
@@ -85,7 +107,11 @@ export function formatDistance(meters) {
     }
 }
 
-// Helper function for formatting areas, ALWAYS in km^2
+/**
+ * Helper function for formatting areas, ALWAYS in km^2.
+ * @param {number} sqMeters - Area in square meters.
+ * @returns {string} Formatted area string.
+ */
 export function formatArea(sqMeters) {
     return `${(sqMeters / 1000000).toFixed(6)} km²`;
 }
@@ -102,7 +128,7 @@ export function removeEventHandlers() {
         handler.removeInputAction(Cesium.ScreenSpaceEventType.MOUSE_MOVE);
         handler.removeInputAction(Cesium.ScreenSpaceEventType.RIGHT_CLICK);
         handler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
-        console.log("tool-helpers: All event handlers removed.");
+        console.log("tools-helpers: All event handlers removed.");
     }
 }
 
@@ -131,7 +157,7 @@ export function clearDrawing() {
         }
         // Remove viewshield analysis polylines
         viewshieldPolylines.forEach(entity => viewer.entities.remove(entity));
-        console.log("tool-helpers: All temporary drawing entities cleared from viewer.");
+        console.log("tools-helpers: All temporary drawing entities cleared from viewer.");
 
         // Optional: Request a render if viewer is in requestRenderMode
         if (viewer.scene.requestRenderMode) {
@@ -153,7 +179,7 @@ export function clearDrawing() {
     const panel = document.getElementById('terrainProfilePanel');
     if (panel) {
         panel.style.display = 'none';
-        console.log("tool-helpers: Terrain profile panel hidden.");
+        console.log("tools-helpers: Terrain profile panel hidden.");
     }
 }
 
@@ -167,7 +193,7 @@ export function clearDrawing() {
  */
 export function removeAllToolEntities(viewer) {
     if (!viewer) {
-        console.warn("removeAllToolEntities: Viewer is not available.");
+        console.warn("tools-helpers: Viewer is not available for removeAllToolEntities.");
         return;
     }
 
@@ -202,7 +228,7 @@ export function removeAllToolEntities(viewer) {
     toolState.groundPolyline = null;
     toolState.viewshieldPolylines = [];
 
-    console.log("tool-helpers: All temporary tool entities removed for broader cleanup.");
+    console.log("tools-helpers: All temporary tool entities removed for broader cleanup.");
 
     if (viewer.scene.requestRenderMode) {
         viewer.scene.requestRender();
@@ -218,7 +244,7 @@ export function removeAllToolEntities(viewer) {
 export function addTemporaryPoint(position) {
     const { viewer, points } = toolState;
     if (!viewer) {
-        console.warn("tool-helpers: Viewer not available to add temporary point.");
+        console.warn("tools-helpers: Viewer not available to add temporary point.");
         return;
     }
     const point = viewer.entities.add({
@@ -247,7 +273,7 @@ export function addTemporaryPoint(position) {
 export function addTemporaryPersistentLabel(position, text) {
     const { viewer, labels } = toolState;
     if (!viewer) {
-        console.warn("tool-helpers: Viewer not available to add temporary persistent label.");
+        console.warn("tools-helpers: Viewer not available to add temporary persistent label.");
         return;
     }
     const label = viewer.entities.add({
@@ -280,7 +306,7 @@ export function addTemporaryPersistentLabel(position, text) {
 export function updateTemporaryLabel(position, text) {
     const { viewer } = toolState;
     if (!viewer) {
-        console.warn("tool-helpers: Viewer not available to update temporary label.");
+        console.warn("tools-helpers: Viewer not available to update temporary label.");
         return;
     }
 
@@ -300,7 +326,7 @@ export function updateTemporaryLabel(position, text) {
                 disableDepthTestDistance: Number.POSITIVE_INFINITY // Always show on top
             },
         });
-        console.log("tool-helpers: Temporary measure label created.");
+        console.log("tools-helpers: Temporary measure label created.");
     } else {
         // If it exists, just update its properties (position and text)
         // This is significantly more efficient than removing and re-adding.
@@ -323,7 +349,7 @@ export function updateTemporaryLabel(position, text) {
 export function addPersistentEntity(entityOptions) {
     const { viewer } = toolState;
     if (!viewer) {
-        console.warn("Viewer not available to add persistent entity.");
+        console.warn("tools-helpers: Viewer not available to add persistent entity.");
         return null;
     }
     const entity = viewer.entities.add(entityOptions);
@@ -338,7 +364,7 @@ export function addPersistentEntity(entityOptions) {
  * @param {Cesium.Cartesian3} position - The position of the label.
  * @param {string} text - The text content of the label.
  * @returns {Cesium.Entity} The created label entity.
- */
+*/
 export function addPersistentLabel(position, text) {
     const labelEntity = addPersistentEntity({
         position: position,
@@ -359,43 +385,4 @@ export function addPersistentLabel(position, text) {
         toolState.viewer.scene.requestRender();
     }
     return labelEntity;
-}
-
-/**
- * Records an action in the application's history.
- * @param {string} type - The type of action (e.g., "Area Measurement", "Distance Measurement", "View Change").
- * @param {string} description - A detailed, human-readable description of the action.
- * @param {any} [data] - Optional, any relevant data associated with the action (e.g., coordinates, calculated value).
- */
-export function recordAction(type, description, data = null) {
-    const timestamp = new Date().toLocaleString(); // Gets current date and time in a readable format
-    const action = {
-        timestamp,
-        type,
-        description,
-        data
-    };
-    applicationHistory.push(action);
-    console.log("History Recorded:", action);
-
-    // You could also add logic here to:
-    // - Limit the history array size (e.g., keep only the last 100 actions)
-    // - Save history to local storage
-    // - Dispatch a custom event for a UI component to update
-}
-
-/**
- * Retrieves the entire application history.
- * @returns {Array<Object>} A copy of the recorded actions.
- */
-export function getHistory() {
-    return [...applicationHistory]; // Return a shallow copy to prevent external modification
-}
-
-/**
- * Clears all recorded actions from the history.
- */
-export function clearHistory() {
-    applicationHistory.length = 0; // Clears the array
-    console.log("History cleared.");
 }
