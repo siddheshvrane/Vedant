@@ -1,3 +1,4 @@
+// tool-helpers/tools-helpers.js
 import * as Cesium from 'cesium';
 
 // Internal state for tools
@@ -6,13 +7,16 @@ let toolState = {
     handler: null, // ScreenSpaceEventHandler
     drawingPoints: [], // Array of Cesium.Cartesian3 (clicked points for current drawing)
     activeShape: null, // The temporary polyline/polygon entity for rubber-banding
-    labels: [], // Array of *persistent* label entities (segment lengths, total length, final area)
-    points: [], // Array of point entities
+    labels: [], // Array of *temporary* label entities (segment lengths, total length, final area for current drawing)
+    points: [], // Array of *temporary* point entities
     temporaryMeasureLabel: null, // The single, dynamic label shown during mouse move
     mousePosition: null, // Variable to store the current mouse position for rubber-banding
     groundPolyline: null, // Specific for Terrain Profile
     viewshieldPolylines: [], // For Viewshield Analysis segments
 };
+
+// Internal array to store application history/actions
+const applicationHistory = [];
 
 /**
  * Sets (or updates) the internal tool state.
@@ -109,11 +113,11 @@ export function clearDrawing() {
     const { viewer, points, labels, temporaryMeasureLabel, activeShape, groundPolyline, viewshieldPolylines } = toolState;
 
     if (viewer) {
-        // Remove points
+        // Remove points (temporary drawing points)
         points.forEach(entity => viewer.entities.remove(entity));
-        // Remove persistent labels
+        // Remove temporary labels (segment lengths, total length for current drawing)
         labels.forEach(entity => viewer.entities.remove(entity));
-        // Remove temporary measure label
+        // Remove temporary measure label (mouse-move feedback)
         if (temporaryMeasureLabel) {
             viewer.entities.remove(temporaryMeasureLabel);
         }
@@ -127,19 +131,19 @@ export function clearDrawing() {
         }
         // Remove viewshield analysis polylines
         viewshieldPolylines.forEach(entity => viewer.entities.remove(entity));
-        console.log("tool-helpers: All drawing entities cleared from viewer.");
+        console.log("tool-helpers: All temporary drawing entities cleared from viewer.");
 
         // Optional: Request a render if viewer is in requestRenderMode
-        // if (viewer.scene.requestRenderMode) {
-        //      viewer.scene.requestRender();
-        // }
+        if (viewer.scene.requestRenderMode) {
+            viewer.scene.requestRender();
+        }
     }
 
     // Reset all drawing-related state variables to their initial empty/null values
     toolState.drawingPoints = [];
     toolState.activeShape = null;
-    toolState.labels = [];
-    toolState.points = [];
+    toolState.labels = []; // Clear temporary labels
+    toolState.points = []; // Clear temporary points
     toolState.temporaryMeasureLabel = null; // Set to null *after* removing from viewer
     toolState.mousePosition = null;
     toolState.groundPolyline = null;
@@ -154,7 +158,61 @@ export function clearDrawing() {
 }
 
 /**
- * Adds a temporary point entity to the viewer.
+ * Removes all entities that have been recorded in the tool's temporary state
+ * arrays (points, labels, temporaryMeasureLabel, activeShape, groundPolyline, viewshieldPolylines).
+ * This function is intended to be called when the viewer changes or is destroyed,
+ * to ensure no orphaned entities remain from previous tool usages.
+ * It's distinct from `clearDrawing` in that it's for a broader cleanup, not just ending a single drawing session.
+ * @param {Cesium.Viewer} viewer The Cesium Viewer instance.
+ */
+export function removeAllToolEntities(viewer) {
+    if (!viewer) {
+        console.warn("removeAllToolEntities: Viewer is not available.");
+        return;
+    }
+
+    // Explicitly remove any entities still held in toolState arrays
+    const entitiesToRemove = [
+        ...toolState.points,
+        ...toolState.labels,
+        ...toolState.viewshieldPolylines
+    ];
+
+    if (toolState.temporaryMeasureLabel) {
+        entitiesToRemove.push(toolState.temporaryMeasureLabel);
+    }
+    if (toolState.activeShape) {
+        entitiesToRemove.push(toolState.activeShape);
+    }
+    if (toolState.groundPolyline) {
+        entitiesToRemove.push(toolState.groundPolyline);
+    }
+
+    entitiesToRemove.forEach(entity => {
+        if (viewer.entities.contains(entity)) {
+            viewer.entities.remove(entity);
+        }
+    });
+
+    // Reset state after removal
+    toolState.points = [];
+    toolState.labels = [];
+    toolState.temporaryMeasureLabel = null;
+    toolState.activeShape = null;
+    toolState.groundPolyline = null;
+    toolState.viewshieldPolylines = [];
+
+    console.log("tool-helpers: All temporary tool entities removed for broader cleanup.");
+
+    if (viewer.scene.requestRenderMode) {
+        viewer.scene.requestRender();
+    }
+}
+
+
+/**
+ * Adds a temporary point entity to the viewer for *current drawing feedback*.
+ * These points are cleared by `clearDrawing()`.
  * @param {Cesium.Cartesian3} position - The position of the point.
  */
 export function addTemporaryPoint(position) {
@@ -173,23 +231,23 @@ export function addTemporaryPoint(position) {
             disableDepthTestDistance: Number.POSITIVE_INFINITY // Always show on top
         },
     });
-    points.push(point);
+    points.push(point); // Add to our temporary tracking array
 
-    // Optional: Request a render if viewer is in requestRenderMode
-    // if (viewer.scene.requestRenderMode) {
-    //      viewer.scene.requestRender();
-    // }
+    if (viewer.scene.requestRenderMode) {
+        viewer.scene.requestRender();
+    }
 }
 
 /**
- * Adds a persistent label entity to the viewer.
+ * Adds a temporary persistent label entity to the viewer for *current drawing feedback*.
+ * These labels are cleared by `clearDrawing()`.
  * @param {Cesium.Cartesian3} position - The position of the label.
  * @param {string} text - The text content of the label.
  */
-export function addPersistentLabel(position, text) {
+export function addTemporaryPersistentLabel(position, text) {
     const { viewer, labels } = toolState;
     if (!viewer) {
-        console.warn("tool-helpers: Viewer not available to add persistent label.");
+        console.warn("tool-helpers: Viewer not available to add temporary persistent label.");
         return;
     }
     const label = viewer.entities.add({
@@ -206,12 +264,11 @@ export function addPersistentLabel(position, text) {
             disableDepthTestDistance: Number.POSITIVE_INFINITY // Always show on top
         },
     });
-    labels.push(label);
+    labels.push(label); // Add to our temporary tracking array
 
-    // Optional: Request a render if viewer is in requestRenderMode
-    // if (viewer.scene.requestRenderMode) {
-    //      viewer.scene.requestRender();
-    // }
+    if (viewer.scene.requestRenderMode) {
+        viewer.scene.requestRender();
+    }
 }
 
 /**
@@ -249,11 +306,96 @@ export function updateTemporaryLabel(position, text) {
         // This is significantly more efficient than removing and re-adding.
         toolState.temporaryMeasureLabel.position = new Cesium.ConstantPositionProperty(position);
         toolState.temporaryMeasureLabel.label.text = text;
-        // console.log("tool-helpers: Temporary measure label updated."); // Too verbose for mouse move
     }
 
-    // Optional: Request a render if viewer is in requestRenderMode
-    // if (viewer.scene.requestRenderMode) {
-    //      viewer.scene.requestRender();
-    // }
+    if (viewer.scene.requestRenderMode) {
+        viewer.scene.requestRender();
+    }
+}
+
+/**
+ * A general purpose function to create and add a Cesium Entity to the viewer.
+ * This entity is NOT automatically managed by `clearDrawing()`. It's intended
+ * for persistent measurements that `ToolManagementService` will handle.
+ * @param {Cesium.Entity.ConstructorOptions} entityOptions - The options for the Cesium Entity.
+ * @returns {Cesium.Entity} The created and added entity.
+ */
+export function addPersistentEntity(entityOptions) {
+    const { viewer } = toolState;
+    if (!viewer) {
+        console.warn("Viewer not available to add persistent entity.");
+        return null;
+    }
+    const entity = viewer.entities.add(entityOptions);
+    return entity;
+}
+
+/**
+ * Adds a persistent label entity to the Cesium viewer, typically for final measurements.
+ * This function utilizes `addPersistentEntity` and is exported for other tools to use.
+ * This label will NOT be cleared by `clearDrawing()`. Management of these entities
+ * after they are added is typically handled by a higher-level service (e.g., history management).
+ * @param {Cesium.Cartesian3} position - The position of the label.
+ * @param {string} text - The text content of the label.
+ * @returns {Cesium.Entity} The created label entity.
+ */
+export function addPersistentLabel(position, text) {
+    const labelEntity = addPersistentEntity({
+        position: position,
+        label: {
+            text: text,
+            font: '14pt Poppins', // Consistent font with your temporary labels
+            fillColor: Cesium.Color.WHITE,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 2,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+            pixelOffset: new Cesium.Cartesian2(0, -10),
+            disableDepthTestDistance: Number.POSITIVE_INFINITY // Always show on top
+        },
+    });
+
+    if (toolState.viewer && toolState.viewer.scene.requestRenderMode) {
+        toolState.viewer.scene.requestRender();
+    }
+    return labelEntity;
+}
+
+/**
+ * Records an action in the application's history.
+ * @param {string} type - The type of action (e.g., "Area Measurement", "Distance Measurement", "View Change").
+ * @param {string} description - A detailed, human-readable description of the action.
+ * @param {any} [data] - Optional, any relevant data associated with the action (e.g., coordinates, calculated value).
+ */
+export function recordAction(type, description, data = null) {
+    const timestamp = new Date().toLocaleString(); // Gets current date and time in a readable format
+    const action = {
+        timestamp,
+        type,
+        description,
+        data
+    };
+    applicationHistory.push(action);
+    console.log("History Recorded:", action);
+
+    // You could also add logic here to:
+    // - Limit the history array size (e.g., keep only the last 100 actions)
+    // - Save history to local storage
+    // - Dispatch a custom event for a UI component to update
+}
+
+/**
+ * Retrieves the entire application history.
+ * @returns {Array<Object>} A copy of the recorded actions.
+ */
+export function getHistory() {
+    return [...applicationHistory]; // Return a shallow copy to prevent external modification
+}
+
+/**
+ * Clears all recorded actions from the history.
+ */
+export function clearHistory() {
+    applicationHistory.length = 0; // Clears the array
+    console.log("History cleared.");
 }

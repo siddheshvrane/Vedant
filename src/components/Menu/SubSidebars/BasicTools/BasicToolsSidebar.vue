@@ -11,19 +11,21 @@
         No basic tools available.
       </li>
     </ul>
-  </BaseSubSidebar>
+    <MeasurementHistory class="mt-4" /> </BaseSubSidebar>
 </template>
 
 <script>
-import BaseSubSidebar from '../SubSidebar.vue'; // Adjust path if BaseSubSidebar is elsewhere
-import ToolsListItem from './ToolListItem.vue'; // Adjust path based on where you put ToolsListItem.vue
-import { ToolManagementService } from '../../../../services/ToolManagementService'; // NEW: Import the service
+import BaseSubSidebar from '../SubSidebar.vue';
+import ToolsListItem from './ToolListItem.vue';
+import MeasurementHistory from './MeasurementHistory.vue'; // NEW: Import MeasurementHistory
+import { ToolManagementService } from '../../../../services/ToolManagementService';
 
 export default {
   name: 'BasicToolsSidebar',
   components: {
     BaseSubSidebar,
     ToolsListItem,
+    MeasurementHistory, // NEW: Register MeasurementHistory
   },
   data() {
     return {
@@ -35,12 +37,10 @@ export default {
         { name: 'Viewshield Analysis', isActive: false },
         { name: 'Terrain Profile', isActive: false },
       ],
-      activeToolSubscription: null, // NEW: For listening to active tool changes
+      activeToolSubscription: null,
     };
   },
   mounted() {
-    // Subscribe to the activeTool$ in ToolManagementService
-    // This keeps the UI state synchronized with the service's active tool
     this.activeToolSubscription = ToolManagementService.activeTool$.subscribe(activeToolName => {
         this.tools.forEach(tool => {
             tool.isActive = (tool.name === activeToolName);
@@ -53,14 +53,12 @@ export default {
     });
   },
   beforeUnmount() {
-    // Deactivate any active tool in the service when the sidebar unmounts
     ToolManagementService.deactivateCurrentTool();
     if (this.activeToolSubscription) {
         this.activeToolSubscription.unsubscribe();
     }
   },
   methods: {
-    // This method is called by ToolsListItem events when a tool is selected via radio button.
     async activateTool(toolName) {
       console.log(`BasicToolsSidebar: Request to activate tool: ${toolName}`);
 
@@ -68,18 +66,10 @@ export default {
 
       if (clickedTool) {
         if (clickedTool.isActive) {
-          // If the clicked tool is already active, it means the user clicked the active radio.
-          // In a radio button context, clicking an active radio usually doesn't unselect it.
-          // If you want it to toggle OFF, you'd need custom radio button behavior or a "None" option.
-          // For now, if active, we interpret it as a re-selection (no change in active tool in service)
-          // or a desire to deactivate if it's the only one selected.
-          // For true radio behavior, this block might be removed, relying on the new selection to deactivate.
           console.log(`${toolName} was already active. Sending deactivate command.`);
-          ToolManagementService.deactivateCurrentTool(); // Deactivate it
+          ToolManagementService.deactivateCurrentTool();
         } else {
-          // Activate the tool via the service
           ToolManagementService.activateTool(toolName);
-          // The subscription to activeTool$ will handle updating this.tools to reflect the new state.
         }
       }
     },
@@ -88,7 +78,7 @@ export default {
 </script>
 
 <style scoped>
-/* Inherit common sub-sidebar panel styles from LayerManagerSidebar.vue */
+/* Existing styles from your original BasicToolsSidebar.vue */
 .sub-sidebar-panel {
   width: 350px; /* Consistent width for this sidebar */
   height: 100%;

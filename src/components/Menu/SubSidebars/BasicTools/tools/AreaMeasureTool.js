@@ -8,8 +8,9 @@ import {
     formatArea,
     getToolState,
     setToolState,
-    throttle
-} from '../tool-helpers/tools-helpers.js';
+    throttle,
+    recordAction // <--- Ensure 'recordAction' is included here
+} from '../tool-helpers/tools-helpers.js'; // This is the single, correct import for all helpers
 import { PopupService } from '../../../../../services/PopupService.js';
 
 // Import the Web Worker. The '?worker' suffix is a bundler-specific feature (e.g., Vite, Webpack 5)
@@ -109,6 +110,11 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
             }
         } else {
             console.warn("AreaMeasureTool: Could not pick a valid position on LEFT_CLICK.");
+            PopupService.showToolInstruction(
+                "Could not pick a valid position. Please click on the globe.",
+                toolName,
+                true
+            );
         }
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
@@ -161,6 +167,11 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
         if (drawingPoints.length < 3) {
             console.warn("AreaMeasureTool: Finalize triggered before enough points. Clearing drawing.");
             clearDrawing();
+            PopupService.show('toolInstruction', {
+                message: `Minimum 3 points are required to measure an area. Clearing current drawing.`,
+                title: `Area Measurement Incomplete`,
+                showDismissButton: true
+            });
             return;
         }
 
@@ -232,6 +243,7 @@ function updateTemporaryAreaMeasure(isProjectedArea, points) {
         totalArea = Cesium.PolygonPipeline.computeArea2D(points, viewer.scene.globe.ellipsoid);
 
         const centroid = Cesium.BoundingSphere.fromPoints(points).center;
+        // Robust centerPoint calculation: Fallback to centroid if scaleToGeodeticSurface fails
         centerPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
             ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
             : centroid;
@@ -275,6 +287,28 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
 
         const terrainProviderUrl = viewer.terrainProvider.url; // Assuming your terrainProvider has a .url property
 
+        if (!Cesium.defined(terrainProviderUrl)) {
+            console.warn("AreaMeasureTool: Terrain provider URL is undefined. Falling back to ellipsoid calculation.");
+            PopupService.show('toolInstruction', {
+                message: `Terrain provider not configured or ready. Falling back to ellipsoid calculation.`,
+                title: `Terrain Data Not Available`,
+                showDismissButton: true
+            });
+            // Fallback immediately if URL is not defined
+            finalPoints.push(...points);
+            const totalArea = Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid);
+            const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
+            const centerPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
+                ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
+                : centroid;
+            const labelOffset = new Cesium.Cartesian3(0, 0, 50);
+            const labelPosition = Cesium.Cartesian3.add(centerPoint, labelOffset, new Cesium.Cartesian3());
+            const formattedArea = formatArea(totalArea);
+            addPersistentLabel(labelPosition, `Total Area: ${formattedArea}`);
+            recordAction('Area Measurement (No Terrain)', `Measured ${formattedArea} (3D - No terrain data)`, finalPoints);
+            return finalPoints;
+        }
+
         return new Promise((resolve, reject) => {
             const worker = new TerrainSamplerWorker();
 
@@ -288,7 +322,6 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
                 if (e.data.type === 'sampledResult') {
                     finalPoints = e.data.sampledPoints;
 
-                    // Calculate and add label after receiving sampled points
                     let totalArea = 0;
                     let centerPoint = Cesium.Cartesian3.ZERO;
 
@@ -301,9 +334,12 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
 
                     const labelOffset = new Cesium.Cartesian3(0, 0, 50);
                     const labelPosition = Cesium.Cartesian3.add(centerPoint, labelOffset, new Cesium.Cartesian3());
-                    addPersistentLabel(labelPosition, `Total Area: ${formatArea(totalArea)}`);
+                    const formattedArea = formatArea(totalArea);
+                    addPersistentLabel(labelPosition, `Total Area: ${formattedArea}`);
 
-                    console.log(`AreaMeasureTool: Finalized total area: ${formatArea(totalArea)}`);
+                    console.log(`AreaMeasureTool: Finalized total area: ${formattedArea}`);
+                    recordAction('Area Measurement', `Measured ${formattedArea} (3D)`, finalPoints);
+
                     worker.terminate(); // Terminate the worker
                     resolve(finalPoints);
 
@@ -320,20 +356,20 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
                     let totalArea = 0;
                     let centerPoint = Cesium.Cartesian3.ZERO;
 
-                    if (isProjectedArea) {
-                         totalArea = Cesium.PolygonPipeline.computeArea2D(finalPoints);
-                         const boundingSphere = Cesium.BoundingSphere.fromPoints(finalPoints);
-                         centerPoint = boundingSphere.center;
-                    } else {
-                         totalArea = Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid);
-                         const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
-                         centerPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
-                             ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
-                             : centroid;
-                    }
+                    // Use ellipsoid calculation for fallback
+                    totalArea = Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid);
+                    const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
+                    centerPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
+                        ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
+                        : centroid;
+
                     const labelOffset = new Cesium.Cartesian3(0, 0, 50);
                     const labelPosition = Cesium.Cartesian3.add(centerPoint, labelOffset, new Cesium.Cartesian3());
-                    addPersistentLabel(labelPosition, `Total Area: ${formatArea(totalArea)}`);
+                    const formattedArea = formatArea(totalArea);
+                    addPersistentLabel(labelPosition, `Total Area: ${formattedArea}`);
+
+                    console.log(`AreaMeasureTool: Finalized total area (fallback): ${formattedArea}`);
+                    recordAction('Area Measurement (Fallback)', `Measured ${formattedArea} (3D - Terrain error fallback)`, finalPoints);
 
                     worker.terminate();
                     resolve(finalPoints);
@@ -353,20 +389,20 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
                 let totalArea = 0;
                 let centerPoint = Cesium.Cartesian3.ZERO;
 
-                if (isProjectedArea) {
-                     totalArea = Cesium.PolygonPipeline.computeArea2D(finalPoints);
-                     const boundingSphere = Cesium.BoundingSphere.fromPoints(finalPoints);
-                     centerPoint = boundingSphere.center;
-                } else {
-                     totalArea = Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid);
-                     const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
-                     centerPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
-                         ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
-                         : centroid;
-                }
+                // Use ellipsoid calculation for fallback
+                totalArea = Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid);
+                const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
+                centerPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
+                    ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
+                    : centroid;
+
                 const labelOffset = new Cesium.Cartesian3(0, 0, 50);
                 const labelPosition = Cesium.Cartesian3.add(centerPoint, labelOffset, new Cesium.Cartesian3());
-                addPersistentLabel(labelPosition, `Total Area: ${formatArea(totalArea)}`);
+                const formattedArea = formatArea(totalArea);
+                addPersistentLabel(labelPosition, `Total Area: ${formattedArea}`);
+
+                console.log(`AreaMeasureTool: Finalized total area (unhandled worker error fallback): ${formattedArea}`);
+                recordAction('Area Measurement (Unhandled Error)', `Measured ${formattedArea} (3D - Unhandled worker error fallback)`, finalPoints);
 
                 worker.terminate();
                 resolve(finalPoints);
@@ -395,9 +431,12 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
 
         const labelOffset = new Cesium.Cartesian3(0, 0, 50);
         const labelPosition = Cesium.Cartesian3.add(centerPoint, labelOffset, new Cesium.Cartesian3());
-        addPersistentLabel(labelPosition, `Total Area: ${formatArea(totalArea)}`);
+        const formattedArea = formatArea(totalArea);
+        addPersistentLabel(labelPosition, `Total Area: ${formattedArea}`);
 
-        console.log(`AreaMeasureTool: Finalized total area (no terrain sampling): ${formatArea(totalArea)}`);
+        console.log(`AreaMeasureTool: Finalized total area (no terrain sampling): ${formattedArea}`);
+        recordAction('Area Measurement', `Measured ${formattedArea} (${isProjectedArea ? '2D' : '3D'})`, finalPoints);
+
         return finalPoints;
     }
 }
