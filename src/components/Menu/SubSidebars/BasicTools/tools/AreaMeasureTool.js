@@ -293,13 +293,13 @@ function updateTemporaryAreaMeasure(isProjectedArea, points) {
 
     if (isProjectedArea) {
         // For projected area, just compute 2D area directly
-        totalArea = Cesium.PolygonPipeline.computeArea2D(points);
+        totalArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(points)); // Apply Math.abs() here
         const boundingSphere = Cesium.BoundingSphere.fromPoints(points);
         centerPoint = boundingSphere.center;
     } else {
         // For terrain mode temporary display, calculate projected area on ellipsoid for speed
         // This is an approximation until final calculation with terrain sampling
-        totalArea = Cesium.PolygonPipeline.computeArea2D(points, viewer.scene.globe.ellipsoid);
+        totalArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(points, viewer.scene.globe.ellipsoid)); // Apply Math.abs() here
 
         const centroid = Cesium.BoundingSphere.fromPoints(points).center;
         // Robust centerPoint calculation: Fallback to centroid if scaleToGeodeticSurface fails
@@ -348,7 +348,7 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
             );
             // Fallback immediately if URL is not defined
             finalPoints.push(...points);
-            calculatedArea = Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid);
+            calculatedArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid)); // Apply Math.abs() here
             const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
             calculatedCenterPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
                 ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
@@ -381,7 +381,7 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
                     finalPoints = e.data.sampledPoints;
 
                     // For 3D terrain area, computeArea2D with ellipsoid for the sampled points
-                    calculatedArea = Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid);
+                    calculatedArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid)); // Apply Math.abs() here
                     const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
                     calculatedCenterPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
                         ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
@@ -398,7 +398,7 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
                     );
                     // Fallback to original points if terrain sampling fails
                     finalPoints.push(...points);
-                    calculatedArea = Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid);
+                    calculatedArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid)); // Apply Math.abs() here
                     const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
                     calculatedCenterPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
                         ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
@@ -418,7 +418,7 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
                 );
                 // Fallback to original points and resolve
                 finalPoints.push(...points);
-                calculatedArea = Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid);
+                calculatedArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid)); // Apply Math.abs() here
                 const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
                 calculatedCenterPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
                     ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
@@ -431,13 +431,13 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
         finalPoints.push(...points);
 
         if (isProjectedArea) {
-            calculatedArea = Cesium.PolygonPipeline.computeArea2D(finalPoints);
+            calculatedArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(finalPoints)); // Apply Math.abs() here
             const boundingSphere = Cesium.BoundingSphere.fromPoints(finalPoints);
             calculatedCenterPoint = boundingSphere.center;
         } else {
             // This branch acts as a fallback for '3D Area Measure' if terrain provider is not ready.
             // We calculate the area projected onto the ellipsoid.
-            calculatedArea = Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid);
+            calculatedArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid)); // Apply Math.abs() here
             const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
             calculatedCenterPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
                 ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
