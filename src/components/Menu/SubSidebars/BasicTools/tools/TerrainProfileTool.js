@@ -1,31 +1,24 @@
-// src/services/tools/TerrainProfileTool.js
 import * as Cesium from 'cesium';
 import {
     clearDrawing,
     removeEventHandlers,
     addTemporaryPoint,
-    addPersistentLabel,
+    addTemporaryPersistentLabel, // Corrected import: Use the temporary label helper
     getToolState,
     setToolState // For updating groundPolyline
 } from '../tool-helpers/tools-helpers.js';
 import { PopupService } from '../../../../../services/PopupService.js'; // IMPORTANT: Import PopupService
 
 export function setupTerrainProfileTool() {
-    clearDrawing();
-    removeEventHandlers();
+    clearDrawing(); // Clears any previous temporary drawings and resets tool state
+    removeEventHandlers(); // Ensures no old handlers are active
 
     const { handler, viewer } = getToolState();
 
-    // --- OLD: alert() for initial instructions ---
-    // alert("Terrain Profile: Left-click to define start and end points of a profile line. Right-click to clear. The profile will appear in a panel.");
-    
-    // --- NEW: Using PopupService for instructions ---
     PopupService.showToolInstruction(
         `Left-click to define start and end points of a profile line. Right-click to clear. The profile will appear in a panel.`,
         `Terrain Profile`
     );
-    // --- END NEW ---
-
     console.warn("Terrain Profile tool will now display a basic profile in an HTML panel.");
 
     let startPoint = null;
@@ -33,16 +26,17 @@ export function setupTerrainProfileTool() {
 
     handler.setInputAction((click) => {
         const cartesian = viewer.scene.pickPosition(click.position); // Pick 3D position
-        if (cartesian) {
+        if (Cesium.defined(cartesian)) { // Ensure cartesian is defined
             if (!startPoint) {
                 startPoint = cartesian;
                 addTemporaryPoint(startPoint);
-                addPersistentLabel(startPoint, "Start");
+                addTemporaryPersistentLabel(startPoint, "Start"); // Use addTemporaryPersistentLabel
             } else if (!endPoint) {
                 endPoint = cartesian;
                 addTemporaryPoint(endPoint);
-                addPersistentLabel(endPoint, "End");
+                addTemporaryPersistentLabel(endPoint, "End"); // Use addTemporaryPersistentLabel
 
+                // Add the ground polyline directly to the viewer and store in toolState
                 const groundPolyline = viewer.entities.add({
                     polyline: {
                         positions: [startPoint, endPoint],
@@ -51,63 +45,76 @@ export function setupTerrainProfileTool() {
                         clampToGround: true // Profile line should follow terrain
                     }
                 });
-                setToolState({ groundPolyline: groundPolyline }); // Update state
+                setToolState({ groundPolyline: groundPolyline }); // Update state to track this entity for clearing
 
                 generateTerrainProfile(startPoint, endPoint);
 
-                // --- OLD: alert() after end point set ---
-                // alert("End point set. Right-click to clear.");
-                // --- NEW: Using PopupService for instruction update ---
                 PopupService.showToolInstruction(
                     `End point set. Right-click to clear the profile.`,
                     `Terrain Profile`
                 );
-                // --- END NEW ---
             }
+        } else {
+            console.warn("Terrain Profile: Could not pick a valid position.");
+            PopupService.showToolInstruction(
+                `Could not pick a valid position. Please click on the globe.`,
+                `Terrain Profile Error`,
+                true
+            );
         }
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
     handler.setInputAction(() => {
-        clearDrawing();
+        clearDrawing(); // This will remove the points, labels, and the groundPolyline
         startPoint = null;
         endPoint = null;
         removeEventHandlers();
         console.log("Terrain Profile cleared.");
         
-        // --- OLD: alert() on clear ---
-        // alert("Terrain Profile cleared. Click to define new profile line.");
-        // --- NEW: Using PopupService for instruction update ---
         PopupService.showToolInstruction(
             `Terrain Profile cleared. Left-click to define new profile line.`,
             `Terrain Profile`
         );
-        // --- END NEW ---
-        // This is handled by the ToolManagementService's deactivateCurrentTool
     }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
 }
 
 async function generateTerrainProfile(startPoint, endPoint) {
     const { viewer } = getToolState();
-    if (!viewer || !startPoint || !endPoint) return;
+    if (!viewer || !startPoint || !endPoint) {
+        console.error("Terrain Profile: Missing viewer, startPoint, or endPoint.");
+        return;
+    }
 
     const numberOfSamples = 200; // More samples for a smoother profile
-    const interpolatedPositions = [];
+    const interpolatedCartesians = [];
 
     for (let i = 0; i <= numberOfSamples; i++) {
         const ratio = i / numberOfSamples;
         const interpolated = Cesium.Cartesian3.lerp(startPoint, endPoint, ratio, new Cesium.Cartesian3());
-        interpolatedPositions.push(interpolated);
+        interpolatedCartesians.push(interpolated);
     }
 
     try {
-        const clampedPositions = await viewer.scene.clampToGround(interpolatedPositions);
+        PopupService.showToolInstruction(
+            'Sampling terrain for profile...',
+            'Processing Terrain Profile',
+            false // No dismiss button during processing
+        );
 
-        const profileData = clampedPositions.map((pos) => {
-            const carto = viewer.scene.globe.ellipsoid.cartesianToCartographic(pos);
+        // Convert Cartesians to Cartographics for terrain sampling
+        const sampleCartographics = interpolatedCartesians.map(p => Cesium.Cartographic.fromCartesian(p));
+
+        // Use Cesium.TerrainSampler.sampleTerrain for accurate terrain heights
+        const clampedCartographics = await Cesium.TerrainSampler.sampleTerrain(viewer.terrainProvider, sampleCartographics);
+        
+        // Convert sampled Cartographics back to Cartesians (though not strictly needed for profileData, good practice)
+        const clampedPositions = clampedCartographics.map(c => Cesium.Cartographic.toCartesian(c));
+
+
+        const profileData = clampedCartographics.map((carto, index) => { // Use clampedCartographics directly
             // Calculate horizontal distance from the start point (on the ellipsoid surface)
-            const startCarto = viewer.scene.globe.ellipsoid.cartesianToCartographic(startPoint);
-            const currentCarto = viewer.scene.globe.ellipsoid.cartesianToCartographic(pos);
-            const geodesic = new Cesium.EllipsoidGeodesic(startCarto, currentCarto);
+            const startCarto = Cesium.Cartographic.fromCartesian(startPoint);
+            const geodesic = new Cesium.EllipsoidGeodesic(startCarto, carto); // Use sampled carto directly
             const horizontalDistance = geodesic.surfaceDistance;
 
             return {
@@ -116,25 +123,28 @@ async function generateTerrainProfile(startPoint, endPoint) {
             };
         });
 
+        PopupService.hide(); // Hide processing popup once sampling is done.
+
         console.log("Terrain Profile Data (Horizontal Distance, Elevation):", profileData);
         displayTerrainProfileInPanel(profileData);
 
     } catch (error) {
         console.error("Error generating terrain profile:", error);
-        // --- OLD: alert() for error ---
-        // alert("Error generating terrain profile: Could not sample terrain heights.");
-        // --- NEW: Using PopupService for error notification ---
-        PopupService.show('toolInstruction', { // Using 'toolInstruction' type for error as well
-            message: `Could not sample terrain heights. Error: ${error.message || 'Unknown error.'}`,
+        PopupService.hide(); // Hide any processing popup
+        PopupService.show('toolInstruction', {
+            message: `Could not sample terrain heights. Error: ${error.message || 'Unknown error.'} Please ensure terrain is available.`,
             title: `Terrain Profile Error`,
-            showDismissButton: true // Ensure dismiss button for errors
+            showDismissButton: true
         });
-        // --- END NEW ---
 
         // Hide the panel if there's an error
         const panel = document.getElementById('terrainProfilePanel');
         if (panel) {
             panel.style.display = 'none';
+        }
+    } finally {
+        if (viewer.scene.requestRenderMode) {
+            viewer.scene.requestRender();
         }
     }
 }
@@ -145,7 +155,6 @@ function displayTerrainProfileInPanel(profileData) {
 
     if (!panel || !chartDataContainer) {
         console.error("Terrain profile panel or data container not found in HTML.");
-        // If the panel isn't found, we should inform the user via popup too.
         PopupService.show('toolInstruction', {
             message: `Terrain profile display panel not found. Ensure 'terrainProfilePanel' and 'profileChartData' elements exist in your HTML.`,
             title: `Terrain Profile Setup Error`,
@@ -161,7 +170,6 @@ function displayTerrainProfileInPanel(profileData) {
     });
     htmlContent += '</ul></div>';
 
-    // Placeholder for a charting library integration:
     htmlContent += `<p style="margin-top: 10px;"><em>(A full charting library like Chart.js or D3.js would render a graph here based on this data.)</em></p>`;
 
     chartDataContainer.innerHTML = htmlContent;

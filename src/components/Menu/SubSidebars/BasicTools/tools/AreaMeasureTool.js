@@ -8,7 +8,7 @@ import {
     getToolState,
     setToolState,
     throttle,
-    addPersistentEntity // Make sure this is imported if used directly
+    // addPersistentEntity // REMOVE: ToolManagementService will call this
 } from '../tool-helpers/tools-helpers.js';
 import { PopupService } from '../../../../../services/PopupService.js';
 import { ToolManagementService } from '../../../../../services/ToolManagementService.js';
@@ -21,22 +21,10 @@ import TerrainSamplerWorker from '../workers/terrain-sampler-worker.js?worker';
  * @param {boolean} clampShapeToGround - True to clamp the rubber-banding shape to the terrain, false for 3D space.
  */
 export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
-    // These are now handled by ToolManagementService upon tool activation,
-    // which calls clearDrawing() and removeEventHandlers().
-    // clearDrawing();
-    // removeEventHandlers();
-
     const { handler, viewer } = getToolState();
-    
-    // Initial state setup for drawing-related properties is primarily handled by clearDrawing()
-    // which is called during tool activation (e.g., by ToolManagementService).
-    // Keeping a minimal setToolState here if there's any specific override needed for this tool.
-    setToolState({
-        // drawingPoints: [], // Managed by clearDrawing()
-        // activeShape: null, // Managed by clearDrawing()
-        // temporaryMeasureLabel: null, // Managed by clearDrawing()
-        mousePosition: null // Ensure mousePosition is reset
-    });
+
+    // Ensure mousePosition is reset at the start of a new tool activation
+    setToolState({ mousePosition: null });
 
     const toolName = isProjectedArea ? "2D Area Measure" : "3D Area Measure";
     PopupService.showToolInstruction(
@@ -52,7 +40,9 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
             const ray = viewer.camera.getPickRay(click.position);
             cartesian = viewer.scene.globe.pick(ray, viewer.scene);
         } else {
+            // Pick an actual 3D position if not clamping
             cartesian = viewer.scene.pickPosition(click.position);
+            // Fallback to ellipsoid if pickPosition fails (e.g., clicking on sky)
             if (!Cesium.defined(cartesian)) {
                 cartesian = viewer.camera.pickEllipsoid(click.position, viewer.scene.globe.ellipsoid);
             }
@@ -63,7 +53,7 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
             drawingPoints.push(cartesian);
             setToolState({ drawingPoints: drawingPoints }); // Update state after push
 
-            addTemporaryPoint(cartesian); // Add a temporary visual point
+            addTemporaryPoint(cartesian); // Add a temporary visual point for the clicked position
 
             let { activeShape } = getToolState();
             if (!Cesium.defined(activeShape)) {
@@ -80,6 +70,7 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
                         }, false),
                         material: Cesium.Color.RED.withAlpha(0.2),
                         clampToGround: clampShapeToGround,
+                        show: true // Ensure it's visible by default
                     },
                     polyline: {
                         positions: new Cesium.CallbackProperty(() => {
@@ -95,19 +86,20 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
                         }, false),
                         width: 3,
                         material: Cesium.Color.RED,
-                        clampToGround: clampShapeToGround
+                        clampToGround: clampShapeToGround,
+                        show: true // Ensure it's visible by default
                     }
                 });
                 setToolState({ activeShape: activeShape });
             }
 
             // Update temporary area label if enough points are present
-            if (drawingPoints.length >= 2 && Cesium.defined(getToolState().mousePosition)) { // Needs at least 2 points to form a polygon with mouse
+            if (drawingPoints.length >= 2 && Cesium.defined(getToolState().mousePosition)) {
                 updateTemporaryAreaMeasure(isProjectedArea, [...drawingPoints, getToolState().mousePosition]);
             } else {
                 updateTemporaryLabel(null, ''); // Clear label if not enough points or mouse not defined
             }
-            
+
             if (viewer.scene.requestRenderMode) {
                 viewer.scene.requestRender();
             }
@@ -127,8 +119,8 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
         if (drawingPoints.length >= 1) { // Need at least one point clicked to show rubber-banding
             let cartesian;
 
+            // Always try to pick terrain if available, otherwise fall back to ellipsoid
             cartesian = viewer.scene.pickPosition(move.endPosition);
-
             if (!Cesium.defined(cartesian)) {
                 cartesian = viewer.camera.pickEllipsoid(move.endPosition, viewer.scene.globe.ellipsoid);
             }
@@ -160,7 +152,7 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
     const finishArea = async () => {
         removeEventHandlers(); // Remove handlers immediately
 
-        const { drawingPoints, viewer } = getToolState(); // activeShape is used later in try block
+        const { drawingPoints, viewer } = getToolState();
 
         PopupService.hide(); // Hide current instruction
         console.log("AreaMeasureTool: Initial instruction popup hidden.");
@@ -177,13 +169,6 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
             return;
         }
 
-        // The following state resets are now handled by clearDrawing() which is called in finally.
-        // setToolState({ mousePosition: null });
-        // if (Cesium.defined(temporaryMeasureLabel)) {
-        //     viewer.entities.remove(temporaryMeasureLabel);
-        //     setToolState({ temporaryMeasureLabel: null });
-        // }
-
         // Show a "Calculating..." popup while terrain sampling happens in the worker
         PopupService.showToolInstruction(
             'Calculating accurate terrain data...',
@@ -197,41 +182,38 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
             const { sampledPositions, totalArea, centerPoint } = await finalizeAreaMeasure(isProjectedArea, drawingPoints);
             console.log("AreaMeasureTool: finalizeAreaMeasure resolved successfully.");
 
-            const { activeShape } = getToolState(); // Get activeShape after finalize for cleanup
-
-            // Add persistent entities
-            const persistentEntities = {};
-
+            const { activeShape } = getToolState();
             if (Cesium.defined(activeShape)) {
-                // If there was an activeShape, remove it before adding persistent ones.
-                // It's removed here so it doesn't flash before the new entities appear.
+                // Remove the temporary activeShape as we're about to add the persistent ones.
                 viewer.entities.remove(activeShape);
                 setToolState({ activeShape: null }); // Clear activeShape from state
             }
-            
-            // Add persistent polygon
-            const persistentPolygon = addPersistentEntity({
-                polygon: {
-                    hierarchy: new Cesium.PolygonHierarchy(sampledPositions),
-                    material: Cesium.Color.CYAN.withAlpha(0.2),
-                    outline: true,
-                    outlineColor: Cesium.Color.CYAN,
-                    outlineWidth: 2,
-                    clampToGround: clampShapeToGround,
-                },
-                polyline: { // Also add a persistent polyline for the outline
-                    positions: [...sampledPositions, sampledPositions[0]],
-                    width: 3,
-                    material: Cesium.Color.CYAN,
-                    clampToGround: clampShapeToGround,
-                }
-            });
-            persistentEntities.polygon = persistentPolygon;
 
-            // Add persistent points
-            const persistentPoints = [];
+            // Prepare entity definitions for ToolManagementService
+            const persistentEntitiesDefinitions = {
+                polygon: { // This is a definition, not an entity
+                    polygon: {
+                        hierarchy: new Cesium.PolygonHierarchy(sampledPositions),
+                        material: Cesium.Color.CYAN.withAlpha(0.2),
+                        outline: true,
+                        outlineColor: Cesium.Color.CYAN,
+                        outlineWidth: 2,
+                        clampToGround: clampShapeToGround,
+                    },
+                    polyline: { // Also add a persistent polyline for the outline
+                        positions: [...sampledPositions, sampledPositions[0]],
+                        width: 3,
+                        material: Cesium.Color.CYAN,
+                        clampToGround: clampShapeToGround,
+                    }
+                },
+                points: [], // Array to hold point definitions
+                labels: []  // Array to hold label definitions
+            };
+
+            // Add persistent point definitions
             drawingPoints.forEach(pos => { // Use original drawing points for persistent points
-                const point = addPersistentEntity({
+                persistentEntitiesDefinitions.points.push({
                     position: pos,
                     point: {
                         pixelSize: 8,
@@ -241,15 +223,13 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
                         disableDepthTestDistance: Number.POSITIVE_INFINITY,
                     },
                 });
-                persistentPoints.push(point);
             });
-            persistentEntities.points = persistentPoints;
 
-            // Add persistent total area label
+            // Add persistent total area label definition
             const labelOffset = new Cesium.Cartesian3(0, 0, 50);
             const labelPosition = Cesium.Cartesian3.add(centerPoint, labelOffset, new Cesium.Cartesian3());
             const formattedArea = formatArea(totalArea);
-            const persistentAreaLabel = addPersistentEntity({
+            persistentEntitiesDefinitions.labels.push({
                 position: labelPosition,
                 label: {
                     text: `Total Area: ${formattedArea}`,
@@ -263,12 +243,11 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
                     disableDepthTestDistance: Number.POSITIVE_INFINITY,
                 },
             });
-            persistentEntities.labels = [persistentAreaLabel]; // Store labels in an array
 
             ToolManagementService.addMeasurement(
                 toolName,
                 `Area: ${formattedArea}`,
-                persistentEntities
+                persistentEntitiesDefinitions // Pass the definitions to the service
             );
 
             console.log(`Area Measure Tool: Measurement finalized. Total Area: ${formattedArea}`);
@@ -282,7 +261,7 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
             );
         } finally {
             PopupService.hide();
-            clearDrawing(); // Ensures all temporary drawing entities are cleared (including activeShape)
+            clearDrawing(); // Ensures all temporary drawing entities are cleared
             ToolManagementService.deactivateCurrentTool();
         }
 
@@ -313,11 +292,13 @@ function updateTemporaryAreaMeasure(isProjectedArea, points) {
     let centerPoint = Cesium.Cartesian3.ZERO;
 
     if (isProjectedArea) {
+        // For projected area, just compute 2D area directly
         totalArea = Cesium.PolygonPipeline.computeArea2D(points);
         const boundingSphere = Cesium.BoundingSphere.fromPoints(points);
         centerPoint = boundingSphere.center;
     } else {
         // For terrain mode temporary display, calculate projected area on ellipsoid for speed
+        // This is an approximation until final calculation with terrain sampling
         totalArea = Cesium.PolygonPipeline.computeArea2D(points, viewer.scene.globe.ellipsoid);
 
         const centroid = Cesium.BoundingSphere.fromPoints(points).center;
@@ -454,8 +435,8 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
             const boundingSphere = Cesium.BoundingSphere.fromPoints(finalPoints);
             calculatedCenterPoint = boundingSphere.center;
         } else {
-            // This branch should ideally not be hit if !isProjectedArea and terrain is ready.
-            // But as a fallback, if terrainProvider is not ready, we use ellipsoid projected area.
+            // This branch acts as a fallback for '3D Area Measure' if terrain provider is not ready.
+            // We calculate the area projected onto the ellipsoid.
             calculatedArea = Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid);
             const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
             calculatedCenterPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
