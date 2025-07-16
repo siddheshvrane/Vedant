@@ -2,13 +2,13 @@ import * as Cesium from 'cesium';
 import {
     clearDrawing,
     removeEventHandlers,
-    addTemporaryPoint,
-    updateTemporaryLabel,
+    addTemporaryPoint,        // This will now use the heightOffset for temporary yellow points
+    updateTemporaryLabel,     // This will now use the heightOffset for temporary cyan label
     formatArea,
     getToolState,
     setToolState,
     throttle,
-    // addPersistentEntity // REMOVE: ToolManagementService will call this
+    // addTemporaryPersistentLabel, // No longer needed if we're not adding a separate persistent label via this helper
 } from '../tool-helpers/tools-helpers.js';
 import { PopupService } from '../../../../../services/PopupService.js';
 import { ToolManagementService } from '../../../../../services/ToolManagementService.js';
@@ -53,7 +53,8 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
             drawingPoints.push(cartesian);
             setToolState({ drawingPoints: drawingPoints }); // Update state after push
 
-            addTemporaryPoint(cartesian); // Add a temporary visual point for the clicked position
+            // Use addTemporaryPoint which now includes a height offset (defaulting to 0.5 or what you set in tools-helpers)
+            addTemporaryPoint(cartesian); // Yellow temporary points, lifted by default offset (e.g., 0.5m or 5m)
 
             let { activeShape } = getToolState();
             if (!Cesium.defined(activeShape)) {
@@ -198,39 +199,34 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
                         outline: true,
                         outlineColor: Cesium.Color.CYAN,
                         outlineWidth: 2,
-                        clampToGround: clampShapeToGround,
+                        // Clamp to ground only if it's a 3D terrain measure and not a 2D projected one
+                        clampToGround: !isProjectedArea,
                     },
                     polyline: { // Also add a persistent polyline for the outline
                         positions: [...sampledPositions, sampledPositions[0]],
                         width: 3,
                         material: Cesium.Color.CYAN,
-                        clampToGround: clampShapeToGround,
+                        // Clamp to ground only if it's a 3D terrain measure and not a 2D projected one
+                        clampToGround: !isProjectedArea,
                     }
                 },
-                points: [], // Array to hold point definitions
+                // Removed persistent points section
+                points: [], // Ensure this array is empty as requested
                 labels: []  // Array to hold label definitions
             };
 
-            // Add persistent point definitions
-            drawingPoints.forEach(pos => { // Use original drawing points for persistent points
-                persistentEntitiesDefinitions.points.push({
-                    position: pos,
-                    point: {
-                        pixelSize: 8,
-                        color: Cesium.Color.BLUE,
-                        outlineColor: Cesium.Color.WHITE,
-                        outlineWidth: 2,
-                        disableDepthTestDistance: Number.POSITIVE_INFINITY,
-                    },
-                });
-            });
-
             // Add persistent total area label definition
-            const labelOffset = new Cesium.Cartesian3(0, 0, 50);
-            const labelPosition = Cesium.Cartesian3.add(centerPoint, labelOffset, new Cesium.Cartesian3());
+            // Ensure the center point is also lifted, especially if calculated on terrain.
+            const labelCartographic = Cesium.Cartographic.fromCartesian(centerPoint);
+            const liftedLabelPosition = Cesium.Cartesian3.fromDegrees(
+                labelCartographic.longitude * 180 / Math.PI,
+                labelCartographic.latitude * 180 / Math.PI,
+                labelCartographic.height + 20.0 // LIFT BY 20 METERS for clearer visibility if the issue was height
+            );
+
             const formattedArea = formatArea(totalArea);
             persistentEntitiesDefinitions.labels.push({
-                position: labelPosition,
+                position: liftedLabelPosition, // Use the lifted position
                 label: {
                     text: `Total Area: ${formattedArea}`,
                     font: '14pt Poppins',
@@ -271,7 +267,7 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
     };
 
     handler.setInputAction(finishArea, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
-    handler.setInputAction(finishArea, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+    handler.setInputAction(finishArea, Cesium.ScreenScreenEventType.LEFT_DOUBLE_CLICK);
 }
 
 /**
@@ -293,13 +289,13 @@ function updateTemporaryAreaMeasure(isProjectedArea, points) {
 
     if (isProjectedArea) {
         // For projected area, just compute 2D area directly
-        totalArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(points)); // Apply Math.abs() here
+        totalArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(points));
         const boundingSphere = Cesium.BoundingSphere.fromPoints(points);
         centerPoint = boundingSphere.center;
     } else {
         // For terrain mode temporary display, calculate projected area on ellipsoid for speed
         // This is an approximation until final calculation with terrain sampling
-        totalArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(points, viewer.scene.globe.ellipsoid)); // Apply Math.abs() here
+        totalArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(points, viewer.scene.globe.ellipsoid));
 
         const centroid = Cesium.BoundingSphere.fromPoints(points).center;
         // Robust centerPoint calculation: Fallback to centroid if scaleToGeodeticSurface fails
@@ -308,9 +304,8 @@ function updateTemporaryAreaMeasure(isProjectedArea, points) {
             : centroid;
     }
 
-    const labelOffset = new Cesium.Cartesian3(0, 0, 50);
-    const labelPosition = Cesium.Cartesian3.add(centerPoint, labelOffset, new Cesium.Cartesian3());
-    updateTemporaryLabel(labelPosition, `Area: ${formatArea(totalArea)}`);
+    // Pass the centerPoint to updateTemporaryLabel, which now handles its own height offset (e.g., 0.5m or 5m)
+    updateTemporaryLabel(centerPoint, `Area: ${formatArea(totalArea)}`);
 }
 
 /**
@@ -348,7 +343,7 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
             );
             // Fallback immediately if URL is not defined
             finalPoints.push(...points);
-            calculatedArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid)); // Apply Math.abs() here
+            calculatedArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid));
             const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
             calculatedCenterPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
                 ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
@@ -379,9 +374,14 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
 
                 if (e.data.type === 'sampledResult') {
                     finalPoints = e.data.sampledPoints;
+                    // !!! IMPORTANT LOGGING !!!
+                    console.log("AreaMeasureTool: Sampled points received from worker:", finalPoints.map(p => {
+                        const carto = Cesium.Cartographic.fromCartesian(p);
+                        return `Lon: ${Cesium.Math.toDegrees(carto.longitude).toFixed(4)}, Lat: ${Cesium.Math.toDegrees(carto.latitude).toFixed(4)}, Height: ${carto.height.toFixed(2)}m`;
+                    }));
 
                     // For 3D terrain area, computeArea2D with ellipsoid for the sampled points
-                    calculatedArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid)); // Apply Math.abs() here
+                    calculatedArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid));
                     const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
                     calculatedCenterPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
                         ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
@@ -398,7 +398,7 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
                     );
                     // Fallback to original points if terrain sampling fails
                     finalPoints.push(...points);
-                    calculatedArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid)); // Apply Math.abs() here
+                    calculatedArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid));
                     const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
                     calculatedCenterPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
                         ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
@@ -418,7 +418,7 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
                 );
                 // Fallback to original points and resolve
                 finalPoints.push(...points);
-                calculatedArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid)); // Apply Math.abs() here
+                calculatedArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid));
                 const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
                 calculatedCenterPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
                     ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)
@@ -431,13 +431,13 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
         finalPoints.push(...points);
 
         if (isProjectedArea) {
-            calculatedArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(finalPoints)); // Apply Math.abs() here
+            calculatedArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(finalPoints));
             const boundingSphere = Cesium.BoundingSphere.fromPoints(finalPoints);
             calculatedCenterPoint = boundingSphere.center;
         } else {
             // This branch acts as a fallback for '3D Area Measure' if terrain provider is not ready.
             // We calculate the area projected onto the ellipsoid.
-            calculatedArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid)); // Apply Math.abs() here
+            calculatedArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid));
             const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
             calculatedCenterPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
                 ? viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid)

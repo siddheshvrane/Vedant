@@ -4,7 +4,7 @@
       <button @click="backToMainMenu" class="btn btn-link text-white back-btn">
         <i class="fas fa-arrow-left"></i>
       </button>
-      <h5 class="sub-sidebar-title">{{ title }}</h5>
+      <h5 class="sub-sidebar-title">{{ displayTitle }}</h5>
       <button @click="closeAllSidebars" class="btn btn-link text-white close-btn">
         <i class="fas fa-times"></i>
       </button>
@@ -24,13 +24,18 @@ export default {
       required: true,
     },
   },
+  computed: {
+    displayTitle() {
+      // You can add logic here if you want different titles based on context
+      // For now, it just returns the prop title
+      return this.title;
+    }
+  },
   methods: {
     closeAllSidebars() {
-      // Emit a new event to indicate complete sidebar closure
       this.$emit('close-all-sidebars');
     },
     backToMainMenu() {
-      // Emit an event to go back to the main sidebar menu
       this.$emit('back-to-main-menu');
     },
   },
@@ -52,19 +57,20 @@ export default {
 .sub-sidebar-header {
   display: flex;
   align-items: center;
-  justify-content: space-between; /* Changed to space-between to push back/close buttons to ends */
+  justify-content: space-between;
   padding: 15px 15px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   background-color: rgba(30, 30, 30, 0);
 }
 
 .sub-sidebar-title {
-  flex-grow: 1; /* Allows title to take available space */
+  flex-grow: 1;
   text-align: center;
   margin-bottom: 0;
-  font-size: 1.2em;
-  color: white;
-  /* Removed margin-left: 30px; as justify-content handles spacing */
+  /* Applying Measurement History title styles */
+  font-size: 1.2em; /* Matches .history-title */
+  font-weight: 600; /* Matches .history-title */
+  color: #007bff; /* Matches .history-title primary accent color */
 }
 
 .close-btn, .back-btn {
@@ -72,8 +78,8 @@ export default {
   color: white !important;
   padding: 0.25rem 0.5rem;
   border-radius: 0.25rem;
-  background: none; /* Ensure no background by default */
-  border: none; /* Ensure no border by default */
+  background: none;
+  border: none;
 }
 
 .close-btn:hover, .back-btn:hover {
@@ -85,5 +91,25 @@ export default {
   padding: 20px;
   overflow-y: auto;
   color: white;
+  padding-right: 5px;
+}
+
+.sub-sidebar-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.sub-sidebar-body::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+.sub-sidebar-body::-webkit-scrollbar-thumb {
+  background-color: rgba(100, 100, 100, 0.5);
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sub-sidebar-body::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(150, 150, 150, 0.7);
 }
 </style>

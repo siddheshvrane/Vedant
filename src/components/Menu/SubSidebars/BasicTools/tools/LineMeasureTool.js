@@ -1,4 +1,4 @@
-// LineMeasure.js (Fully updated with integration and best practices)
+// LineMeasure.js
 
 import * as Cesium from 'cesium';
 import {
@@ -188,24 +188,9 @@ export function setupLineMeasureTool(isDisplacement, clampShapeToGround) {
                         clampToGround: clampShapeToGround,
                     },
                 },
-                points: [], // Array to hold point definitions
+                points: [], // Array to hold point definitions - explicitly empty as requested
                 labels: []  // Array to hold label definitions
             };
-
-            // Add persistent point definitions
-            // Use original drawing points for persistent points as they are the exact clicked locations
-            drawingPoints.forEach(pos => {
-                persistentEntitiesDefinitions.points.push({
-                    position: pos,
-                    point: {
-                        pixelSize: 8,
-                        color: Cesium.Color.BLUE,
-                        outlineColor: Cesium.Color.WHITE,
-                        outlineWidth: 2,
-                        disableDepthTestDistance: Number.POSITIVE_INFINITY, // Always show on top
-                    },
-                });
-            });
 
             // Add persistent segment labels
             if (sampledPositions.length > 1) {
@@ -246,7 +231,7 @@ export function setupLineMeasureTool(isDisplacement, clampShapeToGround) {
             const lastPoint = sampledPositions[sampledPositions.length - 1] || drawingPoints[drawingPoints.length - 1];
             if (lastPoint) {
                 // Offset the total label slightly above the last point
-                const labelOffset = new Cesium.Cartesian3(0, 0, 50); // 50 meters up
+                const labelOffset = new Cesium.Cartesian3(0, 0, 20.0); // Lift by 20 meters
                 const labelPosition = Cesium.Cartesian3.add(lastPoint, labelOffset, new Cesium.Cartesian3());
                 persistentEntitiesDefinitions.labels.push({
                     position: labelPosition,
@@ -384,7 +369,7 @@ async function finalizeLineMeasure(isDisplacement, points) {
                 const p1 = finalPoints[i];
                 const p2 = finalPoints[i + 1];
                 const carto1 = viewer.scene.globe.ellipsoid.cartesianToCartographic(p1);
-                const carto2 = viewer.scene.globe.ellipsoid.cartographicToCartographic(p2);
+                const carto2 = viewer.scene.globe.ellipsoid.cartesianToCartographic(p2); // Fixed typo: cartographicToCartographic -> cartesianToCartographic
                 const geodesic = new Cesium.EllipsoidGeodesic(carto1, carto2);
                 totalDistance += geodesic.surfaceDistance;
             }

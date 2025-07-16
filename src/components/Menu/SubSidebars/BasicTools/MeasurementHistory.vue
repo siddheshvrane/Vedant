@@ -9,7 +9,7 @@
         v-for="measurement in measurements"
         :key="measurement.id"
         class="history-item d-flex align-items-center p-2 mb-2 rounded"
-        >
+      >
         <div class="measurement-info d-flex flex-column flex-grow-1 me-2">
           <span class="tool-operation-title">
             {{ measurement.toolName }} #{{ measurement.operationNumber }}
@@ -96,15 +96,17 @@ export default {
 
 .measurement-history {
   /* Mimic SceneInfo.vue container styles */
-  background-color: rgba(30, 30, 30, 0.7);
+  background-color: transparent; /* Make background transparent */
   color: white;
-  padding: 15px 20px; /* Slightly more padding than default */
+  padding: 0; /* Remove padding */
   border-radius: 10px;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(5px);
-  -webkit-backdrop-filter: blur(5px);
-  /* Max width if desired, or let parent container handle width */
-  /* width: 280px; */
+  box-shadow: none; /* Remove box shadow */
+  backdrop-filter: none; /* Remove backdrop filter */
+  -webkit-backdrop-filter: none; /* Remove webkit backdrop filter */
+  /* Allow height to be determined by content or parent */
+  height: 100%; /* Important: Make it take full height of its parent */
+  display: flex;
+  flex-direction: column; /* Arrange children in a column */
 }
 
 .history-title {
@@ -119,9 +121,11 @@ export default {
 }
 
 .history-list {
-  max-height: 250px; /* Adjusted height for potentially more items */
+  /* Remove max-height to allow it to grow */
+  /* max-height: 250px; */
   overflow-y: auto;
   padding-right: 5px; /* For scrollbar space */
+  flex-grow: 1; /* Allow the list to take up available vertical space */
 }
 
 /* Custom scrollbar for better aesthetics */
@@ -221,5 +225,4 @@ export default {
 .delete-btn:hover i {
     color: #FF9933 !important; /* Lighter orange on hover for trash icon */
 }
-
 </style>

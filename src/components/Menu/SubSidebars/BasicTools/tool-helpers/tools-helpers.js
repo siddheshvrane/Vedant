@@ -1,9 +1,7 @@
-// tool-helpers/tools-helpers.js
 import * as Cesium from 'cesium';
-import { recordAction, getHistory, clearHistory } from './history'; // Import history functions
+// Removed: import { recordAction, getHistory, clearHistory } from './history'; // Import history functions
 
-// Re-export history functions directly from this file for a single import point
-export { recordAction, getHistory, clearHistory };
+// Removed: export { recordAction, getHistory, clearHistory }; // Re-export history functions directly from this file for a single import point
 
 /**
  * @typedef {object} ToolState
@@ -48,12 +46,14 @@ export function setToolState(newState) {
     // If there's an existing handler and:
     //   1. A new handler is explicitly provided in newState AND it's different from the current one.
     //   OR
-    //   2. newState explicitly sets `handler` to `null` or `undefined`.
+    //   2. newState explicitly sets `handler` to `null`.
+    // The case of `newState.handler === undefined` (meaning no change to handler property) will not destroy the old handler.
     if (toolState.handler &&
         ((newState.handler !== undefined && newState.handler !== toolState.handler) ||
          (newState.hasOwnProperty('handler') && newState.handler === null))
     ) {
         toolState.handler.destroy();
+        // TODO: Consider removing/disabling console logs for production builds.
         console.log("tools-helpers: Old ScreenSpaceEventHandler destroyed during state update.");
     }
 
@@ -110,16 +110,21 @@ export function formatDistance(meters) {
 /**
  * Helper function for formatting areas, ALWAYS in km^2.
  * @param {number} sqMeters - Area in square meters.
+ * @param {number} [precision=6] - Number of decimal places to fix to. Defaults to 6.
  * @returns {string} Formatted area string.
  */
-export function formatArea(sqMeters) {
-    return `${(sqMeters / 1000000).toFixed(6)} km²`;
+export function formatArea(sqMeters, precision = 6) {
+    return `${(sqMeters / 1000000).toFixed(precision)} km²`;
 }
 
 /**
  * Removes all currently set input actions from the handler.
  * Note: This does NOT destroy the handler object itself.
  * The handler object's lifecycle is managed by setToolState and ToolManagementService.
+ *
+ * Potential Consideration: If this function is called multiple times in a sequence
+ * (e.g., at the end of a tool's operation and again during tool deactivation),
+ * it might be redundant. Review ToolManagementService to avoid unnecessary calls.
  */
 export function removeEventHandlers() {
     const { handler } = toolState;
@@ -128,6 +133,7 @@ export function removeEventHandlers() {
         handler.removeInputAction(Cesium.ScreenSpaceEventType.MOUSE_MOVE);
         handler.removeInputAction(Cesium.ScreenSpaceEventType.RIGHT_CLICK);
         handler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+        // TODO: Consider removing/disabling console logs for production builds.
         console.log("tools-helpers: All event handlers removed.");
     }
 }
@@ -157,6 +163,7 @@ export function clearDrawing() {
         }
         // Remove viewshield analysis polylines
         viewshieldPolylines.forEach(entity => viewer.entities.remove(entity));
+        // TODO: Consider removing/disabling console logs for production builds.
         console.log("tools-helpers: All temporary drawing entities cleared from viewer.");
 
         // Optional: Request a render if viewer is in requestRenderMode
@@ -179,6 +186,7 @@ export function clearDrawing() {
     const panel = document.getElementById('terrainProfilePanel');
     if (panel) {
         panel.style.display = 'none';
+        // TODO: Consider removing/disabling console logs for production builds.
         console.log("tools-helpers: Terrain profile panel hidden.");
     }
 }
@@ -228,6 +236,7 @@ export function removeAllToolEntities(viewer) {
     toolState.groundPolyline = null;
     toolState.viewshieldPolylines = [];
 
+    // TODO: Consider removing/disabling console logs for production builds.
     console.log("tools-helpers: All temporary tool entities removed for broader cleanup.");
 
     if (viewer.scene.requestRenderMode) {
@@ -240,15 +249,25 @@ export function removeAllToolEntities(viewer) {
  * Adds a temporary point entity to the viewer for *current drawing feedback*.
  * These points are cleared by `clearDrawing()`.
  * @param {Cesium.Cartesian3} position - The position of the point.
+ * @param {number} [heightOffset=5.0] - Optional height offset in meters above the terrain.
  */
-export function addTemporaryPoint(position) {
+export function addTemporaryPoint(position, heightOffset = 5.0) { // Changed default heightOffset to 5.0
     const { viewer, temporaryPoints } = toolState;
     if (!viewer) {
         console.warn("tools-helpers: Viewer not available to add temporary point.");
         return;
     }
+
+    // Apply a small height offset to ensure it's visually above the terrain
+    const cartographic = Cesium.Cartographic.fromCartesian(position);
+    const offsetPosition = Cesium.Cartesian3.fromDegrees(
+        cartographic.longitude * 180 / Math.PI,
+        cartographic.latitude * 180 / Math.PI,
+        cartographic.height + heightOffset
+    );
+
     const point = viewer.entities.add({
-        position: position,
+        position: offsetPosition, // Use the offset position
         point: {
             pixelSize: 8,
             color: Cesium.Color.YELLOW,
@@ -269,15 +288,25 @@ export function addTemporaryPoint(position) {
  * These labels are cleared by `clearDrawing()`.
  * @param {Cesium.Cartesian3} position - The position of the label.
  * @param {string} text - The text content of the label.
+ * @param {number} [heightOffset=5.0] - Optional height offset in meters above the terrain.
  */
-export function addTemporaryPersistentLabel(position, text) {
+export function addTemporaryPersistentLabel(position, text, heightOffset = 5.0) { // Changed default heightOffset to 5.0
     const { viewer, temporaryLabels } = toolState;
     if (!viewer) {
         console.warn("tools-helpers: Viewer not available to add temporary persistent label.");
         return;
     }
+
+    // Apply a small height offset
+    const cartographic = Cesium.Cartographic.fromCartesian(position);
+    const offsetPosition = Cesium.Cartesian3.fromDegrees(
+        cartographic.longitude * 180 / Math.PI,
+        cartographic.latitude * 180 / Math.PI,
+        cartographic.height + heightOffset
+    );
+
     const label = viewer.entities.add({
-        position: position,
+        position: offsetPosition, // Use the offset position
         label: {
             text: text,
             font: '14pt Poppins',
@@ -302,18 +331,39 @@ export function addTemporaryPersistentLabel(position, text) {
  * This function is optimized to update an existing entity rather than removing/re-adding.
  * @param {Cesium.Cartesian3} position - The position for the temporary label.
  * @param {string} text - The text content for the temporary label.
+ * @param {number} [heightOffset=5.0] - Optional height offset in meters above the terrain.
  */
-export function updateTemporaryLabel(position, text) {
+export function updateTemporaryLabel(position, text, heightOffset = 5.0) { // Changed default heightOffset to 5.0
     const { viewer } = toolState;
     if (!viewer) {
         console.warn("tools-helpers: Viewer not available to update temporary label.");
         return;
     }
 
+    // If position is null (e.g., mouse not on globe), remove the label
+    if (!Cesium.defined(position)) {
+        if (toolState.temporaryMeasureLabel) {
+            viewer.entities.remove(toolState.temporaryMeasureLabel);
+            toolState.temporaryMeasureLabel = null;
+            if (viewer.scene.requestRenderMode) {
+                viewer.scene.requestRender();
+            }
+        }
+        return;
+    }
+
+    // Apply a small height offset
+    const cartographic = Cesium.Cartographic.fromCartesian(position);
+    const offsetPosition = Cesium.Cartesian3.fromDegrees(
+        cartographic.longitude * 180 / Math.PI,
+        cartographic.latitude * 180 / Math.PI,
+        cartographic.height + heightOffset
+    );
+
     if (!toolState.temporaryMeasureLabel) {
         // If the temporary label doesn't exist, create it once
         toolState.temporaryMeasureLabel = viewer.entities.add({
-            position: position,
+            position: offsetPosition, // Use the offset position
             label: {
                 text: text,
                 font: '14pt Poppins',
@@ -326,11 +376,12 @@ export function updateTemporaryLabel(position, text) {
                 disableDepthTestDistance: Number.POSITIVE_INFINITY // Always show on top
             },
         });
+        // TODO: Consider removing/disabling console logs for production builds.
         console.log("tools-helpers: Temporary measure label created.");
     } else {
         // If it exists, just update its properties (position and text)
         // This is significantly more efficient than removing and re-adding.
-        toolState.temporaryMeasureLabel.position = new Cesium.ConstantPositionProperty(position);
+        toolState.temporaryMeasureLabel.position = new Cesium.ConstantPositionProperty(offsetPosition); // Use offset position
         toolState.temporaryMeasureLabel.label.text = text;
     }
 

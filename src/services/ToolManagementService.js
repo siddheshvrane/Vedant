@@ -3,8 +3,7 @@
 import { Subject, BehaviorSubject } from 'rxjs';
 import * as Cesium from 'cesium';
 import { MapService } from './MapService.js';
-// NEW: Import PopupService
-import { PopupService } from './PopupService.js'; // Ensure this path is correct based on your project structure
+import { PopupService } from './PopupService.js';
 
 // Import individual tool setup functions
 import { setupLineMeasureTool } from '../components/Menu/SubSidebars/BasicTools/tools/LineMeasureTool.js';
@@ -18,7 +17,8 @@ import {
     removeEventHandlers,
     getToolState,
     setToolState,
-    addPersistentEntity // Crucial: This function MUST be exported from tools-helpers.js and add the entity to viewer.entities
+    addPersistentEntity, // Crucial: This function MUST be exported from tools-helpers.js and add the entity to viewer.entities
+    removeAllToolEntities // Import the broader cleanup function
 } from '../components/Menu/SubSidebars/BasicTools/tool-helpers/tools-helpers.js';
 
 class ToolManagementServiceClass {
@@ -43,19 +43,30 @@ class ToolManagementServiceClass {
             });
 
             if (viewer) {
-                console.log("ToolManagementService: Received Cesium Viewer instance. Handler initialized.");
-                // Clear any existing persistent measurements from previous viewer sessions
+                console.log("[TMS]: Received Cesium Viewer instance. Handler initialized.");
+                // Clear any existing persistent and temporary measurements from previous viewer sessions
                 this._clearAllPersistentMeasurements();
+                // Ensure *all* temporary tool entities are removed when a new viewer is set.
+                // This catches any stray temporary entities that might not have been cleared by deactivateCurrentTool
+                // due to an unusual state or a direct viewer change without tool deactivation.
+                removeAllToolEntities(viewer); 
             } else {
-                console.log("ToolManagementService: Cesium Viewer is null. Tools deactivated and resources cleaned.");
+                console.log("[TMS]: Cesium Viewer is null. Tools deactivated and resources cleaned.");
                 // If viewer becomes null, clear all history as entities are no longer valid
                 this._clearAllPersistentMeasurements();
+                // When viewer is null, ensure all temporary entities are conceptually gone (though viewer.entities.remove won't work)
+                // The toolState.temporary* arrays are reset by removeAllToolEntities.
+                // Call it with the last known viewer (which is now null) to trigger the state reset.
+                // This isn't strictly necessary as _clearAllPersistentMeasurements will also trigger removeAllToolEntities.
+                // But it's good for explicit state management.
+                // removeAllToolEntities(viewer); // This call is redundant as _clearAllPersistentMeasurements does it.
             }
         });
     }
 
     /**
      * Clears all persistent measurements from the viewer and history.
+     * It also ensures all temporary tool entities are removed, acting as a full reset.
      * Called when the viewer changes or on service initialization.
      * @private
      */
@@ -65,9 +76,6 @@ class ToolManagementServiceClass {
 
         currentHistory.forEach(measurement => {
             if (viewer && measurement.cesiumEntities) {
-                // Iterate over the stored actual Cesium Entity objects
-                // The structure of measurement.cesiumEntities should mirror entityDefinitions
-                // e.g., { polyline: Cesium.Entity, points: [Cesium.Entity, ...], labels: [Cesium.Entity, ...] }
                 for (const key in measurement.cesiumEntities) {
                     const entityOrArray = measurement.cesiumEntities[key];
                     if (Array.isArray(entityOrArray)) {
@@ -85,7 +93,14 @@ class ToolManagementServiceClass {
         this.measurementHistory$.next([]); // Clear the history in the BehaviorSubject
         this.nextMeasurementId = 0; // Reset ID counter
         this.toolOperationCounters = {}; // Reset operation counters
-        console.log("ToolManagementService: All persistent measurements cleared.");
+        console.log("[TMS]: All persistent measurements cleared.");
+
+        // IMPORTANT: Also clear any temporary tool entities managed by tools-helpers
+        // This ensures a complete cleanup of ALL tool-related entities.
+        if (viewer) {
+            removeAllToolEntities(viewer);
+            console.log("[TMS]: All temporary tool entities cleared during full measurement reset.");
+        }
     }
 
     /**
@@ -95,7 +110,7 @@ class ToolManagementServiceClass {
     activateTool(toolName) {
         const { viewer } = getToolState();
         if (!viewer) {
-            console.warn("ToolManagementService: Cesium Viewer not available. Cannot activate tool.");
+            console.warn("[TMS]: Cesium Viewer not available. Cannot activate tool.");
             return;
         }
 
@@ -108,7 +123,7 @@ class ToolManagementServiceClass {
         this.deactivateCurrentTool(); // Deactivate current tool if different
 
         this.activeTool$.next(toolName);
-        console.log(`ToolManagementService: Activating tool: ${toolName}`);
+        console.log(`[TMS]: Activating tool: ${toolName}`);
 
         // Call the specific setup function for the tool
         switch (toolName) {
@@ -131,7 +146,7 @@ class ToolManagementServiceClass {
                 setupTerrainProfileTool();
                 break;
             default:
-                console.warn(`ToolManagementService: Unknown tool requested: ${toolName}`);
+                console.warn(`[TMS]: Unknown tool requested: ${toolName}`);
                 this.deactivateCurrentTool(); // Deactivate if tool is unknown
                 break;
         }
@@ -143,16 +158,16 @@ class ToolManagementServiceClass {
     deactivateCurrentTool() {
         const activeTool = this.activeTool$.getValue();
         if (activeTool) {
-            console.log(`ToolManagementService: Deactivating tool: ${activeTool}`);
+            console.log(`[TMS]: Deactivating tool: ${activeTool}`);
             clearDrawing(); // Clears temporary drawing entities (from tools-helpers.js)
             removeEventHandlers(); // Removes input actions from the current handler (from tools-helpers.js)
         }
         this.activeTool$.next(null); // Set active tool to null
-        // Ensure PopupService is imported before this line.
+        
         if (typeof PopupService !== 'undefined' && PopupService.hide) {
             PopupService.hide(); // Ensure any instruction popups are hidden
         } else {
-            console.warn("PopupService not available or does not have a 'hide' method.");
+            console.warn("[TMS]: PopupService not available or does not have a 'hide' method.");
         }
     }
 
@@ -176,7 +191,7 @@ class ToolManagementServiceClass {
     addMeasurement(toolName, value, entityDefinitions) {
         const { viewer } = getToolState();
         if (!viewer) {
-            console.error("ToolManagementService: Viewer not available. Cannot add measurement.");
+            console.error("[TMS]: Viewer not available. Cannot add measurement.");
             return;
         }
 
@@ -268,7 +283,7 @@ class ToolManagementServiceClass {
         const currentHistory = this.measurementHistory$.getValue();
         const updatedHistory = [...currentHistory, newMeasurement];
         this.measurementHistory$.next(updatedHistory); // Update the observable history
-        console.log("Measurement added to history:", newMeasurement);
+        console.log("[TMS]: Measurement added to history:", newMeasurement);
 
         // Request a render to ensure new entities are immediately visible
         if (viewer.scene.requestRenderMode) {
@@ -305,14 +320,14 @@ class ToolManagementServiceClass {
 
             const updatedHistory = currentHistory.filter(m => m.id !== id);
             this.measurementHistory$.next(updatedHistory);
-            console.log(`Measurement with ID ${id} removed.`);
+            console.log(`[TMS]: Measurement with ID ${id} removed.`);
 
             // Request a render after removal
             if (viewer.scene.requestRenderMode) {
                 viewer.scene.requestRender();
             }
         } else {
-            console.warn(`Attempted to remove non-existent measurement with ID: ${id}`);
+            console.warn(`[TMS]: Attempted to remove non-existent measurement with ID: ${id}`);
         }
     }
 
@@ -353,7 +368,7 @@ class ToolManagementServiceClass {
 
         if (measurementUpdated) {
             this.measurementHistory$.next(updatedHistory);
-            console.log(`Measurement with ID ${id} visibility toggled.`);
+            console.log(`[TMS]: Measurement with ID ${id} visibility toggled.`);
 
             // Request a render after visibility change
             const { viewer } = getToolState();
@@ -361,7 +376,7 @@ class ToolManagementServiceClass {
                 viewer.scene.requestRender();
             }
         } else {
-            console.warn(`Attempted to toggle non-existent measurement with ID: ${id}`);
+            console.warn(`[TMS]: Attempted to toggle non-existent measurement with ID: ${id}`);
         }
     }
 
