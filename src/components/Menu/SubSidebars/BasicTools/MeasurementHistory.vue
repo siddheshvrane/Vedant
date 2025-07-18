@@ -41,7 +41,8 @@
 </template>
 
 <script>
-import { ToolManagementService } from '../../../../services/ToolManagementService'; // Adjust path based on your project structure
+import { ToolManagementService } from '../../../../services/ToolManagementService';
+import { PopupService } from '../../../../services/PopupService'; // Import PopupService
 
 export default {
   name: 'MeasurementHistory',
@@ -52,34 +53,36 @@ export default {
     };
   },
   mounted() {
-    // Subscribe to measurement history changes from ToolManagementService
     this.historySubscription = ToolManagementService.measurementHistory$.subscribe(history => {
       this.measurements = history;
     });
   },
   beforeUnmount() {
-    // Unsubscribe to prevent memory leaks when component is destroyed
     if (this.historySubscription) {
       this.historySubscription.unsubscribe();
     }
   },
   methods: {
-    /**
-     * Toggles the visibility (enabled/disabled state) of a specific measurement on the globe.
-     * @param {string} id - The unique ID of the measurement to toggle.
-     */
     toggleEnabled(id) {
       ToolManagementService.toggleMeasurementEnabled(id);
     },
-    /**
-     * Deletes a measurement completely from the history and the globe.
-     * A confirmation dialog is shown before deletion.
-     * @param {string} id - The unique ID of the measurement to delete.
-     */
-    deleteMeasurement(id) {
-      // Use a more modern confirmation approach or a custom modal for better UX
-      if (confirm('Are you sure you want to delete this measurement? This action cannot be undone.')) {
-        ToolManagementService.removeMeasurement(id);
+    async deleteMeasurement(id) {
+      // Use PopupService for confirmation instead of native confirm()
+      try {
+        const confirmed = await PopupService.showConfirmation(
+          'Are you sure you want to delete this measurement? This action cannot be undone.',
+          'Delete Measurement', // Title for the popup
+          'Delete', // Text for the confirm button
+          'Cancel' // Text for the cancel button
+        );
+
+        if (confirmed) {
+          ToolManagementService.removeMeasurement(id);
+        }
+      } catch (error) {
+        console.error("MeasurementHistory: Confirmation dialog error:", error);
+        // Handle cases where the confirmation was dismissed unexpectedly
+        // For example, if the user navigates away or another popup overrides it.
       }
     },
   },
@@ -87,6 +90,7 @@ export default {
 </script>
 
 <style scoped>
+/* Your existing styles for MeasurementHistory.vue remain the same */
 /* Ensure Poppins font is available globally or imported here if needed */
 /* @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap'); */
 

@@ -59,11 +59,13 @@ class ToolManagementServiceClass {
                         const entityOrArray = measurement.cesiumEntities[key];
                         if (Array.isArray(entityOrArray)) {
                             entityOrArray.forEach(e => {
-                                if (e instanceof Cesium.Entity && viewer.entities.contains(e)) {
+                                if (e instanceof Cesium.Entity) { // Removed viewer.entities.contains(e) check for _clearAll to try forceful removal
+                                    // console.log(`[TMS]: Attempting to clear persistent entity (full reset) ID: ${e.id}, Type: ${key}`);
                                     viewer.entities.remove(e);
                                 }
                             });
-                        } else if (entityOrArray instanceof Cesium.Entity && viewer.entities.contains(entityOrArray)) {
+                        } else if (entityOrArray instanceof Cesium.Entity) { // Removed viewer.entities.contains(entityOrArray)
+                            // console.log(`[TMS]: Attempting to clear persistent entity (full reset) ID: ${entityOrArray.id}, Type: ${key}`);
                             viewer.entities.remove(entityOrArray);
                         }
                     }
@@ -281,12 +283,26 @@ class ToolManagementServiceClass {
                         const entityOrArray = measurementToRemove.cesiumEntities[key];
                         if (Array.isArray(entityOrArray)) {
                             entityOrArray.forEach(entity => {
-                                if (entity instanceof Cesium.Entity && viewer.entities.contains(entity)) {
-                                    viewer.entities.remove(entity);
+                                if (entity instanceof Cesium.Entity) {
+                                    console.log(`[TMS - REMOVE]: Checking entity ID: ${entity.id}, Type: ${key}`);
+                                    const isContained = viewer.entities.contains(entity);
+                                    console.log(`[TMS - REMOVE]: Entity ID: ${entity.id} is contained in viewer.entities before removal: ${isContained}`);
+                                    const wasRemoved = viewer.entities.remove(entity);
+                                    console.log(`[TMS - REMOVE]: Result for removing entity ID: ${entity.id}: ${wasRemoved}`);
+                                    if (!wasRemoved) {
+                                        console.warn(`[TMS - REMOVE WARNING]: Failed to remove entity ID: ${entity.id}. It might not have been in the collection or was already removed.`);
+                                    }
                                 }
                             });
-                        } else if (entityOrArray instanceof Cesium.Entity && viewer.entities.contains(entityOrArray)) {
-                            viewer.entities.remove(entityOrArray);
+                        } else if (entityOrArray instanceof Cesium.Entity) {
+                            console.log(`[TMS - REMOVE]: Checking entity ID: ${entityOrArray.id}, Type: ${key}`);
+                            const isContained = viewer.entities.contains(entityOrArray);
+                            console.log(`[TMS - REMOVE]: Entity ID: ${entityOrArray.id} is contained in viewer.entities before removal: ${isContained}`);
+                            const wasRemoved = viewer.entities.remove(entityOrArray);
+                            console.log(`[TMS - REMOVE]: Result for removing entity ID: ${entityOrArray.id}: ${wasRemoved}`);
+                            if (!wasRemoved) {
+                                console.warn(`[TMS - REMOVE WARNING]: Failed to remove entity ID: ${entityOrArray.id}. It might not have been in the collection or was already removed.`);
+                            }
                         }
                     }
                 }
@@ -294,7 +310,7 @@ class ToolManagementServiceClass {
                 if (viewer.scene.requestRenderMode) {
                     viewer.scene.requestRender();
                 }
-                console.log(`[TMS]: Cesium entities for measurement ID ${id} removed.`);
+                console.log(`[TMS]: Cesium entities for measurement ID ${id} removal process completed.`);
             });
         } else {
             console.warn(`[TMS]: Attempted to remove non-existent measurement with ID: ${id}`);
@@ -302,6 +318,7 @@ class ToolManagementServiceClass {
     }
 
     toggleMeasurementEnabled(id) {
+        const { viewer } = getToolState(); // Get viewer inside the function for robustness
         const currentHistory = this.measurementHistory$.getValue();
         let measurementUpdated = false;
 
@@ -312,7 +329,6 @@ class ToolManagementServiceClass {
 
                 // Defer the Cesium entity visibility toggle using requestAnimationFrame
                 requestAnimationFrame(() => {
-                    const { viewer } = getToolState();
                     if (viewer && m.cesiumEntities) {
                         for (const key in m.cesiumEntities) {
                             const entityOrArray = m.cesiumEntities[key];
