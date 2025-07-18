@@ -2,13 +2,12 @@ import * as Cesium from 'cesium';
 import {
     clearDrawing,
     removeEventHandlers,
-    addTemporaryPoint,        // This will now use the heightOffset for temporary yellow points
-    updateTemporaryLabel,     // This will now use the heightOffset for temporary cyan label
+    addTemporaryPoint,
+    updateTemporaryLabel,
     formatArea,
     getToolState,
     setToolState,
     throttle,
-    // addTemporaryPersistentLabel, // No longer needed if we're not adding a separate persistent label via this helper
 } from '../tool-helpers/tools-helpers.js';
 import { PopupService } from '../../../../../services/PopupService.js';
 import { ToolManagementService } from '../../../../../services/ToolManagementService.js';
@@ -37,10 +36,12 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
     handler.setInputAction((click) => {
         let cartesian;
         if (clampShapeToGround) {
+            // For 2D or 3D tools where interactive shape *must* clamp to ground,
+            // perform terrain picking. This is a synchronous operation.
             const ray = viewer.camera.getPickRay(click.position);
             cartesian = viewer.scene.globe.pick(ray, viewer.scene);
         } else {
-            // Pick an actual 3D position if not clamping
+            // Pick an actual 3D position if not clamping (e.g., for 3D line measure where shape floats)
             cartesian = viewer.scene.pickPosition(click.position);
             // Fallback to ellipsoid if pickPosition fails (e.g., clicking on sky)
             if (!Cesium.defined(cartesian)) {
@@ -53,7 +54,7 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
             drawingPoints.push(cartesian);
             setToolState({ drawingPoints: drawingPoints }); // Update state after push
 
-            // Use addTemporaryPoint which now includes a height offset (defaulting to 0.5 or what you set in tools-helpers)
+            // Add a temporary point marker at the clicked location
             addTemporaryPoint(cartesian); // Yellow temporary points, lifted by default offset (e.g., 0.5m or 5m)
 
             let { activeShape } = getToolState();
@@ -70,8 +71,10 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
                             return new Cesium.PolygonHierarchy(tempHierarchyPoints);
                         }, false),
                         material: Cesium.Color.RED.withAlpha(0.2),
-                        clampToGround: clampShapeToGround,
-                        show: true // Ensure it's visible by default
+                        // CORRECTED: For interactive 3D Area Measure, clamp to ground.
+                        // For interactive 2D Area Measure, do NOT clamp (stay flat).
+                        clampToGround: !isProjectedArea,
+                        show: true
                     },
                     polyline: {
                         positions: new Cesium.CallbackProperty(() => {
@@ -87,8 +90,9 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
                         }, false),
                         width: 3,
                         material: Cesium.Color.RED,
-                        clampToGround: clampShapeToGround,
-                        show: true // Ensure it's visible by default
+                        // CORRECTED: Apply the same clamping logic to the temporary polyline for consistency
+                        clampToGround: !isProjectedArea,
+                        show: true
                     }
                 });
                 setToolState({ activeShape: activeShape });
@@ -115,12 +119,14 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
     // --- MOUSE_MOVE Handler ---
+    // Throttle the mouse move updates to prevent excessive calculations and renders
     const throttledMouseMoveHandler = throttle((move) => {
         const { drawingPoints, viewer } = getToolState();
         if (drawingPoints.length >= 1) { // Need at least one point clicked to show rubber-banding
             let cartesian;
 
             // Always try to pick terrain if available, otherwise fall back to ellipsoid
+            // This pickPosition is also synchronous, but it's throttled.
             cartesian = viewer.scene.pickPosition(move.endPosition);
             if (!Cesium.defined(cartesian)) {
                 cartesian = viewer.camera.pickEllipsoid(move.endPosition, viewer.scene.globe.ellipsoid);
@@ -145,7 +151,7 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
                 }
             }
         }
-    }, 75);
+    }, 75); // Throttle to roughly 13 updates per second (1000ms / 75ms)
 
     handler.setInputAction(throttledMouseMoveHandler, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
@@ -171,6 +177,7 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
         }
 
         // Show a "Calculating..." popup while terrain sampling happens in the worker
+        // This is important UX to show something is happening.
         PopupService.showToolInstruction(
             'Calculating accurate terrain data...',
             'Processing Area Measurement',
@@ -178,55 +185,62 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
         );
         console.log("AreaMeasureTool: Processing popup shown.");
 
+        // Clear temporary rubber-banding shape immediately to prevent it from lingering
+        // while calculation occurs. This ensures the scene is clean before adding final entities.
+        const { activeShape } = getToolState();
+        if (Cesium.defined(activeShape)) {
+            viewer.entities.remove(activeShape);
+            setToolState({ activeShape: null }); // Clear activeShape from state
+        }
+        clearDrawing(); // Ensures all *other* temporary drawing entities are cleared (points, temp label)
+
         try {
             // Finalize measurement - this is where we do the expensive, accurate terrain sampling
             const { sampledPositions, totalArea, centerPoint } = await finalizeAreaMeasure(isProjectedArea, drawingPoints);
             console.log("AreaMeasureTool: finalizeAreaMeasure resolved successfully.");
 
-            const { activeShape } = getToolState();
-            if (Cesium.defined(activeShape)) {
-                // Remove the temporary activeShape as we're about to add the persistent ones.
-                viewer.entities.remove(activeShape);
-                setToolState({ activeShape: null }); // Clear activeShape from state
-            }
-
             // Prepare entity definitions for ToolManagementService
+            const formattedArea = formatArea(totalArea);
+
+            // Important: We are passing *definitions* to ToolManagementService,
+            // not directly manipulating Cesium entities here.
+            // The ToolManagementService should handle the actual entity creation/addition efficiently.
             const persistentEntitiesDefinitions = {
-                polygon: { // This is a definition, not an entity
+                polygon: {
                     polygon: {
                         hierarchy: new Cesium.PolygonHierarchy(sampledPositions),
                         material: Cesium.Color.CYAN.withAlpha(0.2),
-                        outline: true,
-                        outlineColor: Cesium.Color.CYAN,
-                        outlineWidth: 2,
-                        // Clamp to ground only if it's a 3D terrain measure and not a 2D projected one
-                        clampToGround: !isProjectedArea,
+                        // IMPORTANT CHANGE: Removed outline properties from the polygon
+                        // when it's clamped to ground for 3D area measurement.
+                        // The polyline below will serve as the visible outline.
+                        // This resolves the Cesium warning: "Entity geometry outlines are unsupported on terrain."
+                        // outline: true, // REMOVED
+                        // outlineColor: Cesium.Color.CYAN, // REMOVED
+                        // outlineWidth: 2, // REMOVED
+                        clampToGround: !isProjectedArea, // If it's a 3D terrain measure, clamp it.
                     },
-                    polyline: { // Also add a persistent polyline for the outline
+                    polyline: {
                         positions: [...sampledPositions, sampledPositions[0]],
                         width: 3,
                         material: Cesium.Color.CYAN,
-                        // Clamp to ground only if it's a 3D terrain measure and not a 2D projected one
-                        clampToGround: !isProjectedArea,
+                        clampToGround: !isProjectedArea, // This polyline WILL be clamped to terrain for 3D
                     }
                 },
-                // Removed persistent points section
                 points: [], // Ensure this array is empty as requested
-                labels: []  // Array to hold label definitions
+                labels: []
             };
 
-            // Add persistent total area label definition
             // Ensure the center point is also lifted, especially if calculated on terrain.
+            // This calculation is light and doesn't block.
             const labelCartographic = Cesium.Cartographic.fromCartesian(centerPoint);
             const liftedLabelPosition = Cesium.Cartesian3.fromDegrees(
                 labelCartographic.longitude * 180 / Math.PI,
                 labelCartographic.latitude * 180 / Math.PI,
-                labelCartographic.height + 20.0 // LIFT BY 20 METERS for clearer visibility if the issue was height
+                labelCartographic.height + 20.0 // LIFT BY 20 METERS for clearer visibility
             );
 
-            const formattedArea = formatArea(totalArea);
             persistentEntitiesDefinitions.labels.push({
-                position: liftedLabelPosition, // Use the lifted position
+                position: liftedLabelPosition,
                 label: {
                     text: `Total Area: ${formattedArea}`,
                     font: '14pt Poppins',
@@ -240,6 +254,8 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
                 },
             });
 
+            // This call to addMeasurement should be optimized within ToolManagementService
+            // to add Cesium entities efficiently without blocking the main thread for too long.
             ToolManagementService.addMeasurement(
                 toolName,
                 `Area: ${formattedArea}`,
@@ -257,17 +273,18 @@ export function setupAreaMeasureTool(isProjectedArea, clampShapeToGround) {
             );
         } finally {
             PopupService.hide();
-            clearDrawing(); // Ensures all temporary drawing entities are cleared
+            // clearDrawing() moved up to after activeShape removal to clean faster.
             ToolManagementService.deactivateCurrentTool();
         }
 
+        // Request render if the mode is active, after all changes are applied.
         if (viewer.scene.requestRenderMode) {
             viewer.scene.requestRender();
         }
     };
 
     handler.setInputAction(finishArea, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
-    handler.setInputAction(finishArea, Cesium.ScreenScreenEventType.LEFT_DOUBLE_CLICK);
+    handler.setInputAction(finishArea, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
 }
 
 /**
@@ -351,6 +368,7 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
             return { sampledPositions: finalPoints, totalArea: calculatedArea, centerPoint: calculatedCenterPoint };
         }
 
+        // --- Web Worker Execution ---
         return new Promise((resolve, reject) => {
             const worker = new TerrainSamplerWorker();
             const timeoutDuration = 30000; // 30 seconds timeout
@@ -365,22 +383,20 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
             worker.postMessage({
                 type: 'sampleTerrain',
                 cartographicPoints: cartographicPoints,
-                terrainProviderUrl: terrainProviderUrl // Pass URL to worker
+                terrainProviderUrl: terrainProviderUrl
             });
 
             worker.onmessage = (e) => {
-                clearTimeout(timeoutId); // Clear timeout on message receipt
-                worker.terminate(); // Terminate the worker
+                clearTimeout(timeoutId);
+                worker.terminate();
 
                 if (e.data.type === 'sampledResult') {
                     finalPoints = e.data.sampledPoints;
-                    // !!! IMPORTANT LOGGING !!!
                     console.log("AreaMeasureTool: Sampled points received from worker:", finalPoints.map(p => {
                         const carto = Cesium.Cartographic.fromCartesian(p);
                         return `Lon: ${Cesium.Math.toDegrees(carto.longitude).toFixed(4)}, Lat: ${Cesium.Math.toDegrees(carto.latitude).toFixed(4)}, Height: ${carto.height.toFixed(2)}m`;
                     }));
 
-                    // For 3D terrain area, computeArea2D with ellipsoid for the sampled points
                     calculatedArea = Math.abs(Cesium.PolygonPipeline.computeArea2D(finalPoints, viewer.scene.globe.ellipsoid));
                     const centroid = Cesium.BoundingSphere.fromPoints(finalPoints).center;
                     calculatedCenterPoint = Cesium.defined(viewer.scene.globe.ellipsoid.scaleToGeodeticSurface(centroid))
@@ -408,7 +424,7 @@ async function finalizeAreaMeasure(isProjectedArea, points) {
             };
 
             worker.onerror = (error) => {
-                clearTimeout(timeoutId); // Clear timeout on error
+                clearTimeout(timeoutId);
                 worker.terminate();
                 console.error("AreaMeasureTool: Web Worker unhandled error:", error);
                 PopupService.showToolInstruction(

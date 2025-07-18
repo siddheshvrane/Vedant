@@ -18,95 +18,73 @@ import {
     getToolState,
     setToolState,
     addPersistentEntity, // Crucial: This function MUST be exported from tools-helpers.js and add the entity to viewer.entities
-    removeAllToolEntities // Import the broader cleanup function
+    removeAllToolEntities
 } from '../components/Menu/SubSidebars/BasicTools/tool-helpers/tools-helpers.js';
 
 class ToolManagementServiceClass {
-    activeTool$ = new BehaviorSubject(null); // Stores the name of the active tool
-    measurementHistory$ = new BehaviorSubject([]); // Stores an array of measurement objects
-    nextMeasurementId = 0; // To generate unique IDs for measurements
-    toolOperationCounters = {}; // To track operation numbers per tool
+    activeTool$ = new BehaviorSubject(null);
+    measurementHistory$ = new BehaviorSubject([]);
+    nextMeasurementId = 0;
+    toolOperationCounters = {};
 
     constructor() {
         MapService.globeViewer$.subscribe(viewer => {
-            // Deactivate current tool and clean up handlers and temporary drawings
-            // This also calls clearDrawing and removeEventHandlers
-            // Call this BEFORE setting the new viewer/handler in toolState to ensure old handlers are destroyed.
-            this.deactivateCurrentTool(); 
+            this.deactivateCurrentTool();
 
-            // Set the viewer and handler in the global tool state for helpers to access
-            // This is essential for all tool functions and helpers to interact with Cesium
             setToolState({
                 viewer: viewer,
-                // Only create a handler if a viewer exists
                 handler: viewer ? new Cesium.ScreenSpaceEventHandler(viewer.canvas) : null
             });
 
             if (viewer) {
                 console.log("[TMS]: Received Cesium Viewer instance. Handler initialized.");
-                // Clear any existing persistent and temporary measurements from previous viewer sessions
                 this._clearAllPersistentMeasurements();
-                // Ensure *all* temporary tool entities are removed when a new viewer is set.
-                // This catches any stray temporary entities that might not have been cleared by deactivateCurrentTool
-                // due to an unusual state or a direct viewer change without tool deactivation.
-                removeAllToolEntities(viewer); 
+                removeAllToolEntities(viewer); // Ensure all temporary tool entities are cleared on viewer change
             } else {
                 console.log("[TMS]: Cesium Viewer is null. Tools deactivated and resources cleaned.");
-                // If viewer becomes null, clear all history as entities are no longer valid
-                this._clearAllPersistentMeasurements();
-                // When viewer is null, ensure all temporary entities are conceptually gone (though viewer.entities.remove won't work)
-                // The toolState.temporary* arrays are reset by removeAllToolEntities.
-                // Call it with the last known viewer (which is now null) to trigger the state reset.
-                // This isn't strictly necessary as _clearAllPersistentMeasurements will also trigger removeAllToolEntities.
-                // But it's good for explicit state management.
-                // removeAllToolEntities(viewer); // This call is redundant as _clearAllPersistentMeasurements does it.
+                this._clearAllPersistentMeasurements(); // Still clear history even if viewer is null
             }
         });
     }
 
-    /**
-     * Clears all persistent measurements from the viewer and history.
-     * It also ensures all temporary tool entities are removed, acting as a full reset.
-     * Called when the viewer changes or on service initialization.
-     * @private
-     */
     _clearAllPersistentMeasurements() {
         const { viewer } = getToolState();
         const currentHistory = this.measurementHistory$.getValue();
 
-        currentHistory.forEach(measurement => {
-            if (viewer && measurement.cesiumEntities) {
-                for (const key in measurement.cesiumEntities) {
-                    const entityOrArray = measurement.cesiumEntities[key];
-                    if (Array.isArray(entityOrArray)) {
-                        entityOrArray.forEach(e => {
-                            if (e instanceof Cesium.Entity && viewer.entities.contains(e)) {
-                                viewer.entities.remove(e);
-                            }
-                        });
-                    } else if (entityOrArray instanceof Cesium.Entity && viewer.entities.contains(entityOrArray)) {
-                        viewer.entities.remove(entityOrArray);
+        // Use requestAnimationFrame to defer removal of all entities
+        requestAnimationFrame(() => {
+            currentHistory.forEach(measurement => {
+                if (viewer && measurement.cesiumEntities) {
+                    for (const key in measurement.cesiumEntities) {
+                        const entityOrArray = measurement.cesiumEntities[key];
+                        if (Array.isArray(entityOrArray)) {
+                            entityOrArray.forEach(e => {
+                                if (e instanceof Cesium.Entity && viewer.entities.contains(e)) {
+                                    viewer.entities.remove(e);
+                                }
+                            });
+                        } else if (entityOrArray instanceof Cesium.Entity && viewer.entities.contains(entityOrArray)) {
+                            viewer.entities.remove(entityOrArray);
+                        }
                     }
+                }
+            });
+
+            this.measurementHistory$.next([]);
+            this.nextMeasurementId = 0;
+            this.toolOperationCounters = {};
+            console.log("[TMS]: All persistent measurements cleared.");
+
+            if (viewer) {
+                removeAllToolEntities(viewer);
+                console.log("[TMS]: All temporary tool entities cleared during full measurement reset.");
+                if (viewer.scene.requestRenderMode) {
+                    viewer.scene.requestRender(); // Request render after all removals
                 }
             }
         });
-        this.measurementHistory$.next([]); // Clear the history in the BehaviorSubject
-        this.nextMeasurementId = 0; // Reset ID counter
-        this.toolOperationCounters = {}; // Reset operation counters
-        console.log("[TMS]: All persistent measurements cleared.");
-
-        // IMPORTANT: Also clear any temporary tool entities managed by tools-helpers
-        // This ensures a complete cleanup of ALL tool-related entities.
-        if (viewer) {
-            removeAllToolEntities(viewer);
-            console.log("[TMS]: All temporary tool entities cleared during full measurement reset.");
-        }
     }
 
-    /**
-     * Activates a specific tool and deactivates any currently active one.
-     * @param {string} toolName - The name of the tool to activate.
-     */
     activateTool(toolName) {
         const { viewer } = getToolState();
         if (!viewer) {
@@ -114,30 +92,28 @@ class ToolManagementServiceClass {
             return;
         }
 
-        // Toggle behavior: if the same tool is clicked, deactivate it
         if (this.activeTool$.getValue() === toolName) {
             this.deactivateCurrentTool();
             return;
         }
 
-        this.deactivateCurrentTool(); // Deactivate current tool if different
+        this.deactivateCurrentTool();
 
         this.activeTool$.next(toolName);
         console.log(`[TMS]: Activating tool: ${toolName}`);
 
-        // Call the specific setup function for the tool
         switch (toolName) {
             case 'Line Measure':
-                setupLineMeasureTool(true, false); // isDisplacement = true, clampShapeToGround = false
+                setupLineMeasureTool(true, false);
                 break;
             case '3D Line Measure':
-                setupLineMeasureTool(false, true); // isDisplacement = false, clampShapeToGround = true
+                setupLineMeasureTool(false, true);
                 break;
             case 'Area Measure':
-                setupAreaMeasureTool(true, false); // isProjectedArea = true, clampShapeToGround = false
+                setupAreaMeasureTool(true, false);
                 break;
             case '3D Area Measure':
-                setupAreaMeasureTool(false, true); // isProjectedArea = false, clampToGround = true
+                setupAreaMeasureTool(false, true);
                 break;
             case 'Viewshield Analysis':
                 setupViewshieldAnalysisTool();
@@ -147,25 +123,22 @@ class ToolManagementServiceClass {
                 break;
             default:
                 console.warn(`[TMS]: Unknown tool requested: ${toolName}`);
-                this.deactivateCurrentTool(); // Deactivate if tool is unknown
+                this.deactivateCurrentTool();
                 break;
         }
     }
 
-    /**
-     * Deactivates the currently active tool and cleans up its resources.
-     */
     deactivateCurrentTool() {
         const activeTool = this.activeTool$.getValue();
         if (activeTool) {
             console.log(`[TMS]: Deactivating tool: ${activeTool}`);
-            clearDrawing(); // Clears temporary drawing entities (from tools-helpers.js)
-            removeEventHandlers(); // Removes input actions from the current handler (from tools-helpers.js)
+            clearDrawing();
+            removeEventHandlers();
         }
-        this.activeTool$.next(null); // Set active tool to null
-        
+        this.activeTool$.next(null);
+
         if (typeof PopupService !== 'undefined' && PopupService.hide) {
-            PopupService.hide(); // Ensure any instruction popups are hidden
+            PopupService.hide();
         } else {
             console.warn("[TMS]: PopupService not available or does not have a 'hide' method.");
         }
@@ -176,17 +149,12 @@ class ToolManagementServiceClass {
      * This function now expects entity *definitions* and uses `addPersistentEntity` helper
      * to create and add the actual Cesium Entity objects to the viewer.
      *
+     * IMPORTANT CHANGE: Using requestAnimationFrame() to defer entity additions
+     * to ensure visual updates are synchronized with the browser's rendering cycle.
+     *
      * @param {string} toolName - The name of the tool that performed the measurement.
      * @param {string} value - The formatted measurement value (e.g., "10.5 km").
      * @param {Object} entityDefinitions - An object containing Cesium entity *definitions*.
-     * Expected structure:
-     * {
-     * polyline?: { polyline: { ... } }, // For line measure
-     * polygon?: { polygon: { ... } },   // For area measure
-     * points?: [{ point: { ... } }, ...], // Array of point definitions
-     * labels?: [{ label: { ... } }, ...], // Array of label definitions
-     * // Add other entity types as needed for different tools (e.g., billboards, models)
-     * }
      */
     addMeasurement(toolName, value, entityDefinitions) {
         const { viewer } = getToolState();
@@ -195,7 +163,7 @@ class ToolManagementServiceClass {
             return;
         }
 
-        // Increment operation counter for this tool (e.g., "Line Measure 1", "Line Measure 2")
+        // Increment operation counter for this tool
         if (!this.toolOperationCounters[toolName]) {
             this.toolOperationCounters[toolName] = 0;
         }
@@ -204,137 +172,135 @@ class ToolManagementServiceClass {
 
         const createdCesiumEntities = {}; // This will store the *actual* Cesium Entity objects
 
-        // --- Process and add polyline entity (for LineMeasureTool) ---
-        if (entityDefinitions.polyline) {
-            const polylineEntity = addPersistentEntity(entityDefinitions.polyline);
-            if (polylineEntity) {
-                createdCesiumEntities.polyline = polylineEntity;
+        // Use requestAnimationFrame() to defer the synchronous entity additions.
+        // This ensures the browser can render other UI updates before starting Cesium entity creation.
+        requestAnimationFrame(() => {
+            // --- Process and add polyline entity (for LineMeasureTool) ---
+            if (entityDefinitions.polyline) {
+                const polylineEntity = addPersistentEntity(entityDefinitions.polyline);
+                if (polylineEntity) {
+                    createdCesiumEntities.polyline = polylineEntity;
+                }
             }
-        }
 
-        // --- Process and add polygon entity (for AreaMeasureTool) ---
-        if (entityDefinitions.polygon) {
-            const polygonEntity = addPersistentEntity(entityDefinitions.polygon);
-            if (polygonEntity) {
-                createdCesiumEntities.polygon = polygonEntity;
+            // --- Process and add polygon entity (for AreaMeasureTool) ---
+            if (entityDefinitions.polygon) {
+                const polygonEntity = addPersistentEntity(entityDefinitions.polygon);
+                if (polygonEntity) {
+                    createdCesiumEntities.polygon = polygonEntity;
+                }
             }
-        }
 
-        // --- Process and add point entities (common to many tools) ---
-        if (entityDefinitions.points && Array.isArray(entityDefinitions.points)) {
-            createdCesiumEntities.points = []; // Initialize as an array
-            entityDefinitions.points.forEach(pointDef => {
-                const pointEntity = addPersistentEntity(pointDef);
-                if (pointEntity) {
-                    createdCesiumEntities.points.push(pointEntity);
-                }
-            });
-        }
-
-        // --- Process and add label entities (common to many tools) ---
-        if (entityDefinitions.labels && Array.isArray(entityDefinitions.labels)) {
-            createdCesiumEntities.labels = []; // Initialize as an array
-            entityDefinitions.labels.forEach(labelDef => {
-                const labelEntity = addPersistentEntity(labelDef);
-                if (labelEntity) {
-                    createdCesiumEntities.labels.push(labelEntity);
-                }
-            });
-        }
-
-        // --- Add other entity types here as needed for other tools (e.g., billboards, models, viewshield cone) ---
-        if (entityDefinitions.billboards && Array.isArray(entityDefinitions.billboards)) {
-            createdCesiumEntities.billboards = [];
-            entityDefinitions.billboards.forEach(billboardDef => {
-                const billboardEntity = addPersistentEntity(billboardDef);
-                if (billboardEntity) {
-                    createdCesiumEntities.billboards.push(billboardEntity);
-                }
-            });
-        }
-
-        if (entityDefinitions.models && Array.isArray(entityDefinitions.models)) {
-            createdCesiumEntities.models = [];
-            entityDefinitions.models.forEach(modelDef => {
-                const modelEntity = addPersistentEntity(modelDef);
-                if (modelEntity) {
-                    createdCesiumEntities.models.push(modelEntity);
-                }
-            });
-        }
-
-        if (entityDefinitions.viewshieldCone) {
-            const viewshieldConeEntity = addPersistentEntity(entityDefinitions.viewshieldCone);
-            if (viewshieldConeEntity) {
-                createdCesiumEntities.viewshieldCone = viewshieldConeEntity;
+            // --- Process and add point entities (common to many tools) ---
+            if (entityDefinitions.points && Array.isArray(entityDefinitions.points)) {
+                createdCesiumEntities.points = [];
+                entityDefinitions.points.forEach(pointDef => {
+                    const pointEntity = addPersistentEntity(pointDef);
+                    if (pointEntity) {
+                        createdCesiumEntities.points.push(pointEntity);
+                    }
+                });
             }
-        }
-        // ... and so on for other complex entities specific to tools
 
-        const newMeasurement = {
-            id: this.nextMeasurementId++, // Assign a unique ID
-            toolName: toolName,
-            operationNumber: operationNumber,
-            value: value,
-            cesiumEntities: createdCesiumEntities, // Store references to the actual Cesium Entity objects
-            isEnabled: true // New measurements are enabled (visible) by default
-        };
+            // --- Process and add label entities (common to many tools) ---
+            if (entityDefinitions.labels && Array.isArray(entityDefinitions.labels)) {
+                createdCesiumEntities.labels = [];
+                entityDefinitions.labels.forEach(labelDef => {
+                    const labelEntity = addPersistentEntity(labelDef);
+                    if (labelEntity) {
+                        createdCesiumEntities.labels.push(labelEntity);
+                    }
+                });
+            }
 
-        const currentHistory = this.measurementHistory$.getValue();
-        const updatedHistory = [...currentHistory, newMeasurement];
-        this.measurementHistory$.next(updatedHistory); // Update the observable history
-        console.log("[TMS]: Measurement added to history:", newMeasurement);
+            // --- Add other entity types here as needed for other tools (e.g., billboards, models, viewshield cone) ---
+            if (entityDefinitions.billboards && Array.isArray(entityDefinitions.billboards)) {
+                createdCesiumEntities.billboards = [];
+                entityDefinitions.billboards.forEach(billboardDef => {
+                    const billboardEntity = addPersistentEntity(billboardDef);
+                    if (billboardEntity) {
+                        createdCesiumEntities.billboards.push(billboardEntity);
+                    }
+                });
+            }
 
-        // Request a render to ensure new entities are immediately visible
-        if (viewer.scene.requestRenderMode) {
-            viewer.scene.requestRender();
-        }
+            if (entityDefinitions.models && Array.isArray(entityDefinitions.models)) {
+                createdCesiumEntities.models = [];
+                entityDefinitions.models.forEach(modelDef => {
+                    const modelEntity = addPersistentEntity(modelDef);
+                    if (modelEntity) {
+                        createdCesiumEntities.models.push(modelEntity);
+                    }
+                });
+            }
+
+            if (entityDefinitions.viewshieldCone) {
+                const viewshieldConeEntity = addPersistentEntity(entityDefinitions.viewshieldCone);
+                if (viewshieldConeEntity) {
+                    createdCesiumEntities.viewshieldCone = viewshieldConeEntity;
+                }
+            }
+            // ... and so on for other complex entities specific to tools
+
+            const newMeasurement = {
+                id: this.nextMeasurementId++,
+                toolName: toolName,
+                operationNumber: operationNumber,
+                value: value,
+                cesiumEntities: createdCesiumEntities,
+                isEnabled: true
+            };
+
+            const currentHistory = this.measurementHistory$.getValue();
+            const updatedHistory = [...currentHistory, newMeasurement];
+            this.measurementHistory$.next(updatedHistory);
+            console.log("[TMS]: Measurement added to history:", newMeasurement);
+
+            // Request a render to ensure new entities are immediately visible after they are added
+            if (viewer.scene.requestRenderMode) {
+                viewer.scene.requestRender();
+            }
+        }); // End of requestAnimationFrame()
     }
 
-    /**
-     * Removes a measurement from the history and from the Cesium viewer.
-     * @param {number} id - The ID of the measurement to remove.
-     */
     removeMeasurement(id) {
         const { viewer } = getToolState();
         const currentHistory = this.measurementHistory$.getValue();
         const measurementToRemove = currentHistory.find(m => m.id === id);
 
         if (measurementToRemove) {
-            // Remove associated Cesium entities from the viewer
-            if (viewer && measurementToRemove.cesiumEntities) {
-                for (const key in measurementToRemove.cesiumEntities) {
-                    const entityOrArray = measurementToRemove.cesiumEntities[key];
-                    if (Array.isArray(entityOrArray)) {
-                        entityOrArray.forEach(entity => {
-                            // Ensure it's a Cesium Entity and it's actually in the viewer's collection
-                            if (entity instanceof Cesium.Entity && viewer.entities.contains(entity)) {
-                                viewer.entities.remove(entity);
-                            }
-                        });
-                    } else if (entityOrArray instanceof Cesium.Entity && viewer.entities.contains(entityOrArray)) {
-                        viewer.entities.remove(entityOrArray);
-                    }
-                }
-            }
-
+            // Remove the measurement from the history immediately for UI responsiveness
             const updatedHistory = currentHistory.filter(m => m.id !== id);
             this.measurementHistory$.next(updatedHistory);
-            console.log(`[TMS]: Measurement with ID ${id} removed.`);
+            console.log(`[TMS]: Measurement with ID ${id} removed from history.`);
 
-            // Request a render after removal
-            if (viewer.scene.requestRenderMode) {
-                viewer.scene.requestRender();
-            }
+            // Defer the actual Cesium entity removal using requestAnimationFrame
+            requestAnimationFrame(() => {
+                if (viewer && measurementToRemove.cesiumEntities) {
+                    for (const key in measurementToRemove.cesiumEntities) {
+                        const entityOrArray = measurementToRemove.cesiumEntities[key];
+                        if (Array.isArray(entityOrArray)) {
+                            entityOrArray.forEach(entity => {
+                                if (entity instanceof Cesium.Entity && viewer.entities.contains(entity)) {
+                                    viewer.entities.remove(entity);
+                                }
+                            });
+                        } else if (entityOrArray instanceof Cesium.Entity && viewer.entities.contains(entityOrArray)) {
+                            viewer.entities.remove(entityOrArray);
+                        }
+                    }
+                }
+
+                if (viewer.scene.requestRenderMode) {
+                    viewer.scene.requestRender();
+                }
+                console.log(`[TMS]: Cesium entities for measurement ID ${id} removed.`);
+            });
         } else {
             console.warn(`[TMS]: Attempted to remove non-existent measurement with ID: ${id}`);
         }
     }
 
-    /**
-     * Toggles the enabled state (visibility) of a measurement and its associated Cesium entities.
-     * @param {number} id - The ID of the measurement to toggle.
-     */
     toggleMeasurementEnabled(id) {
         const currentHistory = this.measurementHistory$.getValue();
         let measurementUpdated = false;
@@ -342,25 +308,30 @@ class ToolManagementServiceClass {
         const updatedHistory = currentHistory.map(m => {
             if (m.id === id) {
                 const newEnabledState = !m.isEnabled;
-                measurementUpdated = true; // Mark that an update occurred
+                measurementUpdated = true;
 
-                // Update visibility of associated Cesium entities
-                const { viewer } = getToolState();
-                if (viewer && m.cesiumEntities) {
-                    for (const key in m.cesiumEntities) {
-                        const entityOrArray = m.cesiumEntities[key];
-                        if (Array.isArray(entityOrArray)) {
-                            entityOrArray.forEach(entity => {
-                                // Ensure it's a Cesium Entity and has a 'show' property
-                                if (entity instanceof Cesium.Entity && entity.show !== undefined) {
-                                    entity.show = newEnabledState;
-                                }
-                            });
-                        } else if (entityOrArray instanceof Cesium.Entity && entityOrArray.show !== undefined) {
-                            entityOrArray.show = newEnabledState;
+                // Defer the Cesium entity visibility toggle using requestAnimationFrame
+                requestAnimationFrame(() => {
+                    const { viewer } = getToolState();
+                    if (viewer && m.cesiumEntities) {
+                        for (const key in m.cesiumEntities) {
+                            const entityOrArray = m.cesiumEntities[key];
+                            if (Array.isArray(entityOrArray)) {
+                                entityOrArray.forEach(entity => {
+                                    if (entity instanceof Cesium.Entity && entity.show !== undefined) {
+                                        entity.show = newEnabledState;
+                                    }
+                                });
+                            } else if (entityOrArray instanceof Cesium.Entity && entityOrArray.show !== undefined) {
+                                entityOrArray.show = newEnabledState;
+                            }
                         }
+                        if (viewer.scene.requestRenderMode) {
+                            viewer.scene.requestRender();
+                        }
+                        console.log(`[TMS]: Cesium entities for measurement ID ${id} visibility set to ${newEnabledState}.`);
                     }
-                }
+                });
                 return { ...m, isEnabled: newEnabledState };
             }
             return m;
@@ -368,23 +339,12 @@ class ToolManagementServiceClass {
 
         if (measurementUpdated) {
             this.measurementHistory$.next(updatedHistory);
-            console.log(`[TMS]: Measurement with ID ${id} visibility toggled.`);
-
-            // Request a render after visibility change
-            const { viewer } = getToolState();
-            if (viewer.scene.requestRenderMode) {
-                viewer.scene.requestRender();
-            }
+            console.log(`[TMS]: Measurement with ID ${id} history state updated.`);
         } else {
             console.warn(`[TMS]: Attempted to toggle non-existent measurement with ID: ${id}`);
         }
     }
 
-    /**
-     * Retrieves a measurement by its ID.
-     * @param {number} id - The ID of the measurement.
-     * @returns {Object|undefined} The measurement object or undefined if not found.
-     */
     getMeasurementById(id) {
         return this.measurementHistory$.getValue().find(m => m.id === id);
     }
