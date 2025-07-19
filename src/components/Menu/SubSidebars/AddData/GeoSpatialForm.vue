@@ -72,7 +72,6 @@
       </div>
     </div>
 
-    <!-- Base URL is now only visible for Add Service -->
     <div v-if="selectedOption === 'service'" class="form-group mb-3">
       <label for="baseUrl" class="form-label">Base URL:</label>
       <input
@@ -85,33 +84,30 @@
       />
     </div>
 
-    <!-- Args (JSON) is now only visible for Add Service -->
     <div v-if="selectedOption === 'service'" class="form-group mb-3">
-      <label for="argsInput" class="form-label">Args (JSON):</label>
+      <label for="argsInput" class="form-label">Arguments:</label>
       <textarea
         id="argsInput"
         class="form-control"
-        rows="4"
-        placeholder='Enter JSON for arguments, e.g., {"layers": "layer_name"}'
+        rows="6"
+        placeholder='Enter key-value pairs (e.g., "key: value" or "key - value")'
         :value="argsInput"
         @input="$emit('update:argsInput', $event.target.value)"
       ></textarea>
     </div>
 
-    <!-- Legend Options (JSON) is now only visible for Add Service -->
     <div v-if="selectedOption === 'service'" class="form-group mb-3">
-      <label for="legendOptionsInput" class="form-label">Legend Options (JSON):</label>
+      <label for="legendOptionsInput" class="form-label">Legend Options:</label>
       <textarea
         id="legendOptionsInput"
         class="form-control"
         rows="4"
-        placeholder='Enter JSON for legend options, e.g., {"title": "My Legend"}'
+        placeholder='Enter legend details (e.g., "title: My Title")'
         :value="legendOptionsInput"
         @input="$emit('update:legendOptionsInput', $event.target.value)"
       ></textarea>
     </div>
 
-    <!-- Upload JSON File section: now only for GeoJSON Data -->
     <div v-if="selectedOption === 'data' && contentType === 'geojson'" class="form-group mb-3">
       <label for="jsonFileUpload" class="form-label">Upload JSON File:</label>
       <input
@@ -150,15 +146,15 @@ export default {
       type: String,
       required: true
     },
-    baseUrl: { // Only used for services now
+    baseUrl: {
       type: String,
       default: ''
     },
-    argsInput: { // Only used for services now
+    argsInput: {
       type: String,
       default: ''
     },
-    legendOptionsInput: { // Only used for services now
+    legendOptionsInput: {
       type: String,
       default: ''
     },
@@ -170,30 +166,28 @@ export default {
     'update:baseUrl',
     'update:argsInput',
     'update:legendOptionsInput',
-    'submit-form', // Single submit event
-    'file-selected' // New event for file selection
+    'submit-form',
+    'file-selected'
   ],
   data() {
     return {
-      // No internal state for uploadedJsonFile here, it's emitted directly
+      // No internal state needed here
     };
   },
   watch: {
     selectedOption(newVal) {
-      if (newVal === 'service' && this.contentType !== 'wms' && this.contentType !== 'wmts') {
+      if (newVal === 'service' && !['wms', 'wmts'].includes(this.contentType)) {
         this.$emit('update:contentType', 'wms');
-      } else if (newVal === 'data' && this.contentType !== 'geojson' && this.contentType !== 'kml' && this.contentType !== 'shapefile') {
-         this.$emit('update:contentType', 'geojson');
+      } else if (newVal === 'data' && !['geojson', 'kml', 'shapefile'].includes(this.contentType)) {
+        this.$emit('update:contentType', 'geojson');
       }
     }
   },
   methods: {
     handleJsonFileUpload(event) {
-      // Emit the file directly, parent will handle reading
       this.$emit('file-selected', event.target.files[0]);
     },
     submitForm() {
-      // Emit all relevant data, parent will handle validation and processing
       const payload = {
         selectedOption: this.selectedOption,
         contentName: this.contentName,

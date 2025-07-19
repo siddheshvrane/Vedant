@@ -166,12 +166,6 @@ export default {
     color: white; 
 }
 
-/* --- Specific Icon Color Overrides and Styling --- */
-
-.zoom-icon {
-    /* Inherits base .btn-link color and hover. No custom color needed. */
-}
-
 .edit-icon {
     color: rgba(0, 123, 255, 0.7); /* Bootstrap primary blue, slightly subdued */
 }
@@ -205,13 +199,13 @@ export default {
 
 /* Move icons styling */
 .move-up-icon, .move-down-icon {
-    color: rgba(108, 117, 125, 0.7); /* Neutral gray similar to Bootstrap secondary */
+    color: rgb(255, 255, 255); /* Neutral gray similar to Bootstrap secondary */
 }
 .move-up-icon:hover:not(:disabled), .move-down-icon:hover:not(:disabled) {
-    color: #6c757d; /* Darker gray on hover */
+    color: #dbdbdb; /* Darker gray on hover */
 }
 .move-up-icon:disabled, .move-down-icon:disabled {
-    opacity: 0.3; /* Visually indicate disabled state */
+    opacity: 1; /* Visually indicate disabled state */
     cursor: not-allowed;
 }
 </style>
