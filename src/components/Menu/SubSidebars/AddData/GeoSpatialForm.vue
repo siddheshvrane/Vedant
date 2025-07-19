@@ -108,14 +108,14 @@
       ></textarea>
     </div>
 
-    <div v-if="selectedOption === 'data' && contentType === 'geojson'" class="form-group mb-3">
-      <label for="jsonFileUpload" class="form-label">Upload JSON File:</label>
+    <div v-if="selectedOption === 'data' && ['geojson', 'kml', 'shapefile'].includes(contentType)" class="form-group mb-3">
+      <label for="fileUpload" class="form-label">Upload File:</label>
       <input
         type="file"
-        id="jsonFileUpload"
+        id="fileUpload"
         class="form-control"
-        accept=".geojson,.json"
-        @change="handleJsonFileUpload"
+        :accept="getFileAccepts(contentType)"
+        @change="handleFileUpload"
       />
     </div>
 
@@ -184,7 +184,7 @@ export default {
     }
   },
   methods: {
-    handleJsonFileUpload(event) {
+    handleFileUpload(event) {
       this.$emit('file-selected', event.target.files[0]);
     },
     submitForm() {
@@ -197,6 +197,18 @@ export default {
         legendOptionsInput: this.legendOptionsInput,
       };
       this.$emit('submit-form', payload);
+    },
+    getFileAccepts(contentType) {
+      switch (contentType) {
+        case 'geojson':
+          return '.geojson,.json';
+        case 'kml':
+          return '.kml,.kmz';
+        case 'shapefile':
+          return '.zip'; // Shapefiles are typically uploaded as zipped archives
+        default:
+          return '';
+      }
     }
   }
 };

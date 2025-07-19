@@ -46,7 +46,36 @@ class CesiumGeoDataManager {
                 this.viewer.dataSources.add(ds);
                 cesiumLayer = ds;
                 console.log(`CesiumGeoDataManager: Added GeoJSON layer: ${layerEntry.name}. Visible: ${ds.show}`);
-            } else if (layerEntry.type === 'wms' && layerEntry.baseUrl && layerEntry.args) {
+            } else if (layerEntry.type === 'kml' && (layerEntry.srcInfo?.kmlContent || layerEntry.url)) {
+                const source = layerEntry.srcInfo?.kmlContent || layerEntry.url;
+                const ds = await Cesium.KmlDataSource.load(source, {
+                    camera: this.viewer.camera,
+                    canvas: this.viewer.canvas,
+                    clampToGround: true
+                });
+                ds.name = layerEntry.name;
+                ds.show = layerEntry.isVisible;
+                this.viewer.dataSources.add(ds);
+                cesiumLayer = ds;
+                console.log(`CesiumGeoDataManager: Added KML layer: ${layerEntry.name}. Visible: ${ds.show}`);
+            } else if (layerEntry.type === 'shapefile' && (layerEntry.srcInfo?.jsonContent || layerEntry.url)) { // MODIFIED: Added check for jsonContent for Shapefile
+                // For Shapefile, Cesium.GeoJsonDataSource can often load it if it's a zipped shapefile (.zip)
+                // containing .shp, .shx, .dbf, etc. or if it's a single .geojson derived from a shapefile.
+                // Assuming the URL points to a zipped shapefile or a GeoJSON converted from one.
+                const source = layerEntry.srcInfo?.jsonContent || layerEntry.url; // MODIFIED: Use source variable
+                const ds = await Cesium.GeoJsonDataSource.load(source, { // MODIFIED: Pass source
+                    stroke: Cesium.Color.ORANGE,
+                    fill: Cesium.Color.ORANGE.withAlpha(0.5),
+                    strokeWidth: 3,
+                    clampToGround: true
+                });
+                ds.name = layerEntry.name;
+                ds.show = layerEntry.isVisible;
+                this.viewer.dataSources.add(ds);
+                cesiumLayer = ds;
+                console.log(`CesiumGeoDataManager: Added Shapefile (as GeoJSON) layer: ${layerEntry.name}. Visible: ${ds.show}`);
+            }
+            else if (layerEntry.type === 'wms' && layerEntry.baseUrl && layerEntry.args) {
                 const wmsParameters = {
                     service: 'WMS',
                     version: layerEntry.args.version || '1.1.1',
@@ -74,6 +103,44 @@ class CesiumGeoDataManager {
                 cesiumLayer.show = layerEntry.isVisible;
 
                 console.log(`CesiumGeoDataManager: Added WMS layer: ${layerEntry.name} at index ${imageryIndex}. Visible: ${cesiumLayer.show}`);
+            } else if (layerEntry.type === 'wmts' && layerEntry.baseUrl && layerEntry.args) {
+                const wmtsParameters = {
+                    service: 'WMTS',
+                    version: layerEntry.args.version || '1.0.0',
+                    request: 'GetTile',
+                    format: layerEntry.args.format || 'image/jpeg',
+                    layer: layerEntry.args.layer || layerEntry.name,
+                    style: layerEntry.args.style || '',
+                    tileMatrixSetID: layerEntry.args.tileMatrixSetID || 'EPSG:4326',
+                    tileMatrixLabels: layerEntry.args.tileMatrixLabels, // Optional, can be an array of strings
+                    dimensions: layerEntry.args.dimensions, // Optional, can be an object
+                    tilingScheme: layerEntry.args.tilingScheme, // Optional, Cesium.GeographicTilingScheme or Cesium.WebMercatorTilingScheme
+                    credit: new Cesium.Credit(layerEntry.name),
+                    minimumLevel: layerEntry.args.minimumLevel || 0,
+                    maximumLevel: layerEntry.args.maximumLevel,
+                    ...layerEntry.args
+                };
+
+                const imageryProvider = new Cesium.WebMapTileServiceImageryProvider({
+                    url: layerEntry.baseUrl,
+                    layer: wmtsParameters.layer,
+                    style: wmtsParameters.style,
+                    format: wmtsParameters.format,
+                    tileMatrixSetID: wmtsParameters.tileMatrixSetID,
+                    tileMatrixLabels: wmtsParameters.tileMatrixLabels,
+                    tilingScheme: wmtsParameters.tilingScheme,
+                    minimumLevel: wmtsParameters.minimumLevel,
+                    maximumLevel: wmtsParameters.maximumLevel,
+                    credit: wmtsParameters.credit,
+                    dimensions: wmtsParameters.dimensions
+                });
+
+                cesiumLayer = this.viewer.imageryLayers.addImageryProvider(imageryProvider, imageryIndex);
+                cesiumLayer.id = layerEntry.id;
+                cesiumLayer.name = layerEntry.name;
+                cesiumLayer.show = layerEntry.isVisible;
+
+                console.log(`CesiumGeoDataManager: Added WMTS layer: ${layerEntry.name} at index ${imageryIndex}. Visible: ${cesiumLayer.show}`);
             } else {
                 console.warn(`CesiumGeoDataManager: Unsupported layer type or missing data for ${layerEntry.name} (Type: ${layerEntry.type}).`);
                 return null;
@@ -151,17 +218,17 @@ class CesiumGeoDataManager {
         console.log('CesiumGeoDataManager: Cleared all existing dynamic globe layers and data sources.');
 
         // Re-add layers in the desired Cesium Z-order (bottom-up for imagery).
-        const imageryLayersReversed = layersToReconcile.filter(l => l.type === 'wms').reverse();
-        const dataSources = layersToReconcile.filter(l => l.type === 'geojson');
+        const imageryLayersReversed = layersToReconcile.filter(l => ['wms', 'wmts'].includes(l.type)).reverse();
+        const dataSources = layersToReconcile.filter(l => ['geojson', 'kml', 'shapefile'].includes(l.type));
 
         for (let i = 0; i < imageryLayersReversed.length; i++) {
             const layerEntry = imageryLayersReversed[i];
-            console.log(`CesiumGeoDataManager: Adding WMS layer ${layerEntry.name} (UI order: ${layersToReconcile.indexOf(layerEntry)}, Cesium index: ${i})`);
+            console.log(`CesiumGeoDataManager: Adding ${layerEntry.type.toUpperCase()} layer ${layerEntry.name} (UI order: ${layersToReconcile.indexOf(layerEntry)}, Cesium index: ${i})`);
             await this.addLayer(layerEntry, i); // Pass 'i' as the Cesium imagery layer index
         }
 
         for (const layerEntry of dataSources) {
-            console.log(`CesiumGeoDataManager: Adding GeoJSON layer ${layerEntry.name}`);
+            console.log(`CesiumGeoDataManager: Adding ${layerEntry.type.toUpperCase()} layer ${layerEntry.name}`);
             await this.addLayer(layerEntry); // No index needed for data sources, they're typically on top
         }
 
@@ -216,9 +283,9 @@ class CesiumGeoDataManager {
         } else if (cesiumLayer instanceof Cesium.DataSource) {
             if (cesiumLayer.entities.values.length > 0) {
                 this.viewer.flyTo(cesiumLayer.entities, { duration: 1.5 });
-                console.log(`CesiumGeoDataManager: Zoomed to GeoJSON/CZML layer: ${layerEntry.name}`);
+                console.log(`CesiumGeoDataManager: Zoomed to GeoJSON/KML/Shapefile layer: ${layerEntry.name}`);
             } else {
-                console.warn(`CesiumGeoDataManager: GeoJSON/CZML layer ${layerEntry.name} has no entities to zoom to.`);
+                console.warn(`CesiumGeoDataManager: GeoJSON/KML/Shapefile layer ${layerEntry.name} has no entities to zoom to.`);
                 this.viewer.camera.flyHome();
             }
         } else {
