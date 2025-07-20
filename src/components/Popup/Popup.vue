@@ -80,6 +80,7 @@
             <option :value="64">High (64)</option>
           </select>
         </div>
+
         <div class="popup-actions">
           <button
             @click="handleViewshedStart"
@@ -191,11 +192,6 @@ export default {
       showPopup: false,
       currentPopupType: null,
       popupData: {},
-      viewshedOptions: {
-        observerHeight: 10,
-        viewDistance: 500,
-        rayCount: 32,
-      },
       profile: [],
       terrainProfileEntity: null,
       visibilitySubscription: null,
@@ -208,10 +204,18 @@ export default {
   computed: {
     popupStyle() {
       if (this.currentPopupType !== "terrainProfileStats") return {};
+
+      // If popupPosition hasn't been manually set (i.e., default 0,0), center it
+      const defaultX = (window.innerWidth - 400) / 2; // 400 = estimated popup width
+      const defaultY = (window.innerHeight - 300) / 2; // 300 = estimated popup height
+
+      const left = this.popupPosition.x === 0 ? defaultX : this.popupPosition.x;
+      const top = this.popupPosition.y === 0 ? defaultY : this.popupPosition.y;
+
       return {
         position: "absolute",
-        left: this.popupPosition.x + "px",
-        top: this.popupPosition.y + "px",
+        left: `${left}px`,
+        top: `${top}px`,
         cursor: this.dragging ? "grabbing" : "grab",
       };
     },

@@ -15,11 +15,12 @@ export function setupViewshieldAnalysisTool(viewer, options) {
   setToolState({ drawingPoints: [], mousePosition: null, rayEntities: [] });
 
   const initial = {
-    observerHeight: options.observerHeight ?? 1.75,
-    viewDistance: options.viewDistance ?? 5000,
-    rayCount: options.rayCount ?? 64,
+    observerHeight: options.observerHeight ?? 10,
+    viewDistance: options.viewDistance ?? 500,
+    rayCount: options.rayCount ?? 16,
   };
 
+  // ⬇️ Pass defaults here
   PopupService.showViewshedForm({
     viewshedOptions: initial,
     onStart: (params) => placeObserver(viewer, params),
