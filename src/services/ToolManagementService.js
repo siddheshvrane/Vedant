@@ -8,16 +8,17 @@ import { PopupService } from './PopupService.js';
 // Import individual tool setup functions
 import { setupLineMeasureTool } from '../components/Menu/SubSidebars/BasicTools/tools/LineMeasureTool.js';
 import { setupAreaMeasureTool } from '../components/Menu/SubSidebars/BasicTools/tools/AreaMeasureTool.js';
-import { setupViewshieldAnalysisTool } from '../components/Menu/SubSidebars/BasicTools/tools/ViewshieldAnalysisTool.js';
+// Updated import: Ensure both setup and clear functions are imported
+import { setupViewshieldAnalysisTool, clearViewshield } from '../components/Menu/SubSidebars/BasicTools/tools/ViewshieldAnalysisTool.js';
 import { setupTerrainProfileTool } from '../components/Menu/SubSidebars/BasicTools/tools/TerrainProfileTool.js';
 
 // Import helper functions and common drawing methods
 import {
     clearDrawing,
     removeEventHandlers,
-    getToolState,
+    getToolState, // Make sure getToolState is available and returns { viewer, handler }
     setToolState,
-    addPersistentEntity, // Crucial: This function MUST be exported from tools-helpers.js and add the entity to viewer.entities
+    addPersistentEntity,
     removeAllToolEntities
 } from '../components/Menu/SubSidebars/BasicTools/tool-helpers/tools-helpers.js';
 
@@ -29,8 +30,9 @@ class ToolManagementServiceClass {
 
     constructor() {
         MapService.globeViewer$.subscribe(viewer => {
-            this.deactivateCurrentTool();
+            this.deactivateCurrentTool(); // Deactivate any active tool when viewer changes or is null
 
+            // Initialize or re-initialize handler when viewer becomes available
             setToolState({
                 viewer: viewer,
                 handler: viewer ? new Cesium.ScreenSpaceEventHandler(viewer.canvas) : null
@@ -38,7 +40,7 @@ class ToolManagementServiceClass {
 
             if (viewer) {
                 console.log("[TMS]: Received Cesium Viewer instance. Handler initialized.");
-                this._clearAllPersistentMeasurements();
+                this._clearAllPersistentMeasurements(); // Clear existing measurements from history and viewer
                 removeAllToolEntities(viewer); // Ensure all temporary tool entities are cleared on viewer change
             } else {
                 console.log("[TMS]: Cesium Viewer is null. Tools deactivated and resources cleaned.");
@@ -59,13 +61,11 @@ class ToolManagementServiceClass {
                         const entityOrArray = measurement.cesiumEntities[key];
                         if (Array.isArray(entityOrArray)) {
                             entityOrArray.forEach(e => {
-                                if (e instanceof Cesium.Entity) { // Removed viewer.entities.contains(e) check for _clearAll to try forceful removal
-                                    // console.log(`[TMS]: Attempting to clear persistent entity (full reset) ID: ${e.id}, Type: ${key}`);
+                                if (e instanceof Cesium.Entity) {
                                     viewer.entities.remove(e);
                                 }
                             });
-                        } else if (entityOrArray instanceof Cesium.Entity) { // Removed viewer.entities.contains(entityOrArray)
-                            // console.log(`[TMS]: Attempting to clear persistent entity (full reset) ID: ${entityOrArray.id}, Type: ${key}`);
+                        } else if (entityOrArray instanceof Cesium.Entity) {
                             viewer.entities.remove(entityOrArray);
                         }
                     }
@@ -78,28 +78,31 @@ class ToolManagementServiceClass {
             console.log("[TMS]: All persistent measurements cleared.");
 
             if (viewer) {
+                // removeAllToolEntities already handles clearing temporary entities
+                // However, for a complete reset, ensure it's called after clearing persistent ones too.
                 removeAllToolEntities(viewer);
                 console.log("[TMS]: All temporary tool entities cleared during full measurement reset.");
                 if (viewer.scene.requestRenderMode) {
-                    viewer.scene.requestRender(); // Request render after all removals
+                    viewer.scene.requestRender();
                 }
             }
         });
     }
 
     activateTool(toolName) {
-        const { viewer } = getToolState();
+        const { viewer } = getToolState(); // Get the viewer instance
         if (!viewer) {
             console.warn("[TMS]: Cesium Viewer not available. Cannot activate tool.");
             return;
         }
 
+        // If the tool is already active, deactivate it (toggle behavior)
         if (this.activeTool$.getValue() === toolName) {
             this.deactivateCurrentTool();
             return;
         }
 
-        this.deactivateCurrentTool();
+        this.deactivateCurrentTool(); // Deactivate any previously active tool
 
         this.activeTool$.next(toolName);
         console.log(`[TMS]: Activating tool: ${toolName}`);
@@ -118,14 +121,20 @@ class ToolManagementServiceClass {
                 setupAreaMeasureTool(false, true);
                 break;
             case 'Viewshield Analysis':
-                setupViewshieldAnalysisTool();
+                // Initial options can be passed here, which will populate the popup form.
+                // The actual tool logic (map interaction) will be triggered from the popup's onStart callback.
+                setupViewshieldAnalysisTool(viewer, {
+                    observerHeight: 1.75, // Default for popup
+                    viewDistance: 5000,   // Default for popup
+                    rayCount: 64,         // Default for popup
+                });
                 break;
             case 'Terrain Profile':
                 setupTerrainProfileTool();
                 break;
             default:
                 console.warn(`[TMS]: Unknown tool requested: ${toolName}`);
-                this.deactivateCurrentTool();
+                this.deactivateCurrentTool(); // Deactivate if tool name is not recognized
                 break;
         }
     }
@@ -134,11 +143,21 @@ class ToolManagementServiceClass {
         const activeTool = this.activeTool$.getValue();
         if (activeTool) {
             console.log(`[TMS]: Deactivating tool: ${activeTool}`);
-            clearDrawing();
-            removeEventHandlers();
+            // Call specific cleanup function if available, otherwise generic clearDrawing/removeEventHandlers
+            switch (activeTool) {
+                case 'Viewshield Analysis':
+                    clearViewshield(); // This function should clear all viewshed specific entities and handlers
+                    break;
+                // Add cases for other tools if they need specific cleanup beyond generic ones
+                default:
+                    clearDrawing(); // Clears temporary entities like points/lines from measurement tools
+                    removeEventHandlers(); // Removes screen space event handlers
+                    break;
+            }
         }
-        this.activeTool$.next(null);
+        this.activeTool$.next(null); // Set active tool to null
 
+        // Ensure popup is hidden regardless of which tool was active
         if (typeof PopupService !== 'undefined' && PopupService.hide) {
             PopupService.hide();
         } else {
@@ -215,7 +234,7 @@ class ToolManagementServiceClass {
                 });
             }
 
-            // --- Add other entity types here as needed for other tools (e.g., billboards, models, viewshield cone) ---
+            // --- Add other entity types here as needed for other tools (e.g., billboards, models, viewshed polygon) ---
             if (entityDefinitions.billboards && Array.isArray(entityDefinitions.billboards)) {
                 createdCesiumEntities.billboards = [];
                 entityDefinitions.billboards.forEach(billboardDef => {
@@ -236,10 +255,11 @@ class ToolManagementServiceClass {
                 });
             }
 
-            if (entityDefinitions.viewshieldCone) {
-                const viewshieldConeEntity = addPersistentEntity(entityDefinitions.viewshieldCone);
-                if (viewshieldConeEntity) {
-                    createdCesiumEntities.viewshieldCone = viewshieldConeEntity;
+            // Added specifically for Viewshed Analysis to persist the visible polygon
+            if (entityDefinitions.viewshedPolygon) { // Renamed from viewshieldCone to viewshedPolygon for clarity
+                const viewshedPolygonEntity = addPersistentEntity(entityDefinitions.viewshedPolygon);
+                if (viewshedPolygonEntity) {
+                    createdCesiumEntities.viewshedPolygon = viewshedPolygonEntity;
                 }
             }
             // ... and so on for other complex entities specific to tools
