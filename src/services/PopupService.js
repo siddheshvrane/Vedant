@@ -11,7 +11,7 @@ class PopupServiceClass {
 
     // Holds the data for the *currently active* popup, including its type
     popupContent$ = new BehaviorSubject({
-        type: null, // 'serviceAdded', 'toolInstruction', 'confirmation', 'viewshedForm'
+        type: null, // 'serviceAdded', 'toolInstruction', 'confirmation', 'viewshedForm', 'terrainProfileStats'
         data: {}    // Specific data for the active type
     });
 
@@ -21,12 +21,13 @@ class PopupServiceClass {
 
     /**
      * Shows a popup with given type and parameters.
-     * @param {string} type - The type of popup to show ('serviceAdded', 'toolInstruction', 'confirmation', 'viewshedForm').
+     * @param {string} type - The type of popup to show ('serviceAdded', 'toolInstruction', 'confirmation', 'viewshedForm', 'terrainProfileStats').
      * @param {object} data - The parameters specific to that popup type.
      * - For 'serviceAdded': { layerName: string, srs: string, extent: string }
      * - For 'toolInstruction': { message: string, title?: string, showDismissButton?: boolean }
      * - For 'confirmation': { message: string, title?: string, confirmText?: string, cancelText?: string }
      * - For 'viewshedForm': { observerHeight: number, viewDistance: number, rayCount: number, onStart: Function, onCancel: Function }
+     * - For 'terrainProfileStats': { profile: Array, entity: Cesium.Entity }
      */
     show(type, data) {
         if (!type) {
@@ -107,6 +108,14 @@ class PopupServiceClass {
      */
     showViewshedForm(params) {
         this.show('viewshedForm', params);
+    }
+
+    /**
+     * NEW: Convenience method to show the 'terrainProfileStats' popup.
+     * @param {object} params - { profile: Array, entity: Cesium.Entity }
+     */
+    showTerrainProfileStats(params) {
+        this.show('terrainProfileStats', params);
     }
 
     /**

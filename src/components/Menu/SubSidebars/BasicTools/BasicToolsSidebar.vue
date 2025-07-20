@@ -5,82 +5,96 @@
         v-for="tool in tools"
         :key="tool.name"
         :tool="tool"
-        @activate-tool="activateTool"
-      />
+        @activate-tool="activateTool" />
       <li v-if="tools.length === 0" class="text-center text-muted mt-3">
         No basic tools available.
       </li>
     </ul>
-    <MeasurementHistory class="mt-4" /> </BaseSubSidebar>
+
+    <MeasurementHistory class="mt-4" />
+
+    </BaseSubSidebar>
 </template>
 
 <script>
-import BaseSubSidebar from '../SubSidebar.vue';
-import ToolsListItem from './ToolListItem.vue';
-import MeasurementHistory from './MeasurementHistory.vue'; // NEW: Import MeasurementHistory
-import { ToolManagementService } from '../../../../services/ToolManagementService';
+import BaseSubSidebar from "../SubSidebar.vue";
+import ToolsListItem from "./ToolListItem.vue";
+import MeasurementHistory from "./MeasurementHistory.vue";
+// REMOVED: import TerrainProfilePopup from "../BasicTools/TerrainProfilePopup.vue";
+import { ToolManagementService } from "../../../../services/ToolManagementService";
+// REMOVED: import { getToolState } from "../BasicTools/tool-helpers/tools-helpers.js";
+// getToolState is no longer needed here as handleRemoveProfile moved to Popup.vue
 
 export default {
-  name: 'BasicToolsSidebar',
+  name: "BasicToolsSidebar",
   components: {
     BaseSubSidebar,
     ToolsListItem,
-    MeasurementHistory, // NEW: Register MeasurementHistory
+    MeasurementHistory,
+    // REMOVED: TerrainProfilePopup,
   },
   data() {
     return {
       tools: [
-        { name: 'Line Measure', isActive: false },
-        { name: '3D Line Measure', isActive: false },
-        { name: 'Area Measure', isActive: false },
-        { name: '3D Area Measure', isActive: false },
-        { name: 'Viewshield Analysis', isActive: false },
-        { name: 'Terrain Profile', isActive: false },
+        { name: "Line Measure", isActive: false },
+        { name: "3D Line Measure", isActive: false },
+        { name: "Area Measure", isActive: false },
+        { name: "3D Area Measure", isActive: false },
+        { name: "Viewshield Analysis", isActive: false },
+        { name: "Terrain Profile", isActive: false },
       ],
       activeToolSubscription: null,
+      // REMOVED: showProfilePopup: false,
+      // REMOVED: terrainProfileData: [],
+      // REMOVED: terrainProfileEntity: null, // ✅ Track the polyline entity
     };
   },
   mounted() {
-    this.activeToolSubscription = ToolManagementService.activeTool$.subscribe(activeToolName => {
-        this.tools.forEach(tool => {
-            tool.isActive = (tool.name === activeToolName);
+    this.activeToolSubscription = ToolManagementService.activeTool$.subscribe(
+      (activeToolName) => {
+        this.tools.forEach((tool) => {
+          tool.isActive = tool.name === activeToolName;
         });
-        if (activeToolName) {
-            console.log(`UI: Tool '${activeToolName}' is now active.`);
-        } else {
-            console.log('UI: No tool is active.');
-        }
-    });
+        console.log(`UI: Tool '${activeToolName || "None"}' is now active.`);
+      }
+    );
+
+    // REMOVED: window.addEventListener("terrain-profile-ready", (e) => { ... });
+    // This event listener is now in Popup.vue
   },
   beforeUnmount() {
     ToolManagementService.deactivateCurrentTool();
     if (this.activeToolSubscription) {
-        this.activeToolSubscription.unsubscribe();
+      this.activeToolSubscription.unsubscribe();
     }
   },
   methods: {
     async activateTool(toolName) {
       console.log(`BasicToolsSidebar: Request to activate tool: ${toolName}`);
-
-      const clickedTool = this.tools.find(tool => tool.name === toolName);
+      const clickedTool = this.tools.find((tool) => tool.name === toolName);
 
       if (clickedTool) {
         if (clickedTool.isActive) {
-          console.log(`${toolName} was already active. Sending deactivate command.`);
+          console.log(
+            `${toolName} was already active. Sending deactivate command.`
+          );
           ToolManagementService.deactivateCurrentTool();
         } else {
           ToolManagementService.activateTool(toolName);
         }
       }
     },
+
+    // REMOVED: handleRemoveProfile() method
+    // This method is now in Popup.vue
   },
 };
 </script>
 
 <style scoped>
-/* Existing styles from your original BasicToolsSidebar.vue */
+/* No changes needed in styles unless you want to clean up unused rules */
 .sub-sidebar-panel {
-  width: 350px; /* Consistent width for this sidebar */
+  width: 350px;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -88,7 +102,7 @@ export default {
 }
 
 .poppins-font {
-  font-family: 'Poppins', sans-serif;
+  font-family: "Poppins", sans-serif;
 }
 
 .sub-sidebar-header {
@@ -126,7 +140,6 @@ export default {
   color: white;
 }
 
-/* Tool List Specific Styles */
 .tool-list {
   padding: 0;
   margin: 0;

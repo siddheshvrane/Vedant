@@ -130,7 +130,7 @@ class ToolManagementServiceClass {
                 });
                 break;
             case 'Terrain Profile':
-                setupTerrainProfileTool();
+                setupTerrainProfileTool(viewer); // <-- Pass the viewer here
                 break;
             default:
                 console.warn(`[TMS]: Unknown tool requested: ${toolName}`);
