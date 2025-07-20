@@ -1,12 +1,12 @@
 <template>
   <div v-if="showPopup" class="unified-popup-overlay">
-    <div class="unified-popup poppins-font">
-      <div class="popup-header-common"> <h5 class="popup-title">{{ getTitleForCurrentPopup }}</h5>
+    <div class="unified-popup poppins-font" :style="popupStyle">
+      <div class="popup-header-common" @mousedown="startDrag">
+        <h5 class="popup-title">{{ getTitleForCurrentPopup }}</h5>
         <button @click="hidePopup" class="close-btn" title="Close">
           <i class="fas fa-times"></i>
         </button>
       </div>
-
 
       <template v-if="currentPopupType === 'serviceAdded'">
         <div class="popup-content">
@@ -23,14 +23,21 @@
             <span class="info-value">{{ popupData.extent }}</span>
           </div>
         </div>
-        <button @click="hidePopup" class="btn btn-primary close-popup-btn">OK</button>
+        <button @click="hidePopup" class="btn btn-primary close-popup-btn">
+          OK
+        </button>
       </template>
 
       <template v-else-if="currentPopupType === 'toolInstruction'">
         <div class="popup-content">
           <p>{{ popupData.message }}</p>
         </div>
-        <button v-if="popupData.showDismissButton !== false" @click="hidePopup" class="btn btn-primary close-popup-btn">OK</button>
+        <button
+          v-if="popupData.showDismissButton !== false"
+          @click="hidePopup"
+          class="btn btn-primary close-popup-btn">
+          OK
+        </button>
       </template>
 
       <template v-else-if="currentPopupType === 'confirmation'">
@@ -39,10 +46,10 @@
         </div>
         <div class="popup-actions">
           <button @click="confirm(false)" class="btn btn-secondary action-btn">
-            {{ popupData.cancelText || 'Cancel' }}
+            {{ popupData.cancelText || "Cancel" }}
           </button>
           <button @click="confirm(true)" class="btn btn-danger action-btn">
-            {{ popupData.confirmText || 'Confirm' }}
+            {{ popupData.confirmText || "Confirm" }}
           </button>
         </div>
       </template>
@@ -50,21 +57,40 @@
       <template v-else-if="currentPopupType === 'viewshedForm'">
         <div class="viewshed-form-content popup-content">
           <label class="form-label">Observer Height (m):</label>
-          <input type="number" v-model.number="viewshedOptions.observerHeight" min="1" max="100" class="form-input" />
+          <input
+            type="number"
+            v-model.number="viewshedOptions.observerHeight"
+            min="1"
+            max="100"
+            class="form-input" />
 
           <label class="form-label">View Distance (m):</label>
-          <input type="number" v-model.number="viewshedOptions.viewDistance" min="100" max="10000" step="100" class="form-input" />
+          <input
+            type="number"
+            v-model.number="viewshedOptions.viewDistance"
+            min="100"
+            max="10000"
+            step="100"
+            class="form-input" />
 
           <label class="form-label">Resolution (number of rays):</label>
           <select v-model.number="viewshedOptions.rayCount" class="form-select">
-            <option :value="32">Low (32)</option>
-            <option :value="64">Medium (64)</option>
-            <option :value="128">High (128)</option>
+            <option :value="16">Low (16)</option>
+            <option :value="32">Medium (32)</option>
+            <option :value="64">High (64)</option>
           </select>
         </div>
         <div class="popup-actions">
-          <button @click="handleViewshedStart" class="btn btn-primary action-btn">Start Analysis</button>
-          <button @click="handleViewshedCancel" class="btn btn-secondary action-btn">Cancel</button>
+          <button
+            @click="handleViewshedStart"
+            class="btn btn-primary action-btn">
+            Start Analysis
+          </button>
+          <button
+            @click="handleViewshedCancel"
+            class="btn btn-secondary action-btn">
+            Cancel
+          </button>
         </div>
       </template>
 
@@ -97,8 +123,7 @@
                 y="230"
                 fill="#ddd"
                 font-size="14"
-                text-anchor="middle"
-              >
+                text-anchor="middle">
                 {{ x.label }} m
               </text>
             </g>
@@ -126,8 +151,19 @@
           </p>
           <p class="popup-item">
             <span class="info-label">Elevation Gain:</span>
-            <span class="info-value">{{ (maxHeight - minHeight).toFixed(1) }} m</span>
+            <span class="info-value"
+              >{{ (maxHeight - minHeight).toFixed(1) }} m</span
+            >
           </p>
+        </div>
+
+        <!-- 🔴 New: Delete Button Section -->
+        <div class="popup-actions">
+          <button
+            @click="handleRemoveProfile"
+            class="btn btn-danger action-btn">
+            Delete Profile
+          </button>
         </div>
       </template>
 
@@ -135,45 +171,65 @@
         <div class="popup-content">
           <p>No specific popup content defined for this type.</p>
         </div>
-        <button @click="hidePopup" class="btn btn-primary close-popup-btn">OK</button>
+        <button @click="hidePopup" class="btn btn-primary close-popup-btn">
+          OK
+        </button>
       </template>
-
     </div>
   </div>
 </template>
 
 <script>
 // (No changes to script section)
-import { PopupService } from '../../services/PopupService.js';
-import { getToolState } from '../../components/Menu/SubSidebars/BasicTools/tool-helpers/tools-helpers.js';
+import { PopupService } from "../../services/PopupService.js";
+import { getToolState } from "../../components/Menu/SubSidebars/BasicTools/tool-helpers/tools-helpers.js";
 
 export default {
-  name: 'AppPopup',
+  name: "AppPopup",
   data() {
     return {
       showPopup: false,
       currentPopupType: null,
       popupData: {},
       viewshedOptions: {
-        observerHeight: 1.75,
-        viewDistance: 5000,
-        rayCount: 64,
+        observerHeight: 10,
+        viewDistance: 500,
+        rayCount: 32,
       },
       profile: [],
       terrainProfileEntity: null,
       visibilitySubscription: null,
       contentSubscription: null,
+      popupPosition: { x: 0, y: 0 },
+      dragOffset: { x: 0, y: 0 },
+      dragging: false,
     };
   },
   computed: {
+    popupStyle() {
+      if (this.currentPopupType !== "terrainProfileStats") return {};
+      return {
+        position: "absolute",
+        left: this.popupPosition.x + "px",
+        top: this.popupPosition.y + "px",
+        cursor: this.dragging ? "grabbing" : "grab",
+      };
+    },
+
     getTitleForCurrentPopup() {
       switch (this.currentPopupType) {
-        case 'serviceAdded': return 'Successfully Added Service';
-        case 'toolInstruction': return this.popupData.title || 'Tool Instructions';
-        case 'confirmation': return this.popupData.title || 'Confirm Action';
-        case 'viewshedForm': return 'Viewshed Parameters';
-        case 'terrainProfileStats': return 'Terrain Profile'; // Explicitly set title for terrain profile
-        default: return 'Information';
+        case "serviceAdded":
+          return "Successfully Added Service";
+        case "toolInstruction":
+          return this.popupData.title || "Tool Instructions";
+        case "confirmation":
+          return this.popupData.title || "Confirm Action";
+        case "viewshedForm":
+          return "Viewshed Parameters";
+        case "terrainProfileStats":
+          return "Terrain Profile"; // Explicitly set title for terrain profile
+        default:
+          return "Information";
       }
     },
     totalDistance() {
@@ -192,7 +248,8 @@ export default {
     svgPolyline() {
       const width = 1000;
       const height = 200;
-      const stepX = this.profile.length > 1 ? width / (this.profile.length - 1) : 0;
+      const stepX =
+        this.profile.length > 1 ? width / (this.profile.length - 1) : 0;
       const min = this.minHeight;
       const range = this.maxHeight - min || 1;
 
@@ -232,23 +289,30 @@ export default {
     },
   },
   mounted() {
-    this.visibilitySubscription = PopupService.isVisible$.subscribe(isVisible => {
-      this.showPopup = isVisible;
-    });
-
-    this.contentSubscription = PopupService.popupContent$.subscribe(content => {
-      console.log('AppPopup received popupContent:', content);
-      this.currentPopupType = content.type;
-      this.popupData = content.data;
-
-      if (content.type === 'viewshedForm' && content.data.viewshedOptions) {
-        this.viewshedOptions = { ...content.data.viewshedOptions };
-      } else if (content.type === 'terrainProfileStats') {
-        this.initializeTerrainProfile(content.data);
+    this.visibilitySubscription = PopupService.isVisible$.subscribe(
+      (isVisible) => {
+        this.showPopup = isVisible;
       }
-    });
+    );
 
-    window.addEventListener("terrain-profile-ready", this.handleTerrainProfileReady);
+    this.contentSubscription = PopupService.popupContent$.subscribe(
+      (content) => {
+        console.log("AppPopup received popupContent:", content);
+        this.currentPopupType = content.type;
+        this.popupData = content.data;
+
+        if (content.type === "viewshedForm" && content.data.viewshedOptions) {
+          this.viewshedOptions = { ...content.data.viewshedOptions };
+        } else if (content.type === "terrainProfileStats") {
+          this.initializeTerrainProfile(content.data);
+        }
+      }
+    );
+
+    window.addEventListener(
+      "terrain-profile-ready",
+      this.handleTerrainProfileReady
+    );
   },
   beforeUnmount() {
     if (this.visibilitySubscription) {
@@ -257,9 +321,61 @@ export default {
     if (this.contentSubscription) {
       this.contentSubscription.unsubscribe();
     }
-    window.removeEventListener("terrain-profile-ready", this.handleTerrainProfileReady);
+    window.removeEventListener(
+      "terrain-profile-ready",
+      this.handleTerrainProfileReady
+    );
   },
   methods: {
+    startDrag(event) {
+      if (this.currentPopupType !== "terrainProfileStats") return;
+      this.dragging = true;
+      this.dragOffset = {
+        x: event.clientX - this.popupPosition.x,
+        y: event.clientY - this.popupPosition.y,
+      };
+      document.addEventListener("mousemove", this.onDrag);
+      document.addEventListener("mouseup", this.stopDrag);
+    },
+
+    onDrag(event) {
+      if (!this.dragging) return;
+      this.popupPosition = {
+        x: event.clientX - this.dragOffset.x,
+        y: event.clientY - this.dragOffset.y,
+      };
+    },
+
+    stopDrag() {
+      this.dragging = false;
+      document.removeEventListener("mousemove", this.onDrag);
+      document.removeEventListener("mouseup", this.stopDrag);
+    },
+    startDrag(event) {
+      if (this.currentPopupType !== "terrainProfileStats") return;
+      this.dragging = true;
+      this.dragOffset = {
+        x: event.clientX - this.popupPosition.x,
+        y: event.clientY - this.popupPosition.y,
+      };
+      document.addEventListener("mousemove", this.onDrag);
+      document.addEventListener("mouseup", this.stopDrag);
+    },
+
+    onDrag(event) {
+      if (!this.dragging) return;
+      this.popupPosition = {
+        x: event.clientX - this.dragOffset.x,
+        y: event.clientY - this.dragOffset.y,
+      };
+    },
+
+    stopDrag() {
+      this.dragging = false;
+      document.removeEventListener("mousemove", this.onDrag);
+      document.removeEventListener("mouseup", this.stopDrag);
+    },
+
     hidePopup() {
       PopupService.hide();
     },
@@ -272,6 +388,24 @@ export default {
       }
       this.hidePopup();
     },
+    handleRemoveProfile() {
+      console.log("Removing terrain profile...");
+      const { viewer } = getToolState();
+
+      if (
+        viewer &&
+        this.terrainProfileEntity &&
+        viewer.entities.contains(this.terrainProfileEntity)
+      ) {
+        viewer.entities.remove(this.terrainProfileEntity);
+        console.log("Terrain profile entity removed.");
+      }
+
+      this.terrainProfileEntity = null;
+      this.profile = [];
+      this.hidePopup();
+    },
+
     handleViewshedCancel() {
       if (this.popupData.onCancel) {
         this.popupData.onCancel();
@@ -284,19 +418,23 @@ export default {
     },
     handleTerrainProfileReady(e) {
       PopupService.show({
-        type: 'terrainProfileStats',
+        type: "terrainProfileStats",
         data: {
           profile: e.detail.profile || [],
           entity: e.detail.entity || null,
-        }
+        },
       });
-      console.log('Popup.vue: Received terrain-profile-ready event.');
+      console.log("Popup.vue: Received terrain-profile-ready event.");
     },
     handleRemoveProfile() {
       console.log("Removing terrain profile...");
       const { viewer } = getToolState();
 
-      if (viewer && this.terrainProfileEntity && viewer.entities.contains(this.terrainProfileEntity)) {
+      if (
+        viewer &&
+        this.terrainProfileEntity &&
+        viewer.entities.contains(this.terrainProfileEntity)
+      ) {
         viewer.entities.remove(this.terrainProfileEntity);
         console.log("Terrain profile entity removed.");
       }
@@ -310,10 +448,10 @@ export default {
 </script>
 
 <style scoped>
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap");
 
 .poppins-font {
-  font-family: 'Poppins', sans-serif;
+  font-family: "Poppins", sans-serif;
 }
 
 /* Unified styles for all popups - Mimicking SceneInfo/MeasurementHistory container */
@@ -341,7 +479,7 @@ export default {
   -webkit-backdrop-filter: blur(8px);
   width: 380px; /* Adjust width as needed for content, balanced with history item width */
   text-align: center;
-  font-family: 'Poppins', sans-serif;
+  font-family: "Poppins", sans-serif;
   max-height: 90vh; /* Prevent popup from overflowing screen */
   overflow-y: auto; /* Allow scrolling if content is too long */
   border: 1px solid rgba(255, 255, 255, 0.15); /* Subtle border for definition */
@@ -373,7 +511,8 @@ export default {
 /* --- ICON STYLING --- */
 
 /* Base style for all icons within buttons (like action-btn i) */
-.close-btn { /* This class is now the sole style for ALL close buttons */
+.close-btn {
+  /* This class is now the sole style for ALL close buttons */
   background: none;
   border: none;
   font-size: 1.2em; /* Consistent icon size */
@@ -400,10 +539,8 @@ export default {
   color: #007bff !important; /* Consistent blue on hover */
 }
 
-
 /* .popup-buttons div is now removed from the HTML for terrainProfileStats */
 /* The styles for .action-btn.close-btn-popup and .action-btn.delete-btn-popup are removed from here */
-
 
 .popup-content {
   margin-bottom: 15px;
@@ -473,14 +610,14 @@ export default {
 }
 
 .btn-danger {
-  background-color: #FF6600; /* Consistent orange for delete actions */
+  background-color: #ff6600; /* Consistent orange for delete actions */
   color: white;
-  border: 1px solid #FF6600;
+  border: 1px solid #ff6600;
 }
 
 .btn-danger:hover {
-  background-color: #FF9933; /* Lighter orange on hover */
-  border-color: #FF9933;
+  background-color: #ff9933; /* Lighter orange on hover */
+  border-color: #ff9933;
   transform: translateY(-2px); /* Subtle lift */
 }
 
@@ -569,7 +706,7 @@ export default {
 .elevation-graph text {
   fill: rgba(255, 255, 255, 0.7); /* Lighter text color for graph labels */
   font-size: 14px;
-  font-family: 'Poppins', sans-serif; /* Apply Poppins to SVG text */
+  font-family: "Poppins", sans-serif; /* Apply Poppins to SVG text */
 }
 
 .elevation-graph line {
@@ -582,7 +719,8 @@ export default {
   stroke-width: 2.5px;
 }
 
-.stats.popup-content { /* Combine with popup-content for consistent padding/margins */
+.stats.popup-content {
+  /* Combine with popup-content for consistent padding/margins */
   margin-bottom: 0; /* Adjust as needed */
   text-align: left; /* Ensure stats align left */
 }
