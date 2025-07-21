@@ -25,7 +25,7 @@ class PopupServiceClass {
    * @param {object} data - The parameters specific to that popup type.
    * - For 'serviceAdded': { layerName: string, srs: string, extent: string }
    * - For 'toolInstruction': { message: string, title?: string, showDismissButton?: boolean }
-   * - For 'confirmation': { message: string, title?: string, confirmText?: string, cancelText?: string }
+   * - For 'confirmation': { message: string, title?: string, confirmText?: string, cancelText?: string, onConfirm: Function, onCancel: Function } // <--- Added onConfirm/onCancel here
    * - For 'viewshedForm': { observerHeight: number, viewDistance: number, rayCount: number, onStart: Function, onCancel: Function }
    * - For 'terrainProfileStats': { profile: Array, entity: Cesium.Entity }
    */
@@ -108,11 +108,16 @@ class PopupServiceClass {
       this._confirmationResolver = resolve;
       this._confirmationRejecter = reject;
 
+      // Pass the resolve/reject functions as part of the data
+      // These will be used by Popup.vue (and then passed to ConfirmationPopup.vue)
       this.show("confirmation", {
         message,
         title,
         confirmText,
         cancelText,
+        // *** IMPORTANT CHANGE HERE ***
+        onConfirm: () => this.resolveConfirmation(true),
+        onCancel: () => this.resolveConfirmation(false),
       });
     });
   }
