@@ -1,4 +1,3 @@
-// src/services/MapService.js
 import { Subject, BehaviorSubject } from 'rxjs';
 import * as Cesium from 'cesium';
 
@@ -7,6 +6,9 @@ import * as Cesium from 'cesium';
  * This service now also acts as an intermediary for layer management between LayerService and CesiumGlobeManager.
  */
 class MapServiceClass {
+    // Make sure the viewer instance is stored here
+    viewer = null; // Initialize viewer property
+
     updateView$ = new Subject();
     redirectGlobe$ = new Subject();
     orientToNorth$ = new Subject();
@@ -19,7 +21,8 @@ class MapServiceClass {
     globeInitialized$ = new Subject();
     globeViewer$ = new BehaviorSubject(null); // Holds the Cesium.Viewer instance
 
-    visualizationModeChanged$ = new BehaviorSubject('3D');
+    // CORRECTED LINE: Removed the extra 'new' keyword
+    visualizationModeChanged$ = new BehaviorSubject('3D'); 
     
     // NEW: BehaviorSubject to hold the current globe clock time
     // Initialize with a default time (e.g., the current time when the service is created)
@@ -73,9 +76,63 @@ class MapServiceClass {
     removeGraphic(graphicIdentifier) {
         this.removeGraphic$.next(graphicIdentifier);
     }
-    zoomToCoordinates(coordinates) {
-        this.zoomToCoordinates$.next(coordinates);
+
+    /**
+     * Dispatches a command to zoom the globe to specific coordinates.
+     * This method now supports specifying a `range` for very close zooms.
+     *
+     * @param {object} options - The zoom options.
+     * @param {number} options.latitude - The latitude.
+     * @param {number} options.longitude - The longitude.
+     * @param {number} [options.elevation=0] - The absolute elevation in meters. Used if `range` is not provided.
+     * @param {number} [options.range] - The distance from the target point in meters. Used for close-up views.
+     * @param {number} [options.heading=0] - Heading in degrees (0 = North).
+     * @param {number} [options.pitch=-90] - Pitch in degrees (-90 = straight down).
+     * @param {number} [options.roll=0] - Roll in degrees.
+     */
+    zoomToCoordinates({ latitude, longitude, elevation = 0, range, heading = 0, pitch = -90, roll = 0 }) {
+        this.zoomToCoordinates$.next({ latitude, longitude, elevation, range, heading, pitch, roll });
+        // Also directly perform the action if viewer is available
+        if (!this.viewer) {
+            console.warn('Cesium viewer not initialized when calling zoomToCoordinates directly.');
+            return;
+        }
+
+        const position = Cesium.Cartesian3.fromDegrees(longitude, latitude, elevation);
+
+        if (range !== undefined && range !== null) {
+            // Use flyToBoundingSphere for precise close-up control
+            // A small bounding sphere around the point ensures the camera can get very close.
+            const boundingSphere = new Cesium.BoundingSphere(position, 1); // Radius 1 meter, adjust if needed
+
+            this.viewer.camera.flyToBoundingSphere(boundingSphere, {
+                offset: new Cesium.HeadingPitchRange(
+                    Cesium.Math.toRadians(heading),
+                    Cesium.Math.toRadians(pitch),
+                    range // Use the specified range for distance
+                ),
+                duration: 1.5, // Animation duration
+                complete: () => {
+                    console.log(`Zoomed to ${latitude}, ${longitude} with range ${range} meters.`);
+                }
+            });
+        } else {
+            // Fallback to simple flyTo with absolute elevation if no range is specified
+            this.viewer.camera.flyTo({
+                destination: position,
+                orientation: {
+                    heading: Cesium.Math.toRadians(heading),
+                    pitch: Cesium.Math.toRadians(pitch),
+                    roll: Cesium.Math.toRadians(roll)
+                },
+                duration: 1.5, // Animation duration
+                complete: () => {
+                    console.log(`Zoomed to ${latitude}, ${longitude} with elevation ${elevation} meters.`);
+                }
+            });
+        }
     }
+
     displayLocationMarker(location) {
         this.displayLocationMarker$.next(location);
     }
@@ -86,11 +143,18 @@ class MapServiceClass {
     notifyGlobeInitialized(isReady) {
         this.globeInitialized$.next(isReady);
     }
+
+    /**
+     * Sets the Cesium.Viewer instance. This should be called once the viewer is created.
+     * @param {Cesium.Viewer} viewerInstance - The Cesium viewer instance.
+     */
     setGlobeViewer(viewerInstance) {
+        this.viewer = viewerInstance; // Store the viewer instance directly
         this.globeViewer$.next(viewerInstance);
     }
+
     getGlobeViewer() {
-        return this.globeViewer$.getValue();
+        return this.viewer; // Return the stored viewer instance
     }
 
     setVisualizationMode(mode) {
@@ -114,9 +178,6 @@ class MapServiceClass {
                     viewer.scene.globe.enableLighting = true;
                     viewer.shadows = true;
                     break;
-                case 'Anaglyph':
-                    console.warn("MapService: Anaglyph 3D mode is not yet implemented.");
-                    return;
                 default:
                     console.warn("MapService: Unknown visualization mode requested:", mode);
                     return;

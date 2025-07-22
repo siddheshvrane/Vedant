@@ -50,7 +50,9 @@
         >
           <option value="geojson">GeoJSON</option>
           <option value="kml">KML</option>
-          <option value="shapefile">Shapefile</option>
+          <option value="czml">CZML</option>
+          <option value="3dtile">3D Tile</option>
+          <option value="3dmodel">3D Model</option>
         </select>
         <i class="fas fa-chevron-down dropdown-icon"></i>
       </div>
@@ -108,7 +110,7 @@
       ></textarea>
     </div>
 
-    <div v-if="selectedOption === 'data' && ['geojson', 'kml', 'shapefile'].includes(contentType)" class="form-group mb-3">
+    <div v-if="selectedOption === 'data' && ['geojson', 'kml', 'czml', '3dmodel'].includes(contentType)" class="form-group mb-3">
       <label for="fileUpload" class="form-label">Upload File:</label>
       <input
         type="file"
@@ -116,13 +118,26 @@
         class="form-control"
         :accept="getFileAccepts(contentType)"
         @change="handleFileUpload"
+        ref="fileInput"
+      />
+    </div>
+
+    <div v-if="selectedOption === 'data' && contentType === '3dtile'" class="form-group mb-3">
+      <label for="tileUrl" class="form-label">3D Tile URL:</label>
+      <input
+        type="text"
+        id="tileUrl"
+        class="form-control"
+        placeholder="Enter 3D Tile service URL"
+        :value="baseUrl"
+        @input="$emit('update:baseUrl', $event.target.value)"
       />
     </div>
 
     <button
       @click="submitForm"
       class="btn btn-primary w-100 mt-3"
-      :disabled="!contentName"
+      :disabled="!isFormValid"
     >
       <i class="fas fa-plus me-2"></i>
       {{ selectedOption === 'data' ? 'Add Data' : 'Add Service' }}
@@ -167,36 +182,80 @@ export default {
     'update:argsInput',
     'update:legendOptionsInput',
     'submit-form',
-    'file-selected'
+    'file-selected',
+    'open-three-d-model-form' // Still needed to trigger the popup
   ],
   data() {
     return {
-      // No internal state needed here
+      fileSelected: null, // Keep track of the selected file
     };
+  },
+  computed: {
+    isFormValid() {
+      if (!this.contentName) return false;
+
+      if (this.selectedOption === 'data') {
+        if (this.contentType === '3dtile') {
+          return !!this.baseUrl; // Base URL is required for 3D Tile
+        } else if (['geojson', 'kml', 'czml', '3dmodel'].includes(this.contentType)) {
+          return !!this.fileSelected; // File must be selected for these types
+        }
+      }
+      // For service options, contentName is enough (baseUrl, args, legend are optional)
+      return true;
+    }
   },
   watch: {
     selectedOption(newVal) {
       if (newVal === 'service' && !['wms', 'wmts'].includes(this.contentType)) {
         this.$emit('update:contentType', 'wms');
-      } else if (newVal === 'data' && !['geojson', 'kml', 'shapefile'].includes(this.contentType)) {
+      } else if (newVal === 'data' && !['geojson', 'kml', 'czml', '3dtile', '3dmodel'].includes(this.contentType)) {
         this.$emit('update:contentType', 'geojson');
       }
+      this.clearFileSelection(); // Clear file when switching option type
+    },
+    contentType(newVal, oldVal) {
+      // Clear baseUrl when switching from 3D Tile to a file-based data type, and vice-versa
+      if (
+        (newVal === '3dtile' && ['geojson', 'kml', 'czml', '3dmodel'].includes(oldVal)) ||
+        (['geojson', 'kml', 'czml', '3dmodel'].includes(newVal) && oldVal === '3dtile')
+      ) {
+        this.$emit('update:baseUrl', '');
+      }
+      this.clearFileSelection(); // Clear file selection on content type change
     }
   },
   methods: {
     handleFileUpload(event) {
-      this.$emit('file-selected', event.target.files[0]);
+      this.fileSelected = event.target.files[0];
+      this.$emit('file-selected', this.fileSelected);
     },
     submitForm() {
-      const payload = {
-        selectedOption: this.selectedOption,
-        contentName: this.contentName,
-        contentType: this.contentType,
-        baseUrl: this.baseUrl,
-        argsInput: this.argsInput,
-        legendOptionsInput: this.legendOptionsInput,
-      };
-      this.$emit('submit-form', payload);
+      if (!this.isFormValid) {
+        console.warn("Form is not valid. Cannot submit.");
+        return;
+      }
+
+      if (this.selectedOption === 'data' && this.contentType === '3dmodel') {
+        // For 3D models, we trigger the popup for placement configuration
+        this.$emit('open-three-d-model-form', {
+          contentName: this.contentName,
+          file: this.fileSelected // Pass the selected file to the popup
+        });
+      } else {
+        // For all other data types (geojson, kml, czml, 3dtile, services)
+        const payload = {
+          selectedOption: this.selectedOption,
+          contentName: this.contentName,
+          contentType: this.contentType,
+          baseUrl: this.selectedOption === 'service' || this.contentType === '3dtile' ? this.baseUrl : '',
+          argsInput: this.argsInput,
+          legendOptionsInput: this.legendOptionsInput,
+        };
+        // The actual file object for file-based types (geojson, kml, czml)
+        // will have been emitted via 'file-selected' and handled by the parent.
+        this.$emit('submit-form', payload);
+      }
     },
     getFileAccepts(contentType) {
       switch (contentType) {
@@ -204,11 +263,20 @@ export default {
           return '.geojson,.json';
         case 'kml':
           return '.kml,.kmz';
-        case 'shapefile':
-          return '.zip'; // Shapefiles are typically uploaded as zipped archives
+        case 'czml':
+          return '.czml,.json';
+        case '3dmodel':
+          return '.gltf,.glb,.zip'; // Common 3D model formats, often zipped
         default:
           return '';
       }
+    },
+    clearFileSelection() {
+      this.fileSelected = null;
+      if (this.$refs.fileInput) {
+        this.$refs.fileInput.value = null; // Clear the file input element visually
+      }
+      this.$emit('file-selected', null); // Inform parent about cleared file
     }
   }
 };
@@ -246,6 +314,8 @@ export default {
   background-color: #0056b3;
   border-color: #0056b3;
 }
+
+/* Removed .btn-info styling as that button is no longer present */
 
 .btn:disabled {
   background-color: #6c757d;

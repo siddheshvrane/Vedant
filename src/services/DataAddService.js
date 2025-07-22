@@ -1,4 +1,3 @@
-// src/services/DataAddService.js
 import { Subject } from 'rxjs';
 import Data from '../datamodels/Data.js';
 import Service from '../datamodels/Service.js';
@@ -22,9 +21,24 @@ class DataAddServiceClass {
     async #readFileAsText(file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
+            const encoding = 'UTF-8'; // Explicitly set UTF-8 for text files
             reader.onload = (e) => resolve(e.target.result);
             reader.onerror = (e) => reject(e);
-            reader.readAsText(file);
+            reader.readAsText(file, encoding);
+        });
+    }
+
+    /**
+     * Internal helper to read file content as ArrayBuffer (for binary files like GLB).
+     * @param {File} file - The File object to read.
+     * @returns {Promise<ArrayBuffer>} - A promise that resolves with the file content as ArrayBuffer.
+     */
+    async #readFileAsArrayBuffer(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = (e) => reject(e);
+            reader.readAsArrayBuffer(file);
         });
     }
 
@@ -149,6 +163,7 @@ class DataAddServiceClass {
     /**
      * Processes the complete geo-spatial content submission from the form.
      * This method handles validation, file reading, and model construction.
+     * It's adapted to handle both file uploads and direct parameters for 3D Models.
      * @param {object} payload - The raw form data payload from GeoSpatialForm.
      * @param {File|null} file - The uploaded File object, if any.
      */
@@ -162,32 +177,95 @@ class DataAddServiceClass {
             let srcInfo = {};
             let fileContent;
 
-            // Handle file uploads for GeoJSON, KML, and "Shapefile" (as GeoJSON)
-            if (['geojson', 'kml', 'shapefile'].includes(payload.contentType)) {
+            // Handle file uploads for GeoJSON, KML, CZML
+            if (['geojson', 'kml', 'czml'].includes(payload.contentType)) {
                 if (!file) {
                     this.submissionError$.next(`Please select a file for ${payload.contentType.toUpperCase()} data.`);
                     return;
                 }
                 try {
                     fileContent = await this.#readFileAsText(file);
-                    if (payload.contentType === 'geojson' || payload.contentType === 'shapefile') {
-                        // Assuming 'shapefile' content is pre-converted GeoJSON
+                    if (payload.contentType === 'geojson') {
                         srcInfo.jsonContent = JSON.parse(fileContent);
-                        console.log(`DataAddService: Loaded ${payload.contentType.toUpperCase()} content as JSON.`);
+                        console.log('DataAddService: Loaded GeoJSON content as JSON.');
                     } else if (payload.contentType === 'kml') {
                         srcInfo.kmlContent = fileContent;
                         console.log('DataAddService: Loaded KML content as text.');
+                    } else if (payload.contentType === 'czml') {
+                        srcInfo.czmlContent = JSON.parse(fileContent); // CZML is JSON
+                        console.log('DataAddService: Loaded CZML content as JSON.');
                     }
                 } catch (error) {
                     console.error(`DataAddService: Error processing ${payload.contentType.toUpperCase()} file:`, error);
-                    this.submissionError$.next(`Failed to process ${payload.contentType.toUpperCase()} file: ${error.message || error}. Please check file content.`);
+                    this.submissionError$.next(`Failed to process ${payload.contentType.toUpperCase()} file: ${error.message || error}. Please check file content or format.`);
                     return;
                 }
+            }
+            // Handle 3D Model specifically, allowing both file upload and direct URL/coordinates
+            else if (payload.contentType === '3dmodel') {
+                if (!file && !payload.modelOptions?.url) {
+                     this.submissionError$.next('Please provide a 3D Model file or URL with coordinates.');
+                     return;
+                }
+
+                if (file) {
+                    // Scenario: 3D Model from file upload
+                    console.log(`DataAddService: Received 3D Model file: ${file.name}`);
+
+                    // Use the model options provided by the ThreeDModelFormPopup
+                    if (payload.modelOptions) {
+                        Object.assign(srcInfo, payload.modelOptions);
+                    }
+
+                    // Determine file type and create URL
+                    if (file.name.toLowerCase().endsWith('.glb')) {
+                        // For GLB, create a Blob URL directly from the file
+                        srcInfo.url = URL.createObjectURL(file);
+                        srcInfo.gltfData = file; // Store the original file object if needed later by LayerService
+                        console.log(`DataAddService: Processed GLB file as Blob URL: ${srcInfo.url}`);
+                    } else if (file.name.toLowerCase().endsWith('.gltf')) {
+                        // For GLTF, create a Blob URL.
+                        // IMPORTANT: This will *only* work if the .gltf is self-contained (rare)
+                        // or if it's accompanied by other files that Cesium can access relatively.
+                        // For local file uploads, external .bin and textures will fail without a dedicated server or GLB conversion.
+                        srcInfo.url = URL.createObjectURL(file);
+                        srcInfo.gltfData = file; // Store the original file object
+                        console.warn(`DataAddService: Processed GLTF file as Blob URL: ${srcInfo.url}. ` +
+                                     `NOTE: If this model has external .bin or texture files, they will NOT load unless converted to .glb or served from a web-accessible path.`);
+                        this.submissionError$.next(`Uploaded .gltf file. If the model has external resources (like .bin or textures), please convert it to a single .glb file for proper loading.`);
+                        // We still proceed to add the data, but the user is warned.
+                    } else {
+                        this.submissionError$.next('Unsupported 3D model file type. Please upload a .gltf or .glb file.');
+                        return;
+                    }
+
+                } else if (payload.modelOptions && payload.modelOptions.url) {
+                    // Scenario: 3D Model from provided URL and coordinates (from ThreeDModelFormPopup, when no file was uploaded)
+                    srcInfo = {
+                        url: payload.modelOptions.url,
+                        longitude: payload.modelOptions.longitude,
+                        latitude: payload.modelOptions.latitude,
+                        elevation: payload.modelOptions.elevation || 0,
+                        scale: payload.modelOptions.scale,
+                        minimumPixelSize: payload.modelOptions.minimumPixelSize,
+                        maximumScale: payload.modelOptions.maximumScale,
+                    };
+                    console.log(`DataAddService: Processing 3D Model from URL: ${srcInfo.url}`);
+                } else {
+                    this.submissionError$.next('Invalid 3D Model submission. Neither a file nor a valid URL was provided.');
+                    return;
+                }
+            } else if (payload.contentType === '3dtile') {
+                // 3D Tiles are loaded from a URL, not a file upload
+                if (!payload.baseUrl) {
+                    this.submissionError$.next('Please enter a URL for the 3D Tile service.');
+                    return;
+                }
+                srcInfo.url = payload.baseUrl;
+                console.log('DataAddService: Processing 3D Tile data from URL.');
             } else {
-                // For 'data' types that don't require a file upload but might have other srcInfo,
-                // e.g., if you later add support for directly inputting a URL for a static GeoJSON.
-                // Currently, this branch might not be hit if all 'data' types require a file.
-                console.log(`DataAddService: Processing ${payload.contentType.toUpperCase()} data without file upload.`);
+                // This branch should ideally not be hit if all 'data' types are covered.
+                console.log(`DataAddService: Processing ${payload.contentType.toUpperCase()} data without specific handling.`);
             }
 
             const dataModel = new Data(
@@ -197,7 +275,7 @@ class DataAddServiceClass {
                 srcInfo // Pass the populated srcInfo
             );
             this.addData(dataModel);
-            this.submissionSuccess$.next(`${payload.contentType.toUpperCase()} Data Added Successfully!`);
+            this.submissionSuccess$.next(`${payload.contentName || payload.contentType.toUpperCase()} Data Added Successfully!`);
 
         } else { // Handle 'service' option (WMS/WMTS)
             if (!payload.baseUrl) {
@@ -259,8 +337,7 @@ class DataAddServiceClass {
 
         // Extract SRS and Extent from srcInfo based on data type
         if (dataModel.srcInfo) {
-            if (dataModel.type === 'geojson' || dataModel.type === 'shapefile') {
-                // For GeoJSON (and assumed Shapefile-as-GeoJSON)
+            if (dataModel.type === 'geojson') {
                 if (dataModel.srcInfo.jsonContent) {
                     const jsonContent = dataModel.srcInfo.jsonContent;
                     if (jsonContent.crs && jsonContent.crs.properties && jsonContent.crs.properties.name) {
@@ -271,13 +348,23 @@ class DataAddServiceClass {
                     }
                 }
             } else if (dataModel.type === 'kml') {
-                // KML does not typically have a direct 'crs' or 'bbox' property
-                // within the loaded content itself in the same way GeoJSON does.
-                // If you want SRS/Extent for KML, you'd need to parse it from the KML
-                // or assume WGS84, and calculate extent from its features after loading.
-                // For now, it will default to 'N/A' unless explicitly set in srcInfo.
                 srs = dataModel.srcInfo.srs || 'WGS84 (Assumed for KML)';
-                extent = dataModel.srcInfo.extent || 'N/A'; // If you have a way to derive this
+                extent = dataModel.srcInfo.extent || 'N/A';
+            } else if (dataModel.type === 'czml') {
+                srs = dataModel.srcInfo.srs || 'WGS84 (Assumed for CZML)';
+                extent = dataModel.srcInfo.extent || 'N/A';
+            } else if (dataModel.type === '3dmodel') {
+                // For 3D models, SRS is generally assumed to be WGS84.
+                // If coordinates are available, we can display them as part of the extent.
+                srs = dataModel.srcInfo.srs || 'WGS84 (Assumed for 3D Model)';
+                if (typeof dataModel.srcInfo.longitude === 'number' && typeof dataModel.srcInfo.latitude === 'number') {
+                    extent = `Lon: ${dataModel.srcInfo.longitude.toFixed(4)}, Lat: ${dataModel.srcInfo.latitude.toFixed(4)}`;
+                } else {
+                    extent = 'N/A';
+                }
+            } else if (dataModel.type === '3dtile') {
+                srs = dataModel.srcInfo.srs || 'WGS84 (Assumed for 3D Tile)';
+                extent = dataModel.srcInfo.extent || 'N/A';
             }
         }
         // Fallback for SRS/Extent if not found above
@@ -288,8 +375,7 @@ class DataAddServiceClass {
             extent = dataModel.srcInfo.extent;
         }
 
-
-        PopupService.show('dataAdded', {
+        PopupService.show('serviceAdded', { // Using 'serviceAdded' type for general success message for consistency
             layerName: dataModel.name,
             srs: srs,
             extent: extent

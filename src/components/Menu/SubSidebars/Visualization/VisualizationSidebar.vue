@@ -36,18 +36,6 @@
           >
           <label class="form-check-label" for="radio3DGlobe">2.5D (3D Globe)</label>
         </div>
-        <div class="form-check">
-          <input
-            class="form-check-input"
-            type="radio"
-            id="radioAnaglyph"
-            value="Anaglyph"
-            v-model="selectedMode"
-            @change="emitModeChange"
-            disabled
-          >
-          <label class="form-check-label" for="radioAnaglyph">Anaglyph 3D (Not yet implemented)</label>
-        </div>
       </div>
 
       <hr class="sidebar-divider mb-4">

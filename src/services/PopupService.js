@@ -1,4 +1,3 @@
-// src/services/PopupService.js
 import { BehaviorSubject } from "rxjs";
 
 /**
@@ -11,7 +10,7 @@ class PopupServiceClass {
 
   // Holds the data for the *currently active* popup, including its type
   popupContent$ = new BehaviorSubject({
-    type: null, // 'serviceAdded', 'toolInstruction', 'confirmation', 'viewshedForm', 'terrainProfileStats'
+    type: null, // 'serviceAdded', 'toolInstruction', 'confirmation', 'viewshedForm', 'terrainProfileStats', 'threeDModelForm'
     data: {}, // Specific data for the active type
   });
 
@@ -21,13 +20,14 @@ class PopupServiceClass {
 
   /**
    * Shows a popup with given type and parameters.
-   * @param {string} type - The type of popup to show ('serviceAdded', 'toolInstruction', 'confirmation', 'viewshedForm', 'terrainProfileStats').
+   * @param {string} type - The type of popup to show ('serviceAdded', 'toolInstruction', 'confirmation', 'viewshedForm', 'terrainProfileStats', 'threeDModelForm').
    * @param {object} data - The parameters specific to that popup type.
    * - For 'serviceAdded': { layerName: string, srs: string, extent: string }
    * - For 'toolInstruction': { message: string, title?: string, showDismissButton?: boolean }
-   * - For 'confirmation': { message: string, title?: string, confirmText?: string, cancelText?: string, onConfirm: Function, onCancel: Function } // <--- Added onConfirm/onCancel here
+   * - For 'confirmation': { message: string, title?: string, confirmText?: string, cancelText?: string, onConfirm: Function, onCancel: Function }
    * - For 'viewshedForm': { observerHeight: number, viewDistance: number, rayCount: number, onStart: Function, onCancel: Function }
    * - For 'terrainProfileStats': { profile: Array, entity: Cesium.Entity }
+   * - For 'threeDModelForm': { url?: string, longitude?: number, latitude?: number, scale?: number, minimumPixelSize?: number, maximumScale?: number, onStart: Function, onCancel: Function }
    */
   show(type, data) {
     if (!type) {
@@ -136,6 +136,14 @@ class PopupServiceClass {
    */
   showTerrainProfileStats(params) {
     this.show("terrainProfileStats", params);
+  }
+
+  /**
+   * NEW: Convenience method to show the 'threeDModelForm' popup.
+   * @param {object} params - { url?: string, longitude?: number, latitude?: number, scale?: number, minimumPixelSize?: number, maximumScale?: number, onStart: Function, onCancel: Function }
+   */
+  showThreeDModelForm(params) {
+    this.show("threeDModelForm", params);
   }
 
   /**

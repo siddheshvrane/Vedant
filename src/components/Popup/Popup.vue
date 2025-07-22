@@ -35,7 +35,8 @@
       <template v-else-if="currentPopupType === 'toolInstruction'">
         <ToolInstructionPopup
           :message="popupData.message"
-          :title="popupData.title"        :showDismissButton="popupData.showDismissButton"
+          :title="popupData.title"
+          :showDismissButton="popupData.showDismissButton"
           :onClose="hidePopup"
         />
       </template>
@@ -60,6 +61,20 @@
         />
       </template>
 
+      <template v-else-if="currentPopupType === 'threeDModelForm'">
+        <ThreeDModelFormPopup
+          :url="popupData.url"
+          :longitude="popupData.longitude"
+          :latitude="popupData.latitude"
+          :scale="popupData.scale"
+          :minimumPixelSize="popupData.minimumPixelSize"
+          :maximumScale="popupData.maximumScale"
+          :onStart="popupData.onStart"
+          :onCancel="popupData.onCancel"
+          :onClose="hidePopup"
+        />
+      </template>
+
       <template v-else>
         <div class="popup-content">
           <p>No specific popup content defined for this type.</p>
@@ -79,8 +94,9 @@ import ConfirmationPopup from "./popups/ConfirmationPopup.vue";
 import ServiceAddedPopup from "./popups/ServiceAddedPopup.vue";
 import TerrainProfileStats from "./popups/TerrainProfileStats.vue";
 import ViewshedForm from "./popups/ViewshedForm.vue";
-// Import the new ToolInstructionPopup component
 import ToolInstructionPopup from "./popups/ToolInstructionPopup.vue";
+// Import the new 3D Model Form component
+import ThreeDModelFormPopup from "./popups/ThreeDModelFormPopup.vue";
 
 export default {
   name: "AppPopup",
@@ -89,7 +105,8 @@ export default {
     ServiceAddedPopup,
     TerrainProfileStats,
     ViewshedForm,
-    ToolInstructionPopup, // Register the new component
+    ToolInstructionPopup,
+    ThreeDModelFormPopup, // Register the new component
   },
   data() {
     return {
@@ -127,12 +144,13 @@ export default {
         case "serviceAdded":
           return "Successfully Added Service";
         case "toolInstruction":
-          // The title is already expected to be in popupData for toolInstruction
           return this.popupData.title || "Tool Instructions";
         case "viewshedForm":
           return "Viewshed Parameters";
         case "terrainProfileStats":
           return "Terrain Profile";
+        case "threeDModelForm": // Add title for 3D Model Form
+          return "Add 3D Model";
         default:
           return "Information";
       }
@@ -231,7 +249,7 @@ export default {
 
 <style scoped>
 /* All existing styles that are general to the unified popup or specific to other types remain.
-   Styles for popup-content (message display) and close-popup-btn are moved to ToolInstructionPopup.vue */
+    Styles for popup-content (message display) and close-popup-btn are moved to ToolInstructionPopup.vue */
 
 @import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap");
 
@@ -318,11 +336,11 @@ export default {
 
 /*
 .popup-content {
-  // Moved to ToolInstructionPopup.vue
+    // Moved to ToolInstructionPopup.vue
 }
 
 .popup-content p {
-  // Moved to ToolInstructionPopup.vue
+    // Moved to ToolInstructionPopup.vue
 }
 */
 
@@ -348,24 +366,24 @@ export default {
 
 /*
 .btn-secondary {
-  // Moved to ViewshedForm.vue if specific to its actions
+    // Moved to ViewshedForm.vue if specific to its actions
 }
 
 .btn-primary {
-  // Moved to ViewshedForm.vue if specific to its actions
+    // Moved to ViewshedForm.vue if specific to its actions
 }
 */
 
 /*
 .close-popup-btn {
-  // Moved to ToolInstructionPopup.vue
+    // Moved to ToolInstructionPopup.vue
 }
 */
 
 /*
 .viewshed-form-content, .form-label, .form-input, .form-select,
 .form-input:focus, .form-select:focus, .form-select option {
-  // Moved to ViewshedForm.vue
+    // Moved to ViewshedForm.vue
 }
 */
 
