@@ -7,8 +7,7 @@
         v-model.number="internalViewshedOptions.observerHeight"
         min="1"
         max="100"
-        class="form-input"
-      />
+        class="form-input" />
 
       <label class="form-label">View Distance (m):</label>
       <input
@@ -17,11 +16,12 @@
         min="100"
         max="10000"
         step="100"
-        class="form-input"
-      />
+        class="form-input" />
 
       <label class="form-label">Resolution (number of rays):</label>
-      <select v-model.number="internalViewshedOptions.rayCount" class="form-select">
+      <select
+        v-model.number="internalViewshedOptions.rayCount"
+        class="form-select">
         <option :value="16">Low (16)</option>
         <option :value="32">Medium (32)</option>
         <option :value="64">High (64)</option>
@@ -46,11 +46,11 @@ export default {
     // These props will receive the initial values from PopupService.popupContent$.data
     observerHeight: {
       type: Number,
-      default: 1.75,
+      default: 10,
     },
     viewDistance: {
       type: Number,
-      default: 5000,
+      default: 500,
     },
     rayCount: {
       type: Number,
@@ -65,10 +65,11 @@ export default {
       type: Function,
       required: true,
     },
-    onClose: { // Prop to tell the parent (Popup.vue) to hide itself
-        type: Function,
-        required: true,
-    }
+    onClose: {
+      // Prop to tell the parent (Popup.vue) to hide itself
+      type: Function,
+      required: true,
+    },
   },
   data() {
     return {

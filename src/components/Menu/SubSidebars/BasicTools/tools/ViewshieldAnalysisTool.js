@@ -9,35 +9,15 @@ import {
 } from "../tool-helpers/tools-helpers.js";
 import { PopupService } from "../../../../../services/PopupService.js";
 
-export function setupViewshieldAnalysisTool(viewer, options) {
+export function setupViewshieldAnalysisTool(viewer) {
   clearDrawing();
   removeEventHandlers();
   setToolState({ drawingPoints: [], mousePosition: null, rayEntities: [] });
 
-  const initial = {
-    observerHeight: options.observerHeight ?? 10,
-    viewDistance: options.viewDistance ?? 500,
-    rayCount: options.rayCount ?? 16,
-  };
-
-  // ⬇️ Pass defaults here
-  PopupService.showViewshedForm({
-    viewshedOptions: initial,
-    onStart: (params) => placeObserver(viewer, params),
-    onCancel: () => {
-      ToolManagementService.deactivateCurrentTool();
-      PopupService.hide();
-      clearDrawing();
-    },
-  });
-}
-
-function placeObserver(viewer, params) {
-  PopupService.showToolInstruction("Click to place observer.", "Viewshed Tool");
+  PopupService.showToolInstruction("Click to place observer", "Viewshed Tool");
 
   let { handler } = getToolState();
   handler?.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_CLICK);
-
   handler = handler || new Cesium.ScreenSpaceEventHandler(viewer.canvas);
   setToolState({ handler });
 
@@ -51,100 +31,157 @@ function placeObserver(viewer, params) {
     const carto = Cesium.Cartographic.fromCartesian(position);
     const lon = Cesium.Math.toDegrees(carto.longitude);
     const lat = Cesium.Math.toDegrees(carto.latitude);
-    const obsHeight = carto.height + params.observerHeight;
+    const baseHeight = carto.height;
 
-    const observer = Cesium.Cartesian3.fromDegrees(lon, lat, obsHeight);
+    const observer = Cesium.Cartesian3.fromDegrees(lon, lat, baseHeight);
     addTemporaryPoint(observer);
     removeEventHandlers();
-    PopupService.hide();
 
-    const { visiblePoints, hiddenPoints } = await castRays(
-      viewer,
-      lon,
-      lat,
-      obsHeight,
-      params.rayCount,
-      params.viewDistance
-    );
-
-    clearDrawing();
-
-    const defs = {
-      polygon: {
-        hierarchy: new Cesium.PolygonHierarchy(visiblePoints),
-        material: Cesium.Color.LIME.withAlpha(0.5),
-        perPositionHeight: true,
+    PopupService.showViewshedForm({
+      viewshedOptions: {
+        observerHeight: 10,
+        viewDistance: 500,
+        rayCount: 16,
       },
-      points: [
-        {
-          position: observer,
-          point: {
-            pixelSize: 8,
-            color: Cesium.Color.BLUE,
-            outlineColor: Cesium.Color.WHITE,
-            outlineWidth: 2,
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          },
-        },
-      ],
-      labels: [
-        {
-          position: observer,
-          label: {
-            text: `Observer\nH: ${params.observerHeight}m, R: ${params.viewDistance}m`,
-            font: "14pt Poppins",
-            fillColor: Cesium.Color.WHITE,
-            outlineColor: Cesium.Color.BLACK,
-            outlineWidth: 2,
-            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-            pixelOffset: new Cesium.Cartesian2(0, -15),
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          },
-        },
-      ],
-    };
-
-    if (hiddenPoints.length >= 3) {
-      defs.hiddenPolygon = {
-        hierarchy: new Cesium.PolygonHierarchy(hiddenPoints),
-        material: Cesium.Color.RED.withAlpha(0.3),
-        perPositionHeight: true,
-      };
-    }
-
-    ToolManagementService.addMeasurement("Viewshed Analysis", "Viewshed", defs);
-    ToolManagementService.deactivateCurrentTool();
-    viewer.scene.requestRender?.();
+      onStart: (params) => {
+        placeObserver(viewer, {
+          observerLon: lon,
+          observerLat: lat,
+          baseHeight,
+          ...params,
+        });
+      },
+      onCancel: () => {
+        ToolManagementService.deactivateCurrentTool();
+        PopupService.hide();
+        clearDrawing();
+      },
+    });
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+}
+
+function placeObserver(
+  viewer,
+  {
+    observerLon: lon,
+    observerLat: lat,
+    baseHeight,
+    observerHeight,
+    viewDistance,
+    rayCount,
+  }
+) {
+  const obsHeight = baseHeight + observerHeight;
+  const observer = Cesium.Cartesian3.fromDegrees(lon, lat, obsHeight);
+
+  PopupService.showToolInstruction(
+    "Sampling terrain, please wait...",
+    "ViewShed Analysis",
+    false
+  );
+
+  viewer.entities.add({
+    position: observer,
+    point: {
+      pixelSize: 10,
+      color: Cesium.Color.DODGERBLUE,
+      outlineColor: Cesium.Color.WHITE,
+      outlineWidth: 2,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    },
+  });
+
+  viewer.entities.add({
+    position: observer,
+    label: {
+      text: `Observer\nH: ${observerHeight}m, R: ${viewDistance}m`,
+      font: "14pt Poppins",
+      fillColor: Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 2,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+      pixelOffset: new Cesium.Cartesian2(0, -15),
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    },
+  });
+
+  runViewshedAnalysis(viewer, lon, lat, obsHeight, rayCount, viewDistance);
+}
+
+async function runViewshedAnalysis(
+  viewer,
+  lon,
+  lat,
+  obsHeight,
+  rayCount,
+  viewDistance
+) {
+  PopupService.showToolInstruction(
+    "Sampling terrain, please wait...",
+    "ViewShed Analysis",
+    false
+  );
+
+  const { visiblePoints, hiddenPoints, fullCirclePoints } = await castRays(
+    viewer,
+    lon,
+    lat,
+    obsHeight,
+    rayCount,
+    viewDistance
+  );
+
+  await Promise.all([
+    renderGroundPolygon(
+      viewer,
+      fullCirclePoints,
+      Cesium.Color.RED.withAlpha(0.05)
+    ),
+    renderGroundPolygon(
+      viewer,
+      visiblePoints,
+      Cesium.Color.LIME.withAlpha(0.2)
+    ),
+    renderGroundPolygon(viewer, hiddenPoints, Cesium.Color.RED.withAlpha(0.2)),
+  ]);
+
+  ToolManagementService.deactivateCurrentTool();
+  PopupService.hide();
+  viewer.scene.requestRender?.();
 }
 
 async function castRays(viewer, lon, lat, height, rayCount, maxDist) {
   const visible = [],
-    hidden = [];
-  const origin = Cesium.Cartesian3.fromDegrees(lon, lat, height);
+    hidden = [],
+    full = [];
   const step = 100;
+  const batchSize = 8;
 
-  for (let i = 0; i < rayCount; i++) {
-    const heading = Cesium.Math.toRadians((i * 360) / rayCount);
-    const rayResult = await traceRay(
-      viewer,
-      lon,
-      lat,
-      height,
-      heading,
-      maxDist,
-      step
-    );
-    if (rayResult.visible) visible.push(rayResult.visible);
-    if (rayResult.hidden) hidden.push(rayResult.hidden);
+  const headings = Array.from({ length: rayCount }, (_, i) =>
+    Cesium.Math.toRadians((i * 360) / rayCount)
+  );
 
-    if (i % 10 === 0) await new Promise((r) => setTimeout(r, 2));
+  for (let i = 0; i < headings.length; i += batchSize) {
+    const batch = headings
+      .slice(i, i + batchSize)
+      .map((heading) =>
+        traceRay(viewer, lon, lat, height, heading, maxDist, step)
+      );
+
+    const results = await Promise.all(batch);
+
+    results.forEach(({ visible: v, hidden: h, endPoint }) => {
+      if (v) visible.push(v);
+      if (h) hidden.push(h);
+      if (endPoint) full.push(endPoint);
+    });
   }
 
   return {
-    visiblePoints: sortByHeading(visible, origin),
-    hiddenPoints: sortByHeading(hidden, origin),
+    visiblePoints: sortByHeading(visible, lon, lat),
+    hiddenPoints: sortByHeading(hidden, lon, lat),
+    fullCirclePoints: sortByHeading(full, lon, lat),
   };
 }
 
@@ -152,7 +189,8 @@ async function traceRay(viewer, lon, lat, obsHeight, heading, maxDist, step) {
   let maxAngle = -Infinity;
   let last = Cesium.Cartesian3.fromDegrees(lon, lat, obsHeight);
   let lastVisible = null,
-    lastHidden = null;
+    lastHidden = null,
+    endPoint = null;
 
   for (let dist = step; dist <= maxDist; dist += step) {
     const { latitude, longitude } = getDestination(lon, lat, heading, dist);
@@ -166,16 +204,18 @@ async function traceRay(viewer, lon, lat, obsHeight, heading, maxDist, step) {
     const angle = Math.atan2(terrainHeight - obsHeight, dist);
     const isVisible = angle > maxAngle;
 
-    const rayEntity = viewer.entities.add({
+    viewer.entities.add({
       polyline: {
         positions: [last, target],
-        width: 2,
-        material: isVisible ? Cesium.Color.GREEN : Cesium.Color.RED,
-        clampToGround: false,
+        width: 1.5,
+        material: isVisible ? Cesium.Color.LIME : Cesium.Color.RED,
+        clampToGround: true,
+        classificationType: Cesium.ClassificationType.TERRAIN,
+        depthFailMaterial: new Cesium.ColorMaterialProperty(
+          Cesium.Color.TRANSPARENT
+        ),
       },
     });
-
-    getToolState().rayEntities.push(rayEntity);
 
     if (isVisible) {
       maxAngle = angle;
@@ -185,9 +225,48 @@ async function traceRay(viewer, lon, lat, obsHeight, heading, maxDist, step) {
     }
 
     last = target;
+    endPoint = target;
   }
 
-  return { visible: lastVisible, hidden: lastHidden };
+  return { visible: lastVisible, hidden: lastHidden, endPoint };
+}
+
+async function renderGroundPolygon(viewer, positions, color) {
+  if (!positions || positions.length < 3) return;
+
+  try {
+    const cartoPositions = positions.map((p) =>
+      Cesium.Cartographic.fromCartesian(p)
+    );
+
+    const updatedHeights = viewer.terrainProvider?.availability
+      ? await Cesium.sampleTerrainMostDetailed(
+          viewer.terrainProvider,
+          cartoPositions
+        )
+      : cartoPositions.map((p) => {
+          p.height = viewer.scene.globe.getHeight(p) || 0;
+          return p;
+        });
+
+    const cart3D = updatedHeights.map((p) =>
+      Cesium.Cartesian3.fromRadians(p.longitude, p.latitude, p.height)
+    );
+
+    viewer.entities.add({
+      polygon: {
+        hierarchy: new Cesium.PolygonHierarchy(cart3D),
+        material: color,
+        perPositionHeight: true,
+        classificationType: Cesium.ClassificationType.TERRAIN,
+        depthFailMaterial: new Cesium.ColorMaterialProperty(
+          Cesium.Color.TRANSPARENT
+        ),
+      },
+    });
+  } catch (err) {
+    console.warn("Polygon render failed:", err);
+  }
 }
 
 function getDestination(lon, lat, heading, dist) {
@@ -228,10 +307,18 @@ async function getHeight(viewer, lon, lat) {
   }
 }
 
-function sortByHeading(points, origin) {
+function sortByHeading(points, lon, lat) {
   return points.sort((a, b) => {
-    const angleA = Math.atan2(a.y - origin.y, a.x - origin.x);
-    const angleB = Math.atan2(b.y - origin.y, b.x - origin.x);
+    const cartA = Cesium.Cartographic.fromCartesian(a);
+    const cartB = Cesium.Cartographic.fromCartesian(b);
+    const angleA = Math.atan2(
+      cartA.longitude - Cesium.Math.toRadians(lon),
+      cartA.latitude - Cesium.Math.toRadians(lat)
+    );
+    const angleB = Math.atan2(
+      cartB.longitude - Cesium.Math.toRadians(lon),
+      cartB.latitude - Cesium.Math.toRadians(lat)
+    );
     return angleA - angleB;
   });
 }
