@@ -22,7 +22,7 @@ class CesiumGeoDataManager {
      * url: string, // URL to the GLTF/GLB file (required if gltfData is not provided)
      * longitude: number,
      * latitude: number,
-     * elevation: number, // This will now be overridden by terrain sampling if successful
+     * elevation: number,
      * scale: number,
      * minimumPixelSize: number,
      * maximumScale: number
@@ -101,79 +101,34 @@ class CesiumGeoDataManager {
                     return null;
                 }
 
-                const { latitude, longitude, scale, minimumPixelSize, maximumScale } = layerEntry.srcInfo;
+                const position = Cesium.Cartesian3.fromDegrees(
+                    // These are the coordinates you must provide for the model's placement
+                    (layerEntry.srcInfo.longitude || INDIA_BBOX.west + (INDIA_BBOX.east - INDIA_BBOX.west) / 2),
+                    (layerEntry.srcInfo.latitude || INDIA_BBOX.south + (INDIA_BBOX.north - INDIA_BBOX.south) / 2),
+                    layerEntry.srcInfo.elevation || 0
+                );
 
-                if (latitude === undefined || longitude === undefined) {
-                    console.error('3D Model layer missing required properties: latitude or longitude', layerEntry);
-                    return null;
+                const modelEntity = this.viewer.entities.add({
+                    id: layerEntry.id,
+                    name: layerEntry.name,
+                    position: position,
+                    model: {
+                        uri: modelUri,
+                        scale: layerEntry.srcInfo.scale || 1.0,
+                        minimumPixelSize: layerEntry.srcInfo.minimumPixelSize || 128,
+                        maximumScale: layerEntry.srcInfo.maximumScale || 20000,
+                        show: layerEntry.isVisible // Set initial visibility
+                    }
+                });
+                cesiumLayer = modelEntity;
+
+                // IMPORTANT: Store the blob URL directly on the Cesium entity for later revocation
+                if (blobUrlForCleanup) {
+                    cesiumLayer._blobUrl = blobUrlForCleanup;
+                    // Reset blobUrlForCleanup as it's now managed by the entity
+                    blobUrlForCleanup = null;
                 }
-
-                // Convert Lat/Lon to a Cartesian position
-                const cartographicPosition = Cesium.Cartographic.fromDegrees(longitude, latitude);
-
-                // IMPORTANT: Use a Promise to handle the asynchronous terrain sampling
-                const modelPromise = this.viewer.terrainProvider.readyPromise
-                    .then(() => {
-                        return Cesium.sampleTerrainMostDetailed(this.viewer.terrainProvider, [cartographicPosition]);
-                    })
-                    .then((updatedPositions) => {
-                        const terrainHeight = updatedPositions[0].height; // Height above ellipsoid
-
-                        console.log(`CesiumGeoDataManager: Terrain height at ${latitude}, ${longitude}: ${terrainHeight.toFixed(2)} meters`);
-
-                        // Create a Cartesian position using the sampled terrain height
-                        const modelPosition = Cesium.Cartesian3.fromDegrees(longitude, latitude, terrainHeight);
-
-                        // Create a Matrix4 to position and orient the model
-                        const modelMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(modelPosition);
-
-                        const tileset = this.viewer.scene.primitives.add(
-                            new Cesium.Cesium3DTileset({
-                                url: modelUri, // This should be the Blob URL to your .glb file
-                                modelMatrix: modelMatrix,
-                                // These properties might be needed for scaling or optimization of GLB
-                                // If the model is too big/small, adjust scale in modelMatrix or try these:
-                                scale: scale || 1.0, // Use the scale from srcInfo if provided, otherwise default to 1.0
-                                minimumPixelSize: minimumPixelSize || 128,
-                                maximumScreenSpaceError: maximumScale || 20000, // This is often maximumScreenSpaceError for 3D Tilesets
-                            })
-                        );
-
-                        // Handle model loading events for debugging
-                        tileset.readyPromise.then((loadedTileset) => {
-                            console.log(`CesiumGeoDataManager: 3D Model '${layerEntry.name}' loaded successfully.`);
-                            // Optional: zoom to the model once loaded, if desired
-                            // viewer.zoomTo(loadedTileset, new Cesium.HeadingPitchRange(0, -Cesium.Math.PI_OVER_4, loadedTileset.boundingSphere.radius * 2));
-                        }).otherwise((error) => {
-                            console.error(`CesiumGeoDataManager: Error loading 3D Model '${layerEntry.name}':`, error);
-                            // Potentially remove the layer if it failed to load
-                            this.removeLayer(layerEntry.id, this.viewer);
-                        });
-
-                        // IMPORTANT: Store the blob URL directly on the Cesium object for later revocation
-                        if (blobUrlForCleanup) {
-                            tileset._blobUrl = blobUrlForCleanup;
-                            blobUrlForCleanup = null; // Reset as it's now managed by the tileset
-                        }
-
-                        tileset.show = layerEntry.isVisible; // Set initial visibility
-                        console.log(`CesiumGeoDataManager: Added 3D Model layer: ${layerEntry.name}. Visible: ${tileset.show}`);
-
-                        return tileset; // Return the created Cesium3DTileset
-                    })
-                    .catch((error) => {
-                        console.error(`CesiumGeoDataManager: Error processing 3D Model '${layerEntry.name}':`, error);
-                        // Revoke blob URL immediately if promise chain fails before storage
-                        if (blobUrlForCleanup) {
-                            URL.revokeObjectURL(blobUrlForCleanup);
-                            console.warn(`CesiumGeoDataManager: Revoked failed Blob URL for ${layerEntry.name}`);
-                        }
-                        return null; // Indicate failure
-                    });
-
-                // Store the promise in the map for now. It will be resolved later.
-                this.cesiumLayersMap.set(layerEntry.id, modelPromise);
-                cesiumLayer = modelPromise; // Set cesiumLayer to the promise
+                console.log(`CesiumGeoDataManager: Added 3D Model layer: ${layerEntry.name}. Visible: ${modelEntity.show}`);
             }
             else if (layerEntry.type === 'wms' && layerEntry.baseUrl && layerEntry.args) {
                 const wmsParameters = {
@@ -246,24 +201,22 @@ class CesiumGeoDataManager {
                 return null;
             }
 
-            // Only set in map if it's not a promise, or if we explicitly want to store the promise.
-            // For 3D models, we store the promise first, and it gets resolved to the actual tileset later.
-            if (cesiumLayer && !(cesiumLayer instanceof Promise)) {
+            if (cesiumLayer) {
                 this.cesiumLayersMap.set(layerEntry.id, cesiumLayer);
             }
             return cesiumLayer;
 
         } catch (error) {
             console.error(`CesiumGeoDataManager: Error adding layer ${layerEntry.name}:`, error);
+            return null;
+        } finally {
             // Important: If a Blob URL was created but no Cesium layer object was successfully returned/stored,
             // revoke the Blob URL to prevent memory leaks.
             if (blobUrlForCleanup) {
                 URL.revokeObjectURL(blobUrlForCleanup);
                 console.warn(`CesiumGeoDataManager: Revoked transient Blob URL due to failed layer addition for ${layerEntry.name}`);
             }
-            return null;
         }
-        // No finally block here, as `blobUrlForCleanup` is managed within the promise chain for 3dmodel.
     }
 
     /**
@@ -271,64 +224,33 @@ class CesiumGeoDataManager {
      * @param {string} layerId - The ID of the layer to remove.
      */
     removeLayer(layerId) {
-        // Need to handle if cesiumLayer is still a Promise from 3D model addition
-        const layerOrPromise = this.cesiumLayersMap.get(layerId);
-
-        if (layerOrPromise instanceof Promise) {
-            // If it's a promise, wait for it to resolve then remove, or remove from map immediately
-            layerOrPromise.then(cesiumLayer => {
-                if (cesiumLayer) {
-                    this._performCesiumRemoval(layerId, cesiumLayer);
+        const cesiumLayer = this.cesiumLayersMap.get(layerId);
+        if (cesiumLayer) {
+            if (cesiumLayer instanceof Cesium.ImageryLayer) {
+                this.viewer.imageryLayers.remove(cesiumLayer, true);
+                console.log(`CesiumGeoDataManager: Removed ImageryLayer with ID: ${layerId}`);
+            } else if (cesiumLayer instanceof Cesium.DataSource) {
+                this.viewer.dataSources.remove(cesiumLayer, true);
+                console.log(`CesiumGeoDataManager: Removed DataSource with ID: ${layerId}`);
+            } else if (cesiumLayer instanceof Cesium.Cesium3DTileset) {
+                this.viewer.scene.primitives.remove(cesiumLayer);
+                console.log(`CesiumGeoDataManager: Removed 3D Tileset with ID: ${layerId}`);
+            } else if (cesiumLayer instanceof Cesium.Entity) {
+                // For 3D Models added as entities
+                this.viewer.entities.remove(cesiumLayer);
+                // IMPORTANT: Revoke the Blob URL when the model entity is removed
+                if (cesiumLayer._blobUrl) {
+                    URL.revokeObjectURL(cesiumLayer._blobUrl);
+                    console.log(`CesiumGeoDataManager: Revoked Blob URL for 3D Model with ID: ${layerId}`);
                 }
-            }).catch(error => {
-                console.warn(`CesiumGeoDataManager: Failed to resolve promise for layer ${layerId} during removal attempt:`, error);
-            });
-            // Immediately remove from map, as we've initiated removal
+                console.log(`CesiumGeoDataManager: Removed Entity (3D Model) with ID: ${layerId}`);
+            } else {
+                console.warn(`CesiumGeoDataManager: Could not remove layer type for ID ${layerId}. Not a recognized Cesium layer type.`);
+            }
             this.cesiumLayersMap.delete(layerId);
-            console.log(`CesiumGeoDataManager: Initiated removal of pending 3D Model layer with ID: ${layerId}`);
-            return;
-        }
-
-        if (layerOrPromise) {
-            this._performCesiumRemoval(layerId, layerOrPromise);
         } else {
             console.warn(`CesiumGeoDataManager: Layer with ID ${layerId} not found on globe to remove.`);
         }
-    }
-
-    /**
-     * Internal helper to perform the actual Cesium object removal and Blob URL revocation.
-     * @param {string} layerId
-     * @param {object} cesiumLayer
-     * @private
-     */
-    _performCesiumRemoval(layerId, cesiumLayer) {
-        if (cesiumLayer instanceof Cesium.ImageryLayer) {
-            this.viewer.imageryLayers.remove(cesiumLayer, true);
-            console.log(`CesiumGeoDataManager: Removed ImageryLayer with ID: ${layerId}`);
-        } else if (cesiumLayer instanceof Cesium.DataSource) {
-            this.viewer.dataSources.remove(cesiumLayer, true);
-            console.log(`CesiumGeoDataManager: Removed DataSource with ID: ${layerId}`);
-        } else if (cesiumLayer instanceof Cesium.Cesium3DTileset) {
-            this.viewer.scene.primitives.remove(cesiumLayer);
-            // For 3D Models (glb/gltf) loaded as Cesium3DTileset, check for and revoke Blob URL
-            if (cesiumLayer._blobUrl) {
-                URL.revokeObjectURL(cesiumLayer._blobUrl);
-                console.log(`CesiumGeoDataManager: Revoked Blob URL for 3D Model Tileset with ID: ${layerId}`);
-            }
-            console.log(`CesiumGeoDataManager: Removed 3D Tileset with ID: ${layerId}`);
-        } else if (cesiumLayer instanceof Cesium.Entity) {
-            // This case might be for older model loading methods if not using Cesium3DTileset directly for glb
-            this.viewer.entities.remove(cesiumLayer);
-            if (cesiumLayer._blobUrl) {
-                URL.revokeObjectURL(cesiumLayer._blobUrl);
-                console.log(`CesiumGeoDataManager: Revoked Blob URL for 3D Model Entity with ID: ${layerId}`);
-            }
-            console.log(`CesiumGeoDataManager: Removed Entity (possibly 3D Model) with ID: ${layerId}`);
-        } else {
-            console.warn(`CesiumGeoDataManager: Could not remove layer type for ID ${layerId}. Not a recognized Cesium layer type.`);
-        }
-        this.cesiumLayersMap.delete(layerId);
     }
 
     /**
@@ -336,36 +258,18 @@ class CesiumGeoDataManager {
      * @param {string} layerId - The ID of the layer.
      * @param {boolean} isVisible - The desired visibility state.
      */
-    async toggleLayerVisibility(layerId, isVisible) {
-        let cesiumLayer = this.cesiumLayersMap.get(layerId);
-
-        // If it's a promise (for 3D models), wait for it to resolve
-        if (cesiumLayer instanceof Promise) {
-            try {
-                cesiumLayer = await cesiumLayer;
-                // Update the map with the resolved layer object
-                if (cesiumLayer) {
-                    this.cesiumLayersMap.set(layerId, cesiumLayer);
-                } else {
-                    console.warn(`CesiumGeoDataManager: Resolved 3D Model layer ${layerId} was null, cannot toggle visibility.`);
-                    return;
-                }
-            } catch (error) {
-                console.error(`CesiumGeoDataManager: Failed to resolve layer promise for toggle visibility: ${layerId}`, error);
-                return;
-            }
-        }
-
+    toggleLayerVisibility(layerId, isVisible) {
+        const cesiumLayer = this.cesiumLayersMap.get(layerId);
         if (cesiumLayer) {
             if (cesiumLayer instanceof Cesium.ImageryLayer || cesiumLayer instanceof Cesium.DataSource || cesiumLayer instanceof Cesium.Cesium3DTileset) {
                 cesiumLayer.show = isVisible;
             } else if (cesiumLayer instanceof Cesium.Entity) {
-                // For 3D Models added as entities (if still used this way)
+                // For 3D Models added as entities, toggle their 'show' property
                 cesiumLayer.show = isVisible;
             }
             console.log(`CesiumGeoDataManager: Toggled visibility for layer ${layerId} to ${isVisible}`);
         } else {
-            console.warn(`CesiumGeoDataManager: Layer with ID ${layerId} not found or not yet available to toggle visibility.`);
+            console.warn(`CesiumGeoDataManager: Layer with ID ${layerId} not found to toggle visibility.`);
         }
     }
 
@@ -383,27 +287,24 @@ class CesiumGeoDataManager {
         console.log('CesiumGeoDataManager: Starting layer reconciliation...');
         console.log('Desired UI order (Top to Bottom):', layersToReconcile.map(l => l.name));
 
-        // Important: Before clearing, collect all blob URLs from existing 3D model entities/tilesets to revoke them
-        const blobUrlsToRevoke = new Set();
-        this.cesiumLayersMap.forEach((cesiumLayer, id) => {
-            if (cesiumLayer instanceof Cesium.Cesium3DTileset && cesiumLayer._blobUrl) {
-                blobUrlsToRevoke.add(cesiumLayer._blobUrl);
-            } else if (cesiumLayer instanceof Cesium.Entity && cesiumLayer.model && cesiumLayer._blobUrl) {
-                blobUrlsToRevoke.add(cesiumLayer._blobUrl);
+        // Important: Before clearing, collect all blob URLs from existing 3D model entities to revoke them
+        const blobUrlsToRevoke = [];
+        this.viewer.entities.values.forEach(entity => {
+            if (entity.model && entity._blobUrl) { // Check if it's a model entity and has our custom _blobUrl property
+                blobUrlsToRevoke.push(entity._blobUrl);
             }
-            // If it's still a promise, we can't get the blobUrl from it yet,
-            // but the `addLayer`'s catch block would revoke it if it failed.
-            // On successful resolution, the blob URL would be attached to the tileset.
         });
-
 
         // Clear all existing dynamic layers and data sources and primitives from Cesium Viewer
         this.viewer.dataSources.removeAll();
-        this.viewer.entities.removeAll(); // Clear entities
+        this.viewer.entities.removeAll(); // Clear entities, including 3D Models
         for (let i = this.viewer.imageryLayers.length - 1; i >= 0; i--) {
             const layer = this.viewer.imageryLayers.get(i);
-            // Assuming base layer is at index 0 and should not be removed
-            if (i > 0) {
+            // This loop iterates through all imagery layers. Be careful not to remove base layers.
+            // A more robust solution might involve tagging custom imagery layers or knowing their IDs.
+            // For now, assuming all layers *except* the base layer (usually index 0) can be removed.
+            // Adjust this logic if you have multiple base layers or specific layers you want to preserve.
+            if (i > 0) { // Assuming base layer is at index 0 and should not be removed
                 this.viewer.imageryLayers.remove(layer, true);
             }
         }
@@ -424,9 +325,13 @@ class CesiumGeoDataManager {
             console.log(`CesiumGeoDataManager: Revoked Blob URL during reconciliation: ${url}`);
         });
 
+
         // Re-add layers in the desired Cesium Z-order.
+        // Imagery layers need to be added in reverse order to appear correctly.
         const imageryLayersReversed = layersToReconcile.filter(l => ['wms', 'wmts'].includes(l.type)).reverse();
+        // Data sources, 3D Tiles, and 3D Models can typically be added in the order they appear in the UI list.
         const dataAndModels = layersToReconcile.filter(l => ['geojson', 'kml', 'czml', '3dtile', '3dmodel'].includes(l.type));
+
 
         for (let i = 0; i < imageryLayersReversed.length; i++) {
             const layerEntry = imageryLayersReversed[i];
@@ -434,27 +339,10 @@ class CesiumGeoDataManager {
             await this.addLayer(layerEntry, i); // Pass 'i' as the Cesium imagery layer index
         }
 
-        // Collect all promises from 3D model additions
-        const modelPromises = [];
         for (const layerEntry of dataAndModels) {
             console.log(`CesiumGeoDataManager: Adding ${layerEntry.type.toUpperCase()} layer ${layerEntry.name}`);
-            const result = await this.addLayer(layerEntry);
-            if (result instanceof Promise) {
-                modelPromises.push(result);
-            }
+            await this.addLayer(layerEntry); // No specific index needed for data sources, tilesets, or models
         }
-
-        // Wait for all 3D model promises to resolve
-        await Promise.allSettled(modelPromises).then(results => {
-            results.forEach((result, index) => {
-                if (result.status === 'fulfilled') {
-                    // The fulfilled result is the actual Cesium3DTileset object
-                    // We don't need to do anything specific here, as addLayer already stored it.
-                } else {
-                    console.error(`CesiumGeoDataManager: 3D Model Promise rejected during reconciliation:`, result.reason);
-                }
-            });
-        });
 
         console.log('CesiumGeoDataManager: Layer reconciliation complete.');
     }
@@ -471,17 +359,10 @@ class CesiumGeoDataManager {
 
         let cesiumLayer = this.cesiumLayersMap.get(layerEntry.id);
 
-        // If it's a promise (for 3D models), wait for it to resolve
         if (cesiumLayer instanceof Promise) {
             try {
                 cesiumLayer = await cesiumLayer;
-                // Update the map with the resolved layer object
-                if (cesiumLayer) {
-                    this.cesiumLayersMap.set(layerEntry.id, cesiumLayer);
-                } else {
-                    console.warn(`CesiumGeoDataManager: Resolved 3D Model layer ${layerEntry.id} was null, cannot zoom.`);
-                    return;
-                }
+                this.cesiumLayersMap.set(layerEntry.id, cesiumLayer);
             } catch (error) {
                 console.error(`CesiumGeoDataManager: Failed to resolve layer promise for zoom: ${layerEntry.id}`, error);
                 return;
@@ -521,14 +402,13 @@ class CesiumGeoDataManager {
                 this.viewer.camera.flyHome();
             }
         } else if (cesiumLayer instanceof Cesium.Cesium3DTileset) {
-            // Zoom to 3D Tileset (which is how we now load GLB models)
+            // Zoom to 3D Tileset
             this.viewer.flyTo(cesiumLayer, { duration: 1.5 });
             console.log(`CesiumGeoDataManager: Zoomed to 3D Tileset layer: ${layerEntry.name}`);
         } else if (cesiumLayer instanceof Cesium.Entity && layerEntry.type === '3dmodel') {
-            // This path would only be taken if you still used entities for models,
-            // but the new code uses Cesium3DTileset for .glb. Keeping for robustness.
+            // Zoom to 3D Model entity
             this.viewer.flyTo(cesiumLayer, { duration: 1.5 });
-            console.log(`CesiumGeoDataManager: Zoomed to 3D Model (Entity) layer: ${layerEntry.name}`);
+            console.log(`CesiumGeoDataManager: Zoomed to 3D Model layer: ${layerEntry.name}`);
         } else {
             console.warn(`CesiumGeoDataManager: Unsupported layer type for zooming: ${layerEntry.type}`);
             this.viewer.camera.flyHome();
@@ -568,6 +448,10 @@ class CesiumGeoDataManager {
                     outline: true,
                     outlineColor: Cesium.Color.BLACK,
                     outlineWidth: 2,
+                    // Use a slightly lower elevation to ensure it's above terrain when clamped
+                    // If you want actual clamping, you might need a different approach or ensure flat polygons.
+                    // For typical 2D polygons representing areas, clampToGround is often desired.
+                    // This example just sets a fixed elevation for visualization.
                     height: 0.1 // A small height to ensure visibility above terrain if not clamped
                 },
                 id: graphic.identifier
