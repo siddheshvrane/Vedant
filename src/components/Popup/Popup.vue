@@ -104,8 +104,9 @@ export default {
         return {};
       }
 
-      const defaultX = (window.innerWidth - 400) / 2;
-      const defaultY = (window.innerHeight - 300) / 2;
+      const popupWidth = 1200; // Increased width for terrain profile
+      const defaultX = (window.innerWidth - popupWidth) / 2;
+      const defaultY = (window.innerHeight - 750) / 2;
 
       const left = this.popupPosition.x === 0 ? defaultX : this.popupPosition.x;
       const top = this.popupPosition.y === 0 ? defaultY : this.popupPosition.y;
@@ -114,6 +115,7 @@ export default {
         position: "absolute",
         left: `${left}px`,
         top: `${top}px`,
+        width: `${popupWidth}px`, // <-- This line sets the larger width
         cursor: this.dragging ? "grabbing" : "grab",
       };
     },
@@ -147,9 +149,11 @@ export default {
         this.popupData = content.data;
 
         if (content.type === "terrainProfileStats") {
+          const popupWidth = 1200;
+          const popupHeight = 700;
           this.popupPosition = {
-            x: (window.innerWidth - 400) / 2,
-            y: (window.innerHeight - 750) / 2,
+            x: (window.innerWidth - popupWidth) / 2,
+            y: (window.innerHeight - popupHeight) / 2,
           };
         }
       }
@@ -255,7 +259,9 @@ export default {
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  width: 380px;
+  width: auto; /* <-- allow JS inline style to control width */
+  min-width: 380px;
+  max-width: 90vw;
   text-align: center;
   font-family: "Poppins", sans-serif;
   max-height: 90vh;

@@ -1,93 +1,81 @@
 <template>
-  <div>
-    <div class="graph-container">
-      <svg viewBox="0 0 1000 300" class="elevation-graph">
-        <!-- Y-axis -->
-        <g v-for="(y, i) in yGrid" :key="'y-' + i">
-          <line
-            :y1="y.y"
-            :y2="y.y"
-            x1="0"
-            x2="1000"
-            stroke="#444"
-            stroke-width="0.5" />
-          <text x="10" :y="y.y - 4">{{ y.label }} m</text>
-        </g>
+  <div class="terrain-profile-popup">
+    <div class="graph-wrapper">
+      <!-- Y-axis labels -->
+      <div class="y-axis-labels">
+        <div
+          v-for="(y, i) in yGrid"
+          :key="'ylabel-' + i"
+          class="y-label"
+          :style="{ top: `${y.y}px` }">
+          {{ y.label }} m
+        </div>
+      </div>
 
-        <!-- X-axis -->
-        <g v-for="(x, i) in xGrid" :key="'x-' + i">
-          <line
-            :x1="x.x"
-            :x2="x.x"
-            y1="0"
-            y2="200"
-            stroke="#444"
-            stroke-width="0.5" />
-          <text :x="x.x" y="270" text-anchor="middle">{{ x.label }} km</text>
-        </g>
+      <!-- SVG Graph -->
+      <div class="svg-container">
+        <svg viewBox="0 0 1000 200" class="elevation-graph">
+          <g v-for="(y, i) in yGrid" :key="'y-' + i">
+            <line :y1="y.y" :y2="y.y" x1="0" x2="1000" />
+          </g>
 
-        <!-- Profile Line -->
-        <polyline
-          :points="svgPolyline"
-          fill="none"
-          stroke="#4ade80"
-          stroke-width="3.5" />
-      </svg>
+          <g v-for="(x, i) in xGrid" :key="'x-' + i">
+            <line :x1="x.x" :x2="x.x" y1="0" y2="200" />
+          </g>
+
+          <polyline :points="svgPolyline" />
+        </svg>
+
+        <!-- External X-axis labels below graph -->
+        <div class="x-axis-labels">
+          <div
+            class="x-label"
+            v-for="(x, i) in xGrid"
+            :key="'xlabel-' + i"
+            :style="{ left: `${x.x}px` }">
+            {{ x.label }} km
+          </div>
+        </div>
+
+        <div class="x-axis-title">Distance (km)</div>
+      </div>
+
+      <!-- Y-axis title -->
+      <div class="y-axis-title">Elevation (m)</div>
     </div>
 
-    <div class="stats popup-content">
-      <p class="popup-item">
+    <!-- Stats Section -->
+    <div class="stats-grid">
+      <div class="stat-item">
         <span class="info-label">Total Distance:</span>
-        <span class="info-value"
-          >{{ (totalDistance / 1000).toFixed(2) }} km</span
-        >
-      </p>
-      <p class="popup-item">
+        <span class="info-value">
+          {{ (totalDistance / 1000).toFixed(2) }} km
+        </span>
+      </div>
+      <div class="stat-item">
         <span class="info-label">Min Elevation:</span>
         <span class="info-value">{{ minHeight.toFixed(1) }} m</span>
-      </p>
-      <p class="popup-item">
+      </div>
+      <div class="stat-item">
         <span class="info-label">Max Elevation:</span>
         <span class="info-value">{{ maxHeight.toFixed(1) }} m</span>
-      </p>
-      <p class="popup-item">
+      </div>
+      <div class="stat-item">
         <span class="info-label">Elevation Gain:</span>
-        <span class="info-value"
-          >{{ (maxHeight - minHeight).toFixed(1) }} m</span
-        >
-      </p>
-    </div>
-
-    <div class="popup-actions">
-      <button @click="handleRemoveProfile" class="btn btn-danger action-btn">
-        Delete Profile
-      </button>
+        <span class="info-value">
+          {{ (maxHeight - minHeight).toFixed(1) }} m
+        </span>
+      </div>
     </div>
   </div>
 </template>
 
 <script>
-import { getToolState } from "../../../components/Menu/SubSidebars/BasicTools/tool-helpers/tools-helpers.js";
-
 export default {
   name: "TerrainProfileStats",
   props: {
-    profile: {
-      type: Array,
-      required: true,
-    },
-    terrainProfileEntity: {
-      type: Object,
-      default: null,
-    },
-    onRemoveProfile: {
-      type: Function,
-      required: true,
-    },
-    onClose: {
-      type: Function,
-      required: true,
-    },
+    profile: { type: Array, required: true },
+    onRemoveProfile: { type: Function, required: false },
   },
   computed: {
     totalDistance() {
@@ -120,14 +108,18 @@ export default {
         .join(" ");
     },
     xGrid() {
-      const count = 6;
+      const count = 7; // fewer labels for same spacing
       const labels = [];
+      const padding = 30; // to prevent overflow
+      const usableWidth = 1000 - 2 * padding;
       const step = this.totalDistance / (count - 1);
+
       for (let i = 0; i < count; i++) {
-        const x = (i / (count - 1)) * 1000;
+        const x = padding + (i / (count - 1)) * usableWidth;
         const label = ((i * step) / 1000).toFixed(2); // KM
         labels.push({ x, label });
       }
+
       return labels;
     },
     yGrid() {
@@ -146,108 +138,119 @@ export default {
       return labels;
     },
   },
-  methods: {
-    handleRemoveProfile() {
-      const { viewer } = getToolState();
-      if (
-        viewer &&
-        this.terrainProfileEntity &&
-        viewer.entities.contains(this.terrainProfileEntity)
-      ) {
-        viewer.entities.remove(this.terrainProfileEntity);
-        console.log("Terrain profile entity removed from viewer.");
-      }
-      this.$emit("remove-profile-and-hide");
-      this.onRemoveProfile();
-      this.onClose();
-    },
-  },
 };
 </script>
 
 <style scoped>
-.graph-container {
+.terrain-profile-popup {
   background: #111;
-  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
-  padding: 10px;
-  overflow: hidden;
-  margin-bottom: 1.5rem;
+  padding: 10px 20px;
+  color: white;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.graph-wrapper {
+  display: flex;
+  position: relative;
+  padding-left: 60px;
+  margin-bottom: 40px;
+}
+
+.y-axis-labels {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 200px;
+  width: 60px;
+  font-size: 12px;
+  color: white;
+}
+
+.y-label {
+  position: absolute;
+  left: 0;
+  transform: translateY(-50%);
+}
+
+.y-axis-title {
+  position: absolute;
+  top: 50%;
+  left: -50px;
+  transform: rotate(-90deg) translateY(-50%);
+  transform-origin: center;
+  font-size: 13px;
+  color: white;
+  white-space: nowrap;
+}
+
+.svg-container {
+  flex-grow: 1;
+  position: relative;
 }
 
 .elevation-graph {
   width: 100%;
-  height: 300px;
-}
-
-.elevation-graph text {
-  fill: rgba(255, 255, 255, 0.9);
-  font-size: 30px; /* Slightly increased */
-  font-family: "Poppins", sans-serif;
+  height: 200px;
 }
 
 .elevation-graph line {
-  stroke: rgba(255, 255, 255, 0.15);
-  stroke-width: 0.5px;
+  stroke: rgba(255, 255, 255, 0.2);
+  stroke-width: 0.5;
 }
 
 .elevation-graph polyline {
   stroke: #4ade80;
-  stroke-width: 3.5px;
+  stroke-width: 2.5;
+  fill: none;
 }
 
-.stats.popup-content {
-  font-size: 1.1em;
-  padding: 10px 20px;
-  text-align: left;
+.x-axis-labels {
+  display: flex;
+  position: absolute;
+  width: 1000px;
+  top: 210px;
+  left: 0;
+  height: 20px;
+  pointer-events: none;
 }
 
-.popup-item {
+.x-label {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: white;
+  white-space: nowrap;
+  max-width: 60px;
+  text-align: center;
+}
+
+.x-axis-title {
+  text-align: center;
+  font-size: 13px;
+  color: white;
+  margin-top: 28px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px 20px;
+  margin-top: 20px;
+  font-size: 13px;
+}
+
+.stat-item {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 10px;
 }
 
 .info-label {
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.85);
+  font-weight: 500;
 }
 
 .info-value {
-  color: rgba(255, 255, 255, 0.95);
-  text-align: right;
-  word-break: break-word;
-}
-
-.popup-actions {
-  margin-top: 20px;
-  display: flex;
-  justify-content: center;
-  gap: 20px;
-}
-
-.action-btn {
-  padding: 10px 22px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 1.1em;
-  font-weight: 500;
-  transition: all 0.2s ease-in-out;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 120px;
-}
-
-.btn-danger {
-  background-color: #ff6600;
-  color: white;
-  border: 1px solid #ff6600;
-}
-
-.btn-danger:hover {
-  background-color: #ff9933;
-  border-color: #ff9933;
-  transform: translateY(-2px);
+  color: #ddd;
 }
 </style>

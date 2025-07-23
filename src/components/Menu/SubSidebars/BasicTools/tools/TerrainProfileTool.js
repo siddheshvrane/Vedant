@@ -9,7 +9,7 @@ import {
 } from "../tool-helpers/tools-helpers.js";
 import { PopupService } from "../../../../../services/PopupService.js";
 
-let clickHandler = null; // This handler is for clicking on an *existing* profile line
+let clickHandler = null;
 
 export function setupTerrainProfileTool(viewer, options = {}) {
   if (!viewer || !viewer.canvas) {
@@ -17,7 +17,7 @@ export function setupTerrainProfileTool(viewer, options = {}) {
     return;
   }
 
-  clearTerrainProfile(); // Ensure any previous profile/tool state is cleared
+  clearTerrainProfile();
   setToolState({ points: [], profileEntity: null });
 
   PopupService.showToolInstruction(
@@ -26,7 +26,7 @@ export function setupTerrainProfileTool(viewer, options = {}) {
   );
 
   const handler = new Cesium.ScreenSpaceEventHandler(viewer.canvas);
-  setToolState({ handler }); // Store the current tool's handler
+  setToolState({ handler });
 
   handler.setInputAction(async (event) => {
     const position = viewer.scene.pickPosition(event.position);
@@ -39,16 +39,14 @@ export function setupTerrainProfileTool(viewer, options = {}) {
     setToolState({ points });
 
     if (points.length === 2) {
-      removeEventHandlers(); // Remove the drawing handlers
+      removeEventHandlers();
 
-      // Show loading message using PopupService
       PopupService.showToolInstruction(
         "Sampling terrain, please wait...",
         "Terrain Profile",
         false
-      ); // showDismissButton: false means no 'OK' button
+      );
 
-      // Yield UI so loading popup appears
       await new Promise((r) => setTimeout(r, 100));
 
       const profile = await calculateTerrainProfile(
@@ -63,28 +61,36 @@ export function setupTerrainProfileTool(viewer, options = {}) {
         PopupService.showToolInstruction(
           "Failed to generate profile. Try again."
         );
-        ToolManagementService.deactivateCurrentTool(); // Deactivate tool on failure
+        ToolManagementService.deactivateCurrentTool();
         return;
       }
 
       const entity = drawProfileLine(viewer, points[0], points[1], profile);
-      setToolState({ profileEntity: entity }); // Store the entity
+      setToolState({ profileEntity: entity });
 
-      // NEW: Use PopupService to show the terrain profile stats
-      PopupService.showTerrainProfileStats({ profile, entity });
+      PopupService.showTerrainProfileStats({ profile });
 
-      // The tool should remain active if the user can interact with the profile.
-      // If the tool is meant to be single-use, then deactivate here:
-      // ToolManagementService.deactivateCurrentTool();
-      // However, usually, after showing stats, the tool becomes inactive,
-      // and clicking the line re-shows the stats.
-      // So, let's keep the tool active until explicitly deactivated.
+      ToolManagementService.addMeasurement(
+        "Terrain Profile",
+        `${(Cesium.Cartesian3.distance(points[0], points[1]) / 1000).toFixed(
+          2
+        )} km`,
+        {
+          entity: viewer.entities.getById(entity.id),
+        }
+      );
+
+      // 🔽 Show popup immediately for the newly drawn profile line
+      PopupService.showTerrainProfileStats({ profile });
+
+      ToolManagementService.deactivateCurrentTool();
     }
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 }
 
 function drawProfileLine(viewer, start, end, profile) {
   const entity = viewer.entities.add({
+    id: `terrain-profile-${Date.now()}`,
     name: "TerrainProfileLine",
     polyline: {
       positions: [start, end],
@@ -93,16 +99,14 @@ function drawProfileLine(viewer, start, end, profile) {
       clampToGround: true,
     },
     properties: {
-      terrainProfile: profile, // Store profile data directly on entity for easy retrieval
+      terrainProfile: profile,
     },
   });
 
-  // Ensure clickHandler is set up only once for picking existing lines
   if (!clickHandler) {
     clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.canvas);
     clickHandler.setInputAction((movement) => {
       const picked = viewer.scene.pick(movement.position);
-      // Check if the picked entity has our terrainProfile property
       if (
         picked &&
         picked.id &&
@@ -110,10 +114,8 @@ function drawProfileLine(viewer, start, end, profile) {
         picked.id.properties.terrainProfile
       ) {
         const pickedProfile = picked.id.properties.terrainProfile.getValue();
-        // NEW: Use PopupService to show the stats when an existing line is clicked
         PopupService.showTerrainProfileStats({
           profile: pickedProfile,
-          entity: picked.id,
         });
       }
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
@@ -147,21 +149,19 @@ async function calculateTerrainProfile(viewer, start, end, sampleCount = 50) {
 
   try {
     if (terrainProvider.availability) {
-      // Check if terrain provider is available for sampling
       updated = await Cesium.sampleTerrainMostDetailed(
         terrainProvider,
         positions
       );
     } else {
-      // Fallback if terrain provider doesn't have availability (e.g., flat globe)
       updated = positions.map((c) => {
-        const h = viewer.scene.globe.getHeight(c) || 0; // Use globe height if no terrain
+        const h = viewer.scene.globe.getHeight(c) || 0;
         return new Cesium.Cartographic(c.longitude, c.latitude, h);
       });
     }
   } catch (err) {
     console.error("Terrain sampling failed:", err);
-    return []; // Return empty array on error
+    return [];
   }
 
   const totalDistance = Cesium.Cartesian3.distance(start, end);
@@ -173,17 +173,15 @@ async function calculateTerrainProfile(viewer, start, end, sampleCount = 50) {
       distance: (i / sampleCount) * totalDistance,
       height: c.height,
     }))
-    .filter((p) => !isNaN(p.height) && isFinite(p.height)); // Filter out invalid height values
+    .filter((p) => !isNaN(p.height) && isFinite(p.height));
 }
 
 export function clearTerrainProfile() {
-  const { viewer, profileEntity, handler } = getToolState(); // Get the tool's handler as well
+  const { viewer, profileEntity, handler } = getToolState();
 
-  clearDrawing(); // Clears temporary points if any
-  removeEventHandlers(); // Removes the drawing action handlers
+  clearDrawing();
+  removeEventHandlers();
 
-  // If there's an active clickHandler for existing lines, destroy it only when the tool is explicitly cleared.
-  // This ensures existing lines are still clickable unless explicitly stated.
   if (clickHandler) {
     clickHandler.destroy();
     clickHandler = null;
@@ -193,7 +191,7 @@ export function clearTerrainProfile() {
     viewer.entities.remove(profileEntity);
   }
 
-  setToolState({ points: [], profileEntity: null, handler: null }); // Reset tool state
-  PopupService.hide(); // Ensure any open popups (like instructions or stats) are hidden
+  setToolState({ points: [], profileEntity: null, handler: null });
+  PopupService.hide();
   console.log("[TerrainProfileTool] Cleared.");
 }

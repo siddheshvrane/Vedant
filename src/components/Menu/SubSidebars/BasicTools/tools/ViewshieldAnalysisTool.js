@@ -80,7 +80,7 @@ function placeObserver(
     false
   );
 
-  viewer.entities.add({
+  const observerPoint = viewer.entities.add({
     position: observer,
     point: {
       pixelSize: 10,
@@ -91,7 +91,7 @@ function placeObserver(
     },
   });
 
-  viewer.entities.add({
+  const observerLabel = viewer.entities.add({
     position: observer,
     label: {
       text: `Observer\nH: ${observerHeight}m, R: ${viewDistance}m`,
@@ -106,7 +106,17 @@ function placeObserver(
     },
   });
 
-  runViewshedAnalysis(viewer, lon, lat, obsHeight, rayCount, viewDistance);
+  runViewshedAnalysis(
+    viewer,
+    lon,
+    lat,
+    obsHeight,
+    rayCount,
+    viewDistance,
+    observerPoint,
+    observerLabel,
+    observerHeight
+  );
 }
 
 async function runViewshedAnalysis(
@@ -115,7 +125,10 @@ async function runViewshedAnalysis(
   lat,
   obsHeight,
   rayCount,
-  viewDistance
+  viewDistance,
+  observerPoint,
+  observerLabel,
+  observerHeight
 ) {
   PopupService.showToolInstruction(
     "Sampling terrain, please wait...",
@@ -123,28 +136,44 @@ async function runViewshedAnalysis(
     false
   );
 
-  const { visiblePoints, hiddenPoints, fullCirclePoints } = await castRays(
+  const { visiblePoints, hiddenPoints, fullCirclePoints, rayEntities } =
+    await castRays(viewer, lon, lat, obsHeight, rayCount, viewDistance);
+
+  const fullPolygon = await renderGroundPolygon(
     viewer,
-    lon,
-    lat,
-    obsHeight,
-    rayCount,
-    viewDistance
+    fullCirclePoints,
+    Cesium.Color.RED.withAlpha(0.05)
+  );
+  const visiblePolygon = await renderGroundPolygon(
+    viewer,
+    visiblePoints,
+    Cesium.Color.LIME.withAlpha(0.2)
+  );
+  const hiddenPolygon = await renderGroundPolygon(
+    viewer,
+    hiddenPoints,
+    Cesium.Color.RED.withAlpha(0.2)
   );
 
-  await Promise.all([
-    renderGroundPolygon(
-      viewer,
-      fullCirclePoints,
-      Cesium.Color.RED.withAlpha(0.05)
-    ),
-    renderGroundPolygon(
-      viewer,
-      visiblePoints,
-      Cesium.Color.LIME.withAlpha(0.2)
-    ),
-    renderGroundPolygon(viewer, hiddenPoints, Cesium.Color.RED.withAlpha(0.2)),
-  ]);
+  const createdEntities = [
+    observerPoint,
+    observerLabel,
+    fullPolygon,
+    visiblePolygon,
+    hiddenPolygon,
+    ...rayEntities,
+  ].filter(Boolean);
+
+  ToolManagementService.addMeasurement(
+    "Viewshield Analysis",
+    `Obs: ${observerHeight}m, R: ${(viewDistance / 1000).toFixed(1)}km`,
+    {
+      points: [observerPoint],
+      labels: [observerLabel],
+      polygons: [fullPolygon, visiblePolygon, hiddenPolygon].filter(Boolean),
+      polylines: rayEntities,
+    }
+  );
 
   ToolManagementService.deactivateCurrentTool();
   PopupService.hide();
@@ -154,7 +183,8 @@ async function runViewshedAnalysis(
 async function castRays(viewer, lon, lat, height, rayCount, maxDist) {
   const visible = [],
     hidden = [],
-    full = [];
+    full = [],
+    rayEntities = [];
   const step = 100;
   const batchSize = 8;
 
@@ -171,10 +201,11 @@ async function castRays(viewer, lon, lat, height, rayCount, maxDist) {
 
     const results = await Promise.all(batch);
 
-    results.forEach(({ visible: v, hidden: h, endPoint }) => {
+    results.forEach(({ visible: v, hidden: h, endPoint, raySegments }) => {
       if (v) visible.push(v);
       if (h) hidden.push(h);
       if (endPoint) full.push(endPoint);
+      if (raySegments) rayEntities.push(...raySegments);
     });
   }
 
@@ -182,6 +213,7 @@ async function castRays(viewer, lon, lat, height, rayCount, maxDist) {
     visiblePoints: sortByHeading(visible, lon, lat),
     hiddenPoints: sortByHeading(hidden, lon, lat),
     fullCirclePoints: sortByHeading(full, lon, lat),
+    rayEntities,
   };
 }
 
@@ -191,6 +223,7 @@ async function traceRay(viewer, lon, lat, obsHeight, heading, maxDist, step) {
   let lastVisible = null,
     lastHidden = null,
     endPoint = null;
+  const raySegments = [];
 
   for (let dist = step; dist <= maxDist; dist += step) {
     const { latitude, longitude } = getDestination(lon, lat, heading, dist);
@@ -204,7 +237,7 @@ async function traceRay(viewer, lon, lat, obsHeight, heading, maxDist, step) {
     const angle = Math.atan2(terrainHeight - obsHeight, dist);
     const isVisible = angle > maxAngle;
 
-    viewer.entities.add({
+    const segment = viewer.entities.add({
       polyline: {
         positions: [last, target],
         width: 1.5,
@@ -216,6 +249,7 @@ async function traceRay(viewer, lon, lat, obsHeight, heading, maxDist, step) {
         ),
       },
     });
+    raySegments.push(segment);
 
     if (isVisible) {
       maxAngle = angle;
@@ -228,7 +262,7 @@ async function traceRay(viewer, lon, lat, obsHeight, heading, maxDist, step) {
     endPoint = target;
   }
 
-  return { visible: lastVisible, hidden: lastHidden, endPoint };
+  return { visible: lastVisible, hidden: lastHidden, endPoint, raySegments };
 }
 
 async function renderGroundPolygon(viewer, positions, color) {
@@ -253,7 +287,7 @@ async function renderGroundPolygon(viewer, positions, color) {
       Cesium.Cartesian3.fromRadians(p.longitude, p.latitude, p.height)
     );
 
-    viewer.entities.add({
+    return viewer.entities.add({
       polygon: {
         hierarchy: new Cesium.PolygonHierarchy(cart3D),
         material: color,
