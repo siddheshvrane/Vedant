@@ -43,14 +43,38 @@ class CesiumGeoDataManager {
                     stroke: Cesium.Color.HOTPINK,
                     fill: Cesium.Color.PINK.withAlpha(0.5),
                     strokeWidth: 3,
-                    markerSymbol: '?',
+                    // Remove markerSymbol
                     clampToGround: true
                 });
+
+                // Iterate through entities and replace markers with points (pointers)
+                for (const entity of ds.entities.values) {
+                    // Remove existing billboard/marker if present from GeoJSON loading
+                    if (entity.billboard) {
+                        entity.billboard = undefined;
+                    }
+                    if (entity.point === undefined) { // Only add if it doesn't have one
+                        entity.point = {
+                            pixelSize: 10,
+                            color: Cesium.Color.RED,
+                            outlineColor: Cesium.Color.WHITE,
+                            outlineWidth: 2
+                        };
+                    }
+                    // For polygons and polylines, ensure they are also clamped to ground
+                    if (entity.polygon) {
+                        entity.polygon.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
+                    }
+                    if (entity.polyline) {
+                        entity.polyline.clampToGround = true;
+                    }
+                }
+
                 ds.name = layerEntry.name;
                 ds.show = layerEntry.isVisible;
                 this.viewer.dataSources.add(ds);
                 cesiumLayer = ds;
-                console.log(`CesiumGeoDataManager: Added GeoJSON layer: ${layerEntry.name}. Visible: ${ds.show}`);
+                console.log(`CesiumGeoDataManager: Added GeoJSON layer: ${layerEntry.name}. Visible: ${ds.show}. Markers replaced with pointers.`);
             } else if (layerEntry.type === 'kml' && (layerEntry.srcInfo?.kmlContent || layerEntry.url)) {
                 const source = layerEntry.srcInfo?.kmlContent || layerEntry.url;
                 const ds = await Cesium.KmlDataSource.load(source, {
@@ -408,7 +432,6 @@ class CesiumGeoDataManager {
         }
     }
 
-
     // --- Graphic Management Methods (from old CesiumGlobeManager) ---
 
     /**
@@ -476,6 +499,13 @@ class CesiumGeoDataManager {
         if (coords) {
             const newMarkerEntity = this.viewer.entities.add({
                 position: Cesium.Cartesian3.fromDegrees(coords.longitude, coords.latitude, coords.elevation || 0),
+                // Replaced Billboard with Point primitive for a simple pointer
+                point: {
+                    pixelSize: 10,
+                    color: Cesium.Color.RED,
+                    outlineColor: Cesium.Color.WHITE,
+                    outlineWidth: 2,
+                },
                 label: {
                     text: location.name,
                     font: '14pt Poppins, sans-serif',
@@ -489,6 +519,7 @@ class CesiumGeoDataManager {
                 id: `location-label-${location.identifier}`
             });
             this.currentLocationMarkerEntity = newMarkerEntity; // Store reference to remove later
+            this.viewer.flyTo(newMarkerEntity, { duration: 1.0 }); // Fly to the new marker
         }
     }
 }
