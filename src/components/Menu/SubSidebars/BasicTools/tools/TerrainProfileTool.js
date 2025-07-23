@@ -42,7 +42,11 @@ export function setupTerrainProfileTool(viewer, options = {}) {
       removeEventHandlers(); // Remove the drawing handlers
 
       // Show loading message using PopupService
-      PopupService.showToolInstruction("Sampling terrain, please wait...", "Terrain Profile", false); // showDismissButton: false means no 'OK' button
+      PopupService.showToolInstruction(
+        "Sampling terrain, please wait...",
+        "Terrain Profile",
+        false
+      ); // showDismissButton: false means no 'OK' button
 
       // Yield UI so loading popup appears
       await new Promise((r) => setTimeout(r, 100));
@@ -56,7 +60,9 @@ export function setupTerrainProfileTool(viewer, options = {}) {
 
       if (!Array.isArray(profile) || profile.length === 0) {
         console.warn("[TerrainProfileTool] Empty or invalid profile data.");
-        PopupService.showToolInstruction("Failed to generate profile. Try again.");
+        PopupService.showToolInstruction(
+          "Failed to generate profile. Try again."
+        );
         ToolManagementService.deactivateCurrentTool(); // Deactivate tool on failure
         return;
       }
@@ -97,10 +103,18 @@ function drawProfileLine(viewer, start, end, profile) {
     clickHandler.setInputAction((movement) => {
       const picked = viewer.scene.pick(movement.position);
       // Check if the picked entity has our terrainProfile property
-      if (picked && picked.id && picked.id.properties && picked.id.properties.terrainProfile) {
+      if (
+        picked &&
+        picked.id &&
+        picked.id.properties &&
+        picked.id.properties.terrainProfile
+      ) {
         const pickedProfile = picked.id.properties.terrainProfile.getValue();
         // NEW: Use PopupService to show the stats when an existing line is clicked
-        PopupService.showTerrainProfileStats({ profile: pickedProfile, entity: picked.id });
+        PopupService.showTerrainProfileStats({
+          profile: pickedProfile,
+          entity: picked.id,
+        });
       }
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
   }
@@ -132,7 +146,8 @@ async function calculateTerrainProfile(viewer, start, end, sampleCount = 50) {
   let updated = [];
 
   try {
-    if (terrainProvider.availability) { // Check if terrain provider is available for sampling
+    if (terrainProvider.availability) {
+      // Check if terrain provider is available for sampling
       updated = await Cesium.sampleTerrainMostDetailed(
         terrainProvider,
         positions

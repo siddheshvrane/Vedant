@@ -7,15 +7,13 @@
         :confirmText="popupData.confirmText"
         :cancelText="popupData.cancelText"
         :onConfirm="popupData.onConfirm"
-        :onCancel="popupData.onCancel"
-      />
+        :onCancel="popupData.onCancel" />
     </template>
 
     <div
       v-else
       class="unified-popup poppins-font"
-      :style="currentPopupType === 'terrainProfileStats' ? popupStyle : {}"
-    >
+      :style="currentPopupType === 'terrainProfileStats' ? popupStyle : {}">
       <div class="popup-header-common" @mousedown="startDrag">
         <h5 class="popup-title">{{ getTitleForCurrentPopup }}</h5>
         <button @click="hidePopup" class="close-btn" title="Close">
@@ -28,8 +26,7 @@
           :layerName="popupData.layerName"
           :srs="popupData.srs"
           :extent="popupData.extent"
-          :onClose="hidePopup"
-        />
+          :onClose="hidePopup" />
       </template>
 
       <template v-else-if="currentPopupType === 'toolInstruction'">
@@ -37,8 +34,8 @@
           :message="popupData.message"
           :title="popupData.title"
           :showDismissButton="popupData.showDismissButton"
-          :onClose="hidePopup"
-        />
+          :onClose="hidePopup" />
+
       </template>
 
       <template v-else-if="currentPopupType === 'viewshedForm'">
@@ -48,8 +45,7 @@
           :rayCount="popupData.rayCount"
           :onStart="popupData.onStart"
           :onCancel="popupData.onCancel"
-          :onClose="hidePopup"
-        />
+          :onClose="hidePopup" />
       </template>
 
       <template v-else-if="currentPopupType === 'terrainProfileStats'">
@@ -57,8 +53,7 @@
           :profile="popupData.profile"
           :terrainProfileEntity="popupData.entity"
           :onRemoveProfile="handleRemoveProfile"
-          :onClose="hidePopup"
-        />
+          :onClose="hidePopup" />
       </template>
 
       <template v-else-if="currentPopupType === 'threeDModelForm'">
@@ -172,7 +167,7 @@ export default {
         if (content.type === "terrainProfileStats") {
           this.popupPosition = {
             x: (window.innerWidth - 400) / 2,
-            y: (window.innerHeight - 300) / 2,
+            y: (window.innerHeight - 750) / 2,
           };
         }
       }

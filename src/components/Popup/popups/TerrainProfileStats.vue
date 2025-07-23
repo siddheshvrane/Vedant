@@ -2,6 +2,7 @@
   <div>
     <div class="graph-container">
       <svg viewBox="0 0 1000 300" class="elevation-graph">
+        <!-- Y-axis -->
         <g v-for="(y, i) in yGrid" :key="'y-' + i">
           <line
             :y1="y.y"
@@ -9,13 +10,11 @@
             x1="0"
             x2="1000"
             stroke="#444"
-            stroke-width="0.5"
-          />
-          <text x="10" :y="y.y - 4" fill="#ddd" font-size="14">
-            {{ y.label }} m
-          </text>
+            stroke-width="0.5" />
+          <text x="10" :y="y.y - 4">{{ y.label }} m</text>
         </g>
 
+        <!-- X-axis -->
         <g v-for="(x, i) in xGrid" :key="'x-' + i">
           <line
             :x1="x.x"
@@ -23,32 +22,25 @@
             y1="0"
             y2="200"
             stroke="#444"
-            stroke-width="0.5"
-          />
-          <text
-            :x="x.x"
-            y="230"
-            fill="#ddd"
-            font-size="14"
-            text-anchor="middle"
-          >
-            {{ x.label }} m
-          </text>
+            stroke-width="0.5" />
+          <text :x="x.x" y="270" text-anchor="middle">{{ x.label }} km</text>
         </g>
 
+        <!-- Profile Line -->
         <polyline
           :points="svgPolyline"
           fill="none"
           stroke="#4ade80"
-          stroke-width="2.5"
-        />
+          stroke-width="3.5" />
       </svg>
     </div>
 
     <div class="stats popup-content">
       <p class="popup-item">
         <span class="info-label">Total Distance:</span>
-        <span class="info-value">{{ totalDistance.toFixed(1) }} m</span>
+        <span class="info-value"
+          >{{ (totalDistance / 1000).toFixed(2) }} km</span
+        >
       </p>
       <p class="popup-item">
         <span class="info-label">Min Elevation:</span>
@@ -85,7 +77,7 @@ export default {
       required: true,
     },
     terrainProfileEntity: {
-      type: Object, // Or specific Cesium type if you have it
+      type: Object,
       default: null,
     },
     onRemoveProfile: {
@@ -109,7 +101,7 @@ export default {
     maxHeight() {
       return this.profile.length
         ? Math.max(...this.profile.map((p) => p.height))
-        : 1; // Avoid division by zero if all heights are same
+        : 1;
     },
     svgPolyline() {
       const width = 1000;
@@ -117,7 +109,7 @@ export default {
       const stepX =
         this.profile.length > 1 ? width / (this.profile.length - 1) : 0;
       const min = this.minHeight;
-      const range = this.maxHeight - min || 1; // Ensure range is not zero
+      const range = this.maxHeight - min || 1;
 
       return this.profile
         .map((p, i) => {
@@ -133,7 +125,7 @@ export default {
       const step = this.totalDistance / (count - 1);
       for (let i = 0; i < count; i++) {
         const x = (i / (count - 1)) * 1000;
-        const label = Math.round(i * step);
+        const label = ((i * step) / 1000).toFixed(2); // KM
         labels.push({ x, label });
       }
       return labels;
@@ -156,7 +148,6 @@ export default {
   },
   methods: {
     handleRemoveProfile() {
-      // Logic for removing the Cesium entity
       const { viewer } = getToolState();
       if (
         viewer &&
@@ -166,36 +157,33 @@ export default {
         viewer.entities.remove(this.terrainProfileEntity);
         console.log("Terrain profile entity removed from viewer.");
       }
-      // Emit an event to the parent Popup.vue to update its state and hide
       this.$emit("remove-profile-and-hide");
-      this.onRemoveProfile(); // Call the prop function if provided
-      this.onClose(); // Also ensure the popup closes
+      this.onRemoveProfile();
+      this.onClose();
     },
   },
 };
 </script>
 
 <style scoped>
-/* NEW: Styles for Terrain Profile section - moved from Popup.vue */
 .graph-container {
   background: #111;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  padding: 0;
+  border-radius: 8px;
+  padding: 10px;
   overflow: hidden;
-  margin-bottom: 1rem;
+  margin-bottom: 1.5rem;
 }
 
 .elevation-graph {
   width: 100%;
-  height: 240px;
+  height: 300px;
 }
 
-/* Text inside SVG graph */
 .elevation-graph text {
-  fill: rgba(255, 255, 255, 0.7);
-  font-size: 14px;
-  font-family: "Poppins", sans-serif; /* Keep font family consistent */
+  fill: rgba(255, 255, 255, 0.9);
+  font-size: 30px; /* Slightly increased */
+  font-family: "Poppins", sans-serif;
 }
 
 .elevation-graph line {
@@ -205,26 +193,24 @@ export default {
 
 .elevation-graph polyline {
   stroke: #4ade80;
-  stroke-width: 2.5px;
+  stroke-width: 3.5px;
 }
 
 .stats.popup-content {
-  margin-bottom: 0;
+  font-size: 1.1em;
+  padding: 10px 20px;
   text-align: left;
 }
 
-/* Common styles for buttons and items can be imported or kept global if they apply to many popups */
 .popup-item {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 5px;
-  font-size: 0.95em;
-  text-align: left;
+  margin-bottom: 10px;
 }
 
 .info-label {
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.8);
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .info-value {
@@ -234,23 +220,23 @@ export default {
 }
 
 .popup-actions {
-  margin-top: 15px;
+  margin-top: 20px;
   display: flex;
   justify-content: center;
   gap: 20px;
 }
 
 .action-btn {
-  padding: 8px 18px;
-  border-radius: 5px;
+  padding: 10px 22px;
+  border-radius: 6px;
   cursor: pointer;
-  font-size: 0.95em;
+  font-size: 1.1em;
   font-weight: 500;
   transition: all 0.2s ease-in-out;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 90px;
+  min-width: 120px;
 }
 
 .btn-danger {
