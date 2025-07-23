@@ -1,3 +1,4 @@
+// src/services/MapService.js
 import { Subject, BehaviorSubject } from 'rxjs';
 import * as Cesium from 'cesium';
 
@@ -7,7 +8,7 @@ import * as Cesium from 'cesium';
  */
 class MapServiceClass {
     // Make sure the viewer instance is stored here
-    viewer = null; // Initialize viewer property
+    viewer = null; // Initialize viewer property, matching the old working file
 
     updateView$ = new Subject();
     redirectGlobe$ = new Subject();
@@ -21,7 +22,7 @@ class MapServiceClass {
     globeInitialized$ = new Subject();
     globeViewer$ = new BehaviorSubject(null); // Holds the Cesium.Viewer instance
 
-    // CORRECTED LINE: Removed the extra 'new' keyword
+    // CORRECTED LINE: Removed the extra 'new' keyword if it was accidentally added in your actual non-working file
     visualizationModeChanged$ = new BehaviorSubject('3D'); 
     
     // NEW: BehaviorSubject to hold the current globe clock time
@@ -93,7 +94,7 @@ class MapServiceClass {
     zoomToCoordinates({ latitude, longitude, elevation = 0, range, heading = 0, pitch = -90, roll = 0 }) {
         this.zoomToCoordinates$.next({ latitude, longitude, elevation, range, heading, pitch, roll });
         // Also directly perform the action if viewer is available
-        if (!this.viewer) {
+        if (!this.viewer) { // Use this.viewer directly as it's now stored
             console.warn('Cesium viewer not initialized when calling zoomToCoordinates directly.');
             return;
         }
@@ -178,6 +179,7 @@ class MapServiceClass {
                     viewer.scene.globe.enableLighting = true;
                     viewer.shadows = true;
                     break;
+                // Removed 'Anaglyph' as it was commented out in the old working version and seems not implemented.
                 default:
                     console.warn("MapService: Unknown visualization mode requested:", mode);
                     return;
