@@ -10,6 +10,7 @@ class CesiumGeoDataManager {
         // Internal map to store Cesium layer objects by their ID
         this.cesiumLayersMap = new Map();
         this.currentLocationMarkerEntity = null; // For the temporary location marker (moved from old CesiumGlobeManager)
+        this.currentTerrainProviderId = null; // Track the currently active terrain layer ID
     }
 
     /**
@@ -26,8 +27,16 @@ class CesiumGeoDataManager {
                 // Handle different layer types for visibility toggling
                 if (existingLayer instanceof Cesium.Entity && existingLayer.model) {
                     existingLayer.model.show = layerEntry.isVisible;
-                } else {
+                } else if (existingLayer instanceof Cesium.ImageryLayer || existingLayer instanceof Cesium.Cesium3DTileset || existingLayer instanceof Cesium.DataSource) {
                     existingLayer.show = layerEntry.isVisible;
+                }
+                // For terrain, visibility is controlled by setting it as the current provider.
+                // If the existing layer is terrain, and it's being "added" again, it means
+                // it's the intended terrain, so we re-apply it.
+                if (layerEntry.type === 'terrain' && layerEntry.isVisible && this.viewer.terrainProvider !== existingLayer) {
+                     this.viewer.terrainProvider = existingLayer;
+                     this.currentTerrainProviderId = layerEntry.id;
+                     console.log(`CesiumGeoDataManager: Re-applied terrain layer: ${layerEntry.name}`);
                 }
             }
             return existingLayer;
@@ -43,17 +52,14 @@ class CesiumGeoDataManager {
                     stroke: Cesium.Color.HOTPINK,
                     fill: Cesium.Color.PINK.withAlpha(0.5),
                     strokeWidth: 3,
-                    // Remove markerSymbol
                     clampToGround: true
                 });
 
-                // Iterate through entities and replace markers with points (pointers)
                 for (const entity of ds.entities.values) {
-                    // Remove existing billboard/marker if present from GeoJSON loading
                     if (entity.billboard) {
                         entity.billboard = undefined;
                     }
-                    if (entity.point === undefined) { // Only add if it doesn't have one
+                    if (entity.point === undefined) {
                         entity.point = {
                             pixelSize: 10,
                             color: Cesium.Color.RED,
@@ -61,7 +67,6 @@ class CesiumGeoDataManager {
                             outlineWidth: 2
                         };
                     }
-                    // For polygons and polylines, ensure they are also clamped to ground
                     if (entity.polygon) {
                         entity.polygon.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
                     }
@@ -88,7 +93,6 @@ class CesiumGeoDataManager {
                 cesiumLayer = ds;
                 console.log(`CesiumGeoDataManager: Added KML layer: ${layerEntry.name}. Visible: ${ds.show}`);
             }
-            // Add CZML support
             else if (layerEntry.type === 'czml' && (layerEntry.srcInfo?.jsonContent || layerEntry.url)) {
                 const source = layerEntry.srcInfo?.jsonContent || layerEntry.url;
                 const ds = await Cesium.CzmlDataSource.load(source);
@@ -98,7 +102,6 @@ class CesiumGeoDataManager {
                 cesiumLayer = ds;
                 console.log(`CesiumGeoDataManager: Added CZML layer: ${layerEntry.name}. Visible: ${ds.show}`);
             }
-            // Add 3D Tiles support
             else if (layerEntry.type === '3dtiles' && layerEntry.url) {
                 const tileset = await Cesium.Cesium3DTileset.fromUrl(layerEntry.url);
                 tileset.name = layerEntry.name;
@@ -107,11 +110,8 @@ class CesiumGeoDataManager {
                 cesiumLayer = tileset;
                 console.log(`CesiumGeoDataManager: Added 3D Tileset: ${layerEntry.name}. Visible: ${tileset.show}`);
             }
-            // Add 3D Model (glTF/GLB) support from URL or local file content
             else if ((layerEntry.type === 'gltf' || layerEntry.type === 'glb')) {
-                // Prioritize local file content if provided
                 if (layerEntry.srcInfo?.fileContent instanceof Blob || layerEntry.srcInfo?.fileContent instanceof ArrayBuffer) {
-                    // Create a Blob URL from the file content
                     const blob = new Blob([layerEntry.srcInfo.fileContent], { type: layerEntry.type === 'gltf' ? 'model/gltf+json' : 'model/gltf-binary' });
                     modelUri = URL.createObjectURL(blob);
                     console.log(`CesiumGeoDataManager: Creating Blob URL for local 3D model: ${modelUri}`);
@@ -124,7 +124,6 @@ class CesiumGeoDataManager {
 
                 if (!layerEntry.position) {
                     console.error(`CesiumGeoDataManager: Position is required for 3D model ${layerEntry.name}.`);
-                    // Clean up Blob URL if created
                     if (modelUri && modelUri.startsWith('blob:')) {
                         URL.revokeObjectURL(modelUri);
                     }
@@ -141,15 +140,14 @@ class CesiumGeoDataManager {
                     name: layerEntry.name,
                     position: position,
                     model: {
-                        uri: modelUri, // Use the generated Blob URL or direct URL
+                        uri: modelUri,
                         show: layerEntry.isVisible,
-                        scale: layerEntry.scale || 1.0, // Optional scale property
-                        minimumPixelSize: layerEntry.minimumPixelSize || 128, // Optional minimum pixel size
+                        scale: layerEntry.scale || 1.0,
+                        minimumPixelSize: layerEntry.minimumPixelSize || 128,
                     },
                     id: layerEntry.id
                 });
-                cesiumLayer = modelEntity; // Store the entity as the layer
-                // Store the Blob URL reference if it was created, so it can be revoked later
+                cesiumLayer = modelEntity;
                 if (modelUri.startsWith('blob:')) {
                     modelEntity._blobUrl = modelUri;
                 }
@@ -192,9 +190,9 @@ class CesiumGeoDataManager {
                     layer: layerEntry.args.layer || layerEntry.name,
                     style: layerEntry.args.style || '',
                     tileMatrixSetID: layerEntry.args.tileMatrixSetID || 'EPSG:4326',
-                    tileMatrixLabels: layerEntry.args.tileMatrixLabels, // Optional, can be an array of strings
-                    dimensions: layerEntry.args.dimensions, // Optional, can be an object
-                    tilingScheme: layerEntry.args.tilingScheme, // Optional, Cesium.GeographicTilingScheme or Cesium.WebMercatorTilingScheme
+                    tileMatrixLabels: layerEntry.args.tileMatrixLabels,
+                    dimensions: layerEntry.args.dimensions,
+                    tilingScheme: layerEntry.args.tilingScheme,
                     credit: new Cesium.Credit(layerEntry.name),
                     minimumLevel: layerEntry.args.minimumLevel || 0,
                     maximumLevel: layerEntry.args.maximumLevel,
@@ -221,7 +219,22 @@ class CesiumGeoDataManager {
                 cesiumLayer.show = layerEntry.isVisible;
 
                 console.log(`CesiumGeoDataManager: Added WMTS layer: ${layerEntry.name} at index ${imageryIndex}. Visible: ${cesiumLayer.show}`);
-            } else {
+            }
+            // NEW: Add terrain layer handling
+            else if (layerEntry.type === 'terrain' && layerEntry.url) {
+                const terrainProvider = new Cesium.CesiumTerrainProvider({
+                    url: layerEntry.url,
+                    credit: new Cesium.Credit(layerEntry.name),
+                    // Add other CesiumTerrainProvider options if needed, e.g., requestVertexNormals
+                });
+
+                // Assign the terrain provider to the viewer's globe
+                this.viewer.terrainProvider = terrainProvider;
+                cesiumLayer = terrainProvider; // Store the provider itself
+                this.currentTerrainProviderId = layerEntry.id; // Keep track of the active terrain
+                console.log(`CesiumGeoDataManager: Set terrain layer: ${layerEntry.name}`);
+            }
+            else {
                 console.warn(`CesiumGeoDataManager: Unsupported layer type or missing data for ${layerEntry.name} (Type: ${layerEntry.type}).`);
                 return null;
             }
@@ -233,7 +246,6 @@ class CesiumGeoDataManager {
 
         } catch (error) {
             console.error(`CesiumGeoDataManager: Error adding layer ${layerEntry.name}:`, error);
-            // Clean up Blob URL if an error occurs during model loading
             if (modelUri && modelUri.startsWith('blob:')) {
                 URL.revokeObjectURL(modelUri);
             }
@@ -258,16 +270,24 @@ class CesiumGeoDataManager {
                 this.viewer.scene.primitives.remove(cesiumLayer);
                 console.log(`CesiumGeoDataManager: Removed 3D Tileset with ID: ${layerId}`);
             } else if (cesiumLayer instanceof Cesium.Entity && cesiumLayer.model) {
-                // If it's a model loaded from a Blob URL, revoke the URL
                 if (cesiumLayer._blobUrl && typeof cesiumLayer._blobUrl === 'string' && cesiumLayer._blobUrl.startsWith('blob:')) {
                     URL.revokeObjectURL(cesiumLayer._blobUrl);
                     console.log(`CesiumGeoDataManager: Revoked Blob URL: ${cesiumLayer._blobUrl}`);
                 }
                 this.viewer.entities.remove(cesiumLayer);
                 console.log(`CesiumGeoDataManager: Removed 3D Model (Entity) with ID: ${layerId}`);
+            } else if (cesiumLayer instanceof Cesium.CesiumTerrainProvider || cesiumLayer instanceof Cesium.EllipsoidTerrainProvider) {
+                // If the terrain being removed is the currently active one, revert to default
+                if (this.viewer.terrainProvider === cesiumLayer) {
+                    this.viewer.terrainProvider = new Cesium.EllipsoidTerrainProvider();
+                    this.currentTerrainProviderId = null;
+                    console.log(`CesiumGeoDataManager: Removed active terrain layer and reverted to default ellipsoid.`);
+                } else {
+                    console.log(`CesiumGeoDataManager: Terrain layer with ID ${layerId} was not the active terrain, no change.`);
+                }
             }
             else {
-                console.warn(`CesiumGeoDataManager: Could not remove layer type for ID ${layerId}. Not an ImageryLayer, DataSource, Cesium3DTileset, or 3D Model Entity.`);
+                console.warn(`CesiumGeoDataManager: Could not remove layer type for ID ${layerId}. Not an ImageryLayer, DataSource, Cesium3DTileset, 3D Model Entity, or TerrainProvider.`);
             }
             this.cesiumLayersMap.delete(layerId);
         } else {
@@ -284,10 +304,26 @@ class CesiumGeoDataManager {
         const cesiumLayer = this.cesiumLayersMap.get(layerId);
         if (cesiumLayer) {
             if (cesiumLayer instanceof Cesium.Entity && cesiumLayer.model) {
-                // For glTF/GLB models added as entities, toggle the model's show property
                 cesiumLayer.model.show = isVisible;
-            } else {
+            } else if (cesiumLayer instanceof Cesium.ImageryLayer || cesiumLayer instanceof Cesium.Cesium3DTileset || cesiumLayer instanceof Cesium.DataSource) {
                 cesiumLayer.show = isVisible;
+            } else if (cesiumLayer instanceof Cesium.CesiumTerrainProvider || cesiumLayer instanceof Cesium.EllipsoidTerrainProvider) {
+                // For terrain, "toggling visibility" means setting it as the active terrain
+                // or reverting to a flat ellipsoid.
+                if (isVisible) {
+                    this.viewer.terrainProvider = cesiumLayer;
+                    this.currentTerrainProviderId = layerId;
+                    console.log(`CesiumGeoDataManager: Switched to terrain layer ${layerId}.`);
+                } else {
+                    // If the current terrain is being "turned off", revert to ellipsoid
+                    if (this.viewer.terrainProvider === cesiumLayer) {
+                        this.viewer.terrainProvider = new Cesium.EllipsoidTerrainProvider();
+                        this.currentTerrainProviderId = null;
+                        console.log(`CesiumGeoDataManager: Switched terrain to Ellipsoid (flat) as ${layerId} was toggled off.`);
+                    } else {
+                        console.log(`CesiumGeoDataManager: Terrain layer ${layerId} was already inactive or not the current terrain.`);
+                    }
+                }
             }
             console.log(`CesiumGeoDataManager: Toggled visibility for layer ${layerId} to ${isVisible}`);
         } else {
@@ -309,6 +345,13 @@ class CesiumGeoDataManager {
         console.log('CesiumGeoDataManager: Starting layer reconciliation...');
         console.log('Desired UI order (Top to Bottom):', layersToReconcile.map(l => l.name));
 
+        // IMPORTANT: Reset terrain to default ellipsoid before re-adding,
+        // to ensure any old terrain providers are removed.
+        this.viewer.terrainProvider = new Cesium.EllipsoidTerrainProvider();
+        this.currentTerrainProviderId = null; // Clear tracking
+        console.log('CesiumGeoDataManager: Reset terrain to default ellipsoid.');
+
+
         // Clear all existing dynamic layers and data sources from Cesium Viewer
         this.viewer.dataSources.removeAll();
 
@@ -318,10 +361,6 @@ class CesiumGeoDataManager {
             if (primitive instanceof Cesium.Cesium3DTileset) {
                 this.viewer.scene.primitives.remove(primitive);
             }
-            // If you had direct Cesium.Model primitives (less common for individual models)
-            // if (primitive instanceof Cesium.Model) {
-            //     this.viewer.scene.primitives.remove(primitive);
-            // }
         }
 
         // Remove models added as entities and revoke their Blob URLs if applicable
@@ -346,19 +385,42 @@ class CesiumGeoDataManager {
         this.cesiumLayersMap.clear(); // Clear internal map as well
         console.log('CesiumGeoDataManager: Cleared all existing dynamic globe layers, data sources, primitives, and entities.');
 
-        // Re-add layers in the desired Cesium Z-order (bottom-up for imagery).
+        // Identify and separate terrain, imagery, and other data layers
+        const terrainLayers = layersToReconcile.filter(l => l.type === 'terrain');
         const imageryLayersReversed = layersToReconcile.filter(l => ['wms', 'wmts'].includes(l.type)).reverse();
-        const dataLayers = layersToReconcile.filter(l => ['geojson', 'kml', 'czml', 'gltf', 'glb', '3dtiles'].includes(l.type)); // Updated filter
+        const dataLayers = layersToReconcile.filter(l => ['geojson', 'kml', 'czml', 'gltf', 'glb', '3dtiles'].includes(l.type));
 
-        for (let i = 0; i < imageryLayersReversed.length; i++) {
-            const layerEntry = imageryLayersReversed[i];
-            console.log(`CesiumGeoDataManager: Adding ${layerEntry.type.toUpperCase()} layer ${layerEntry.name} (UI order: ${layersToReconcile.indexOf(layerEntry)}, Cesium index: ${i})`);
-            await this.addLayer(layerEntry, i); // Pass 'i' as the Cesium imagery layer index
+        // NEW: Add terrain layer first (if present and visible)
+        // Only one terrain layer can be active at a time. Pick the first visible one.
+        const activeTerrainLayer = terrainLayers.find(l => l.isVisible);
+        if (activeTerrainLayer) {
+            console.log(`CesiumGeoDataManager: Setting active terrain layer: ${activeTerrainLayer.name}`);
+            await this.addLayer(activeTerrainLayer);
+        } else {
+             // If no terrain is explicitly chosen or visible, ensure default ellipsoid
+             this.viewer.terrainProvider = new Cesium.EllipsoidTerrainProvider();
+             this.currentTerrainProviderId = null;
+             console.log('CesiumGeoDataManager: No active terrain layer found, reverting to ellipsoid.');
         }
 
+
+        // Re-add imagery layers in the desired Cesium Z-order (bottom-up for imagery).
+        for (let i = 0; i < imageryLayersReversed.length; i++) {
+            const layerEntry = imageryLayersReversed[i];
+            // Only add if visible, otherwise, it won't be shown anyway.
+            if (layerEntry.isVisible) {
+                console.log(`CesiumGeoDataManager: Adding ${layerEntry.type.toUpperCase()} layer ${layerEntry.name} (UI order: ${layersToReconcile.indexOf(layerEntry)}, Cesium index: ${i})`);
+                await this.addLayer(layerEntry, i); // Pass 'i' as the Cesium imagery layer index
+            }
+        }
+
+        // Re-add other data layers
         for (const layerEntry of dataLayers) {
-            console.log(`CesiumGeoDataManager: Adding ${layerEntry.type.toUpperCase()} layer ${layerEntry.name}`);
-            await this.addLayer(layerEntry); // No index needed for data sources, 3D tilesets, models, they're typically on top
+            // Only add if visible
+            if (layerEntry.isVisible) {
+                console.log(`CesiumGeoDataManager: Adding ${layerEntry.type.toUpperCase()} layer ${layerEntry.name}`);
+                await this.addLayer(layerEntry); // No index needed for data sources, 3D tilesets, models, they're typically on top
+            }
         }
 
         console.log('CesiumGeoDataManager: Layer reconciliation complete.');
@@ -418,13 +480,25 @@ class CesiumGeoDataManager {
                 this.viewer.camera.flyHome();
             }
         } else if (cesiumLayer instanceof Cesium.Cesium3DTileset) {
-            // For 3D Tilesets, fly to their bounding sphere
             this.viewer.flyTo(cesiumLayer, { duration: 1.5 });
             console.log(`CesiumGeoDataManager: Zoomed to 3D Tileset: ${layerEntry.name}`);
         } else if (cesiumLayer instanceof Cesium.Entity && cesiumLayer.model) {
-            // For glTF/GLB models added as entities, fly to the entity's position
             this.viewer.flyTo(cesiumLayer, { duration: 1.5 });
             console.log(`CesiumGeoDataManager: Zoomed to 3D Model: ${layerEntry.name}`);
+        } else if (layerEntry.type === 'terrain') { // New: Handle zoom for terrain
+            // Terrain layers usually don't have a specific 'extent' to zoom to
+            // other than the whole globe. You might want to define a default zoom for them.
+            if (layerEntry.bbox) {
+                const rect = Cesium.Rectangle.fromDegrees(
+                    layerEntry.bbox[0], layerEntry.bbox[1],
+                    layerEntry.bbox[2], layerEntry.bbox[3]
+                );
+                this.viewer.camera.flyTo({ destination: rect, duration: 1.5 });
+                console.log(`CesiumGeoDataManager: Zoomed to Terrain Layer extent: ${layerEntry.name}`);
+            } else {
+                this.viewer.camera.flyHome(); // Fly to default home view
+                console.log(`CesiumGeoDataManager: Zoomed to home view for terrain layer: ${layerEntry.name}.`);
+            }
         }
         else {
             console.warn(`CesiumGeoDataManager: Unsupported layer type for zooming: ${layerEntry.type}`);
@@ -499,7 +573,6 @@ class CesiumGeoDataManager {
         if (coords) {
             const newMarkerEntity = this.viewer.entities.add({
                 position: Cesium.Cartesian3.fromDegrees(coords.longitude, coords.latitude, coords.elevation || 0),
-                // Replaced Billboard with Point primitive for a simple pointer
                 point: {
                     pixelSize: 10,
                     color: Cesium.Color.RED,
@@ -518,8 +591,8 @@ class CesiumGeoDataManager {
                 },
                 id: `location-label-${location.identifier}`
             });
-            this.currentLocationMarkerEntity = newMarkerEntity; // Store reference to remove later
-            this.viewer.flyTo(newMarkerEntity, { duration: 1.0 }); // Fly to the new marker
+            this.currentLocationMarkerEntity = newMarkerEntity;
+            this.viewer.flyTo(newMarkerEntity, { duration: 1.0 });
         }
     }
 }

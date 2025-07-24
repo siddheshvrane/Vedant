@@ -1,4 +1,3 @@
-// src/components/Globe/managers/CesiumCoreManager.js
 import * as Cesium from 'cesium';
 
 // Constants moved from CesiumConstants.js and defaultViewerOptions from old CesiumGlobeManager
@@ -52,11 +51,12 @@ class CesiumCoreManager {
 
         this.viewer = new Cesium.Viewer(this.containerId, {
             ...this.viewerOptions, // Use merged options
-            imageryProvider: false, // CRUCIAL: Start with no default imagery, we add our own through GeoDataManager
-            terrain: new Cesium.Terrain(Cesium.CesiumTerrainProvider.fromUrl('https://vedas.sac.gov.in/elevation/cdem_10m_2016/'))
+            imageryProvider: false, // CRUCIAL: Start with no default imagery, let GeoDataManager handle it
+            terrainProvider: new Cesium.EllipsoidTerrainProvider() // CRUCIAL: Start with a flat globe, let GeoDataManager handle specific terrain
         });
 
         // Ensure depth test is off for terrain, so data on terrain is not clipped by it
+        // This setting is still relevant even if terrain is set by GeoDataManager
         this.viewer.scene.globe.depthTestAgainstTerrain = false;
 
         this.viewer.camera.flyTo(DEFAULT_INITIAL_CAMERA_POSITION);
@@ -69,7 +69,7 @@ class CesiumCoreManager {
         this.viewer.scene.skyBox.show = true; // Show the sky box (stars, etc.)
         this.viewer.scene.skyAtmosphere.show = true; // Show atmosphere
 
-        console.log('CesiumCoreManager: Viewer initialized.');
+        console.log('CesiumCoreManager: Viewer initialized with default ellipsoid globe.'); // Updated log message
         return this.viewer;
     }
 
@@ -160,9 +160,10 @@ class CesiumCoreManager {
             };
         }
 
+        // Updated to reflect that terrain is now managed externally (potentially by GeoDataManager)
         let terrainTypeName = 'Unknown';
         if (this.viewer.terrainProvider instanceof Cesium.CesiumTerrainProvider) {
-            terrainTypeName = 'cdem_10m_2016';
+            terrainTypeName = this.viewer.terrainProvider.url.includes('cdem_10m_2016') ? 'cdem_10m_2016' : (this.viewer.terrainProvider.name || 'Custom Cesium Terrain');
         } else if (this.viewer.terrainProvider instanceof Cesium.EllipsoidTerrainProvider) {
             terrainTypeName = 'Ellipsoid (no terrain)';
         } else if (this.viewer.terrainProvider) {
@@ -179,12 +180,14 @@ class CesiumCoreManager {
                     break;
                 }
             }
+            // If no visible layers, try to get the first available layer as a fallback
             if (!firstVisibleLayer && this.viewer.imageryLayers.length > 0) {
                 firstVisibleLayer = this.viewer.imageryLayers.get(0).imageryProvider;
             }
 
             if (firstVisibleLayer instanceof Cesium.WebMapServiceImageryProvider) {
                 imageryTypeName = firstVisibleLayer.name || 'WMS Layer';
+                // Check if it's the specific Vedas imagery (assuming this check is desired)
                 if (firstVisibleLayer.url.includes('bhuvan-ras1.nrsc.gov.in') && firstVisibleLayer.layers.includes('bhuvan_img')) {
                     imageryTypeName = 'Vedas Satellite Imagery';
                 }
