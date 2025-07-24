@@ -168,10 +168,10 @@ async function runViewshedAnalysis(
     "Viewshield Analysis",
     `Obs: ${observerHeight}m, R: ${(viewDistance / 1000).toFixed(1)}km`,
     {
-      points: [observerPoint],
-      labels: [observerLabel],
+      observer: observerPoint,
+      label: observerLabel,
       polygons: [fullPolygon, visiblePolygon, hiddenPolygon].filter(Boolean),
-      polylines: rayEntities,
+      rays: rayEntities,
     }
   );
 

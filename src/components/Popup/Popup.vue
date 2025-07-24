@@ -74,7 +74,6 @@ import ConfirmationPopup from "./popups/ConfirmationPopup.vue";
 import ServiceAddedPopup from "./popups/ServiceAddedPopup.vue";
 import TerrainProfileStats from "./popups/TerrainProfileStats.vue";
 import ViewshedForm from "./popups/ViewshedForm.vue";
-// Import the new ToolInstructionPopup component
 import ToolInstructionPopup from "./popups/ToolInstructionPopup.vue";
 
 export default {
@@ -84,7 +83,7 @@ export default {
     ServiceAddedPopup,
     TerrainProfileStats,
     ViewshedForm,
-    ToolInstructionPopup, // Register the new component
+    ToolInstructionPopup,
   },
   data() {
     return {
@@ -100,22 +99,22 @@ export default {
   },
   computed: {
     popupStyle() {
-      if (this.currentPopupType !== "terrainProfileStats") {
-        return {};
-      }
+      if (this.currentPopupType !== "terrainProfileStats") return {};
 
-      const popupWidth = 1200; // Increased width for terrain profile
+      const remBase = 16;
+      const popupWidth = 75 * remBase;
+      const popupHeight = 43.75 * remBase;
       const defaultX = (window.innerWidth - popupWidth) / 2;
-      const defaultY = (window.innerHeight - 750) / 2;
+      const defaultY = (window.innerHeight - popupHeight) / 2;
 
       const left = this.popupPosition.x === 0 ? defaultX : this.popupPosition.x;
       const top = this.popupPosition.y === 0 ? defaultY : this.popupPosition.y;
 
       return {
         position: "absolute",
-        left: `${left}px`,
-        top: `${top}px`,
-        width: `${popupWidth}px`, // <-- This line sets the larger width
+        left: `${left / remBase}rem`,
+        top: `${top / remBase}rem`,
+        width: `75rem`,
         cursor: this.dragging ? "grabbing" : "grab",
       };
     },
@@ -124,7 +123,6 @@ export default {
         case "serviceAdded":
           return "Successfully Added Service";
         case "toolInstruction":
-          // The title is already expected to be in popupData for toolInstruction
           return this.popupData.title || "Tool Instructions";
         case "viewshedForm":
           return "Viewshed Parameters";
@@ -144,17 +142,11 @@ export default {
 
     this.contentSubscription = PopupService.popupContent$.subscribe(
       (content) => {
-        console.log("AppPopup received popupContent:", content);
         this.currentPopupType = content.type;
         this.popupData = content.data;
 
         if (content.type === "terrainProfileStats") {
-          const popupWidth = 1200;
-          const popupHeight = 700;
-          this.popupPosition = {
-            x: (window.innerWidth - popupWidth) / 2,
-            y: (window.innerHeight - popupHeight) / 2,
-          };
+          this.popupPosition = { x: 0, y: 0 };
         }
       }
     );
@@ -165,12 +157,8 @@ export default {
     );
   },
   beforeUnmount() {
-    if (this.visibilitySubscription) {
-      this.visibilitySubscription.unsubscribe();
-    }
-    if (this.contentSubscription) {
-      this.contentSubscription.unsubscribe();
-    }
+    if (this.visibilitySubscription) this.visibilitySubscription.unsubscribe();
+    if (this.contentSubscription) this.contentSubscription.unsubscribe();
     window.removeEventListener(
       "terrain-profile-ready",
       this.handleTerrainProfileReady
@@ -187,7 +175,6 @@ export default {
       document.addEventListener("mousemove", this.onDrag);
       document.addEventListener("mouseup", this.stopDrag);
     },
-
     onDrag(event) {
       if (!this.dragging) return;
       this.popupPosition = {
@@ -195,13 +182,11 @@ export default {
         y: event.clientY - this.dragOffset.y,
       };
     },
-
     stopDrag() {
       this.dragging = false;
       document.removeEventListener("mousemove", this.onDrag);
       document.removeEventListener("mouseup", this.stopDrag);
     },
-
     hidePopup() {
       PopupService.hide();
     },
@@ -222,16 +207,12 @@ export default {
           },
         },
       });
-      console.log("Popup.vue: Received terrain-profile-ready event.");
     },
   },
 };
 </script>
 
 <style scoped>
-/* All existing styles that are general to the unified popup or specific to other types remain.
-   Styles for popup-content (message display) and close-popup-btn are moved to ToolInstructionPopup.vue */
-
 @import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap");
 
 .poppins-font {
@@ -254,28 +235,28 @@ export default {
 .unified-popup {
   background-color: rgba(30, 30, 30, 0.9);
   color: white;
-  padding: 15px 20px;
-  border-radius: 10px;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  width: auto; /* <-- allow JS inline style to control width */
-  min-width: 380px;
+  padding: 0.9375rem 1.25rem;
+  border-radius: 0.625rem;
+  box-shadow: 0 0.25rem 0.9375rem rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(0.5rem);
+  -webkit-backdrop-filter: blur(0.5rem);
+  width: auto;
+  min-width: 23.75rem;
   max-width: 90vw;
   text-align: center;
   font-family: "Poppins", sans-serif;
   max-height: 90vh;
   overflow-y: auto;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 0.0625rem solid rgba(255, 255, 255, 0.15);
 }
 
 .popup-header-common {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-  padding-bottom: 8px;
+  margin-bottom: 0.625rem;
+  border-bottom: 0.0625rem solid rgba(255, 255, 255, 0.2);
+  padding-bottom: 0.5rem;
   position: sticky;
   top: 0;
   background-color: inherit;
@@ -283,7 +264,7 @@ export default {
 }
 
 .popup-title {
-  font-size: 1.2em;
+  font-size: 1.2rem;
   font-weight: 600;
   margin: 0;
   color: #007bff;
@@ -294,8 +275,8 @@ export default {
 .close-btn {
   background: none;
   border: none;
-  font-size: 1.2em;
-  padding: 5px 8px;
+  font-size: 1.2rem;
+  padding: 0.3125rem 0.5rem;
   cursor: pointer;
   transition: transform 0.1s ease;
   display: flex;
@@ -317,72 +298,39 @@ export default {
   color: #007bff !important;
 }
 
-/*
-.popup-content {
-  // Moved to ToolInstructionPopup.vue
-}
-
-.popup-content p {
-  // Moved to ToolInstructionPopup.vue
-}
-*/
-
 .popup-actions {
-  margin-top: 15px;
+  margin-top: 0.9375rem;
   display: flex;
   justify-content: center;
-  gap: 20px;
+  gap: 1.25rem;
 }
 
 .action-btn {
-  padding: 8px 18px;
-  border-radius: 5px;
+  padding: 0.5rem 1.125rem;
+  border-radius: 0.3125rem;
   cursor: pointer;
-  font-size: 0.95em;
+  font-size: 0.95rem;
   font-weight: 500;
   transition: all 0.2s ease-in-out;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 90px;
+  min-width: 5.625rem;
 }
-
-/*
-.btn-secondary {
-  // Moved to ViewshedForm.vue if specific to its actions
-}
-
-.btn-primary {
-  // Moved to ViewshedForm.vue if specific to its actions
-}
-*/
-
-/*
-.close-popup-btn {
-  // Moved to ToolInstructionPopup.vue
-}
-*/
-
-/*
-.viewshed-form-content, .form-label, .form-input, .form-select,
-.form-input:focus, .form-select:focus, .form-select option {
-  // Moved to ViewshedForm.vue
-}
-*/
 
 .unified-popup::-webkit-scrollbar {
-  width: 8px;
+  width: 0.5rem;
 }
 
 .unified-popup::-webkit-scrollbar-track {
   background: rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
+  border-radius: 0.25rem;
 }
 
 .unified-popup::-webkit-scrollbar-thumb {
   background-color: rgba(0, 123, 255, 0.5);
-  border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.25rem;
+  border: 0.0625rem solid rgba(255, 255, 255, 0.1);
 }
 
 .unified-popup::-webkit-scrollbar-thumb:hover {

@@ -8,16 +8,18 @@ import { PopupService } from "./PopupService.js";
 // Import individual tool setup functions
 import { setupLineMeasureTool } from "../components/Menu/SubSidebars/BasicTools/tools/LineMeasureTool.js";
 import { setupAreaMeasureTool } from "../components/Menu/SubSidebars/BasicTools/tools/AreaMeasureTool.js";
+// Updated import: Ensure both setup and clear functions are imported
 import {
   setupViewshieldAnalysisTool,
   clearViewshield,
 } from "../components/Menu/SubSidebars/BasicTools/tools/ViewshieldAnalysisTool.js";
 import { setupTerrainProfileTool } from "../components/Menu/SubSidebars/BasicTools/tools/TerrainProfileTool.js";
 
+// Import helper functions and common drawing methods
 import {
   clearDrawing,
   removeEventHandlers,
-  getToolState,
+  getToolState, // Make sure getToolState is available and returns { viewer, handler }
   setToolState,
   addPersistentEntity,
   removeAllToolEntities,
@@ -38,7 +40,6 @@ class ToolManagementServiceClass {
           ? new Cesium.ScreenSpaceEventHandler(viewer.canvas)
           : null,
       });
-
       if (viewer) {
         console.log(
           "[TMS]: Received Cesium Viewer instance. Handler initialized."
@@ -57,7 +58,6 @@ class ToolManagementServiceClass {
   _clearAllPersistentMeasurements() {
     const { viewer } = getToolState();
     const currentHistory = this.measurementHistory$.getValue();
-
     requestAnimationFrame(() => {
       currentHistory.forEach((measurement) => {
         if (viewer && measurement.cesiumEntities) {
@@ -65,9 +65,7 @@ class ToolManagementServiceClass {
             const entityOrArray = measurement.cesiumEntities[key];
             if (Array.isArray(entityOrArray)) {
               entityOrArray.forEach((e) => {
-                if (e instanceof Cesium.Entity) {
-                  viewer.entities.remove(e);
-                }
+                if (e instanceof Cesium.Entity) viewer.entities.remove(e);
               });
             } else if (entityOrArray instanceof Cesium.Entity) {
               viewer.entities.remove(entityOrArray);
@@ -75,41 +73,31 @@ class ToolManagementServiceClass {
           }
         }
       });
-
       this.measurementHistory$.next([]);
       this.nextMeasurementId = 0;
       this.toolOperationCounters = {};
       console.log("[TMS]: All persistent measurements cleared.");
-
       if (viewer) {
         removeAllToolEntities(viewer);
         console.log(
           "[TMS]: All temporary tool entities cleared during full measurement reset."
         );
-        if (viewer.scene.requestRenderMode) {
-          viewer.scene.requestRender();
-        }
+        if (viewer.scene.requestRenderMode) viewer.scene.requestRender();
       }
     });
   }
 
   activateTool(toolName) {
     const { viewer } = getToolState();
-    if (!viewer) {
-      console.warn("[TMS]: Cesium Viewer not available. Cannot activate tool.");
-      return;
-    }
-
-    if (this.activeTool$.getValue() === toolName) {
-      this.deactivateCurrentTool();
-      return;
-    }
-
+    if (!viewer)
+      return console.warn(
+        "[TMS]: Cesium Viewer not available. Cannot activate tool."
+      );
+    if (this.activeTool$.getValue() === toolName)
+      return this.deactivateCurrentTool();
     this.deactivateCurrentTool();
-
     this.activeTool$.next(toolName);
     console.log(`[TMS]: Activating tool: ${toolName}`);
-
     switch (toolName) {
       case "Line Measure":
         setupLineMeasureTool(true, false);
@@ -155,120 +143,137 @@ class ToolManagementServiceClass {
       }
     }
     this.activeTool$.next(null);
-
-    if (typeof PopupService !== "undefined" && PopupService.hide) {
-      PopupService.hide();
-    } else {
+    if (PopupService?.hide) PopupService.hide();
+    else
       console.warn(
         "[TMS]: PopupService not available or does not have a 'hide' method."
       );
-    }
   }
 
-  addMeasurement(toolName, value, entityDefinitions) {
+  addMeasurement(toolName, value, entityDefs) {
     const { viewer } = getToolState();
-    if (!viewer) {
-      console.error("[TMS]: Viewer not available. Cannot add measurement.");
-      return;
-    }
-
-    if (!this.toolOperationCounters[toolName]) {
+    if (!viewer)
+      return console.error(
+        "[TMS]: Viewer not available. Cannot add measurement."
+      );
+    if (!this.toolOperationCounters[toolName])
       this.toolOperationCounters[toolName] = 0;
-    }
     this.toolOperationCounters[toolName]++;
     const operationNumber = this.toolOperationCounters[toolName];
+    const createdCesiumEntities = {};
 
-    // ⚠️ Use the already added entities directly instead of adding them again
-    const newMeasurement = {
-      id: this.nextMeasurementId++,
-      toolName,
-      operationNumber,
-      value,
-      cesiumEntities: entityDefinitions, // ✅ already added
-      isEnabled: true,
-    };
+    requestAnimationFrame(() => {
+      if (
+        toolName === "Viewshield Analysis" ||
+        toolName === "Terrain Profile"
+      ) {
+        Object.entries(entityDefs).forEach(([key, entities]) => {
+          if (!entities) return;
+          createdCesiumEntities[key] = Array.isArray(entities)
+            ? entities
+            : [entities];
+        });
+      } else {
+        if (entityDefs.polyline)
+          createdCesiumEntities.polyline = addPersistentEntity(
+            entityDefs.polyline
+          );
+        if (entityDefs.polygon)
+          createdCesiumEntities.polygon = addPersistentEntity(
+            entityDefs.polygon
+          );
+        if (entityDefs.points)
+          createdCesiumEntities.points =
+            entityDefs.points.map(addPersistentEntity);
+        if (entityDefs.labels)
+          createdCesiumEntities.labels =
+            entityDefs.labels.map(addPersistentEntity);
+        if (entityDefs.billboards)
+          createdCesiumEntities.billboards =
+            entityDefs.billboards.map(addPersistentEntity);
+        if (entityDefs.models)
+          createdCesiumEntities.models =
+            entityDefs.models.map(addPersistentEntity);
+      }
 
-    const updatedHistory = [
-      ...this.measurementHistory$.getValue(),
-      newMeasurement,
-    ];
-    this.measurementHistory$.next(updatedHistory);
-    console.log("[TMS]: Measurement added to history:", newMeasurement);
-
-    if (viewer.scene.requestRenderMode) {
-      viewer.scene.requestRender();
-    }
+      const newMeasurement = {
+        id: this.nextMeasurementId++,
+        toolName,
+        operationNumber,
+        value,
+        cesiumEntities: createdCesiumEntities,
+        isEnabled: true,
+      };
+      const updatedHistory = [
+        ...this.measurementHistory$.getValue(),
+        newMeasurement,
+      ];
+      this.measurementHistory$.next(updatedHistory);
+      console.log("[TMS]: Measurement added to history:", newMeasurement);
+      if (viewer.scene.requestRenderMode) viewer.scene.requestRender();
+    });
   }
 
   removeMeasurement(id) {
     const { viewer } = getToolState();
     const currentHistory = this.measurementHistory$.getValue();
     const measurementToRemove = currentHistory.find((m) => m.id === id);
-
     if (measurementToRemove) {
-      const updatedHistory = currentHistory.filter((m) => m.id !== id);
-      this.measurementHistory$.next(updatedHistory);
-
+      this.measurementHistory$.next(currentHistory.filter((m) => m.id !== id));
+      console.log(`[TMS]: Measurement with ID ${id} removed from history.`);
       requestAnimationFrame(() => {
         if (viewer && measurementToRemove.cesiumEntities) {
           for (const key in measurementToRemove.cesiumEntities) {
             const entityOrArray = measurementToRemove.cesiumEntities[key];
-            if (Array.isArray(entityOrArray)) {
-              entityOrArray.forEach((entity) => {
-                if (entity instanceof Cesium.Entity)
-                  viewer.entities.remove(entity);
-              });
-            } else if (entityOrArray instanceof Cesium.Entity) {
-              viewer.entities.remove(entityOrArray);
-            }
+            const entities = Array.isArray(entityOrArray)
+              ? entityOrArray
+              : [entityOrArray];
+            entities.forEach((entity) => {
+              if (entity instanceof Cesium.Entity)
+                viewer.entities.remove(entity);
+            });
           }
         }
         if (viewer.scene.requestRenderMode) viewer.scene.requestRender();
+        console.log(
+          `[TMS]: Cesium entities for measurement ID ${id} removal process completed.`
+        );
       });
+    } else {
+      console.warn(
+        `[TMS]: Attempted to remove non-existent measurement with ID: ${id}`
+      );
     }
   }
 
   toggleMeasurementEnabled(id) {
     const { viewer } = getToolState();
-    const currentHistory = this.measurementHistory$.getValue();
-    let measurementUpdated = false;
-
-    const updatedHistory = currentHistory.map((m) => {
+    const updatedHistory = this.measurementHistory$.getValue().map((m) => {
       if (m.id === id) {
-        const newEnabledState = !m.isEnabled;
-        measurementUpdated = true;
-
+        const newState = !m.isEnabled;
         requestAnimationFrame(() => {
           if (viewer && m.cesiumEntities) {
             for (const key in m.cesiumEntities) {
               const entityOrArray = m.cesiumEntities[key];
-              if (Array.isArray(entityOrArray)) {
-                entityOrArray.forEach((entity) => {
-                  if (
-                    entity instanceof Cesium.Entity &&
-                    entity.show !== undefined
-                  ) {
-                    entity.show = newEnabledState;
-                  }
-                });
-              } else if (
-                entityOrArray instanceof Cesium.Entity &&
-                entityOrArray.show !== undefined
-              ) {
-                entityOrArray.show = newEnabledState;
-              }
+              const entities = Array.isArray(entityOrArray)
+                ? entityOrArray
+                : [entityOrArray];
+              entities.forEach((entity) => {
+                if (
+                  entity instanceof Cesium.Entity &&
+                  entity.show !== undefined
+                )
+                  entity.show = newState;
+              });
             }
             if (viewer.scene.requestRenderMode) viewer.scene.requestRender();
           }
         });
-        return { ...m, isEnabled: newEnabledState };
+        return { ...m, isEnabled: newState };
       }
       return m;
     });
-
-    if (measurementUpdated) {
-      this.measurementHistory$.next(updatedHistory);
-    }
+    this.measurementHistory$.next(updatedHistory);
   }
 
   getMeasurementById(id) {

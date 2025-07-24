@@ -76,7 +76,7 @@ export function setupTerrainProfileTool(viewer, options = {}) {
           2
         )} km`,
         {
-          entity: viewer.entities.getById(entity.id),
+          line: entity, // ✅ directly pass the entity
         }
       );
 
