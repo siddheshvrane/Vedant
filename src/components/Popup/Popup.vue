@@ -54,6 +54,19 @@
           :onRemoveProfile="handleRemoveProfile"
           :onClose="hidePopup" />
       </template>
+       <template v-else-if="currentPopupType === 'threeDModelForm'">
+        <ThreeDModelFormPopup
+          :url="popupData.url"
+          :longitude="popupData.longitude"
+          :latitude="popupData.latitude"
+          :scale="popupData.scale"
+          :minimumPixelSize="popupData.minimumPixelSize"
+          :maximumScale="popupData.maximumScale"
+          :onStart="popupData.onStart"
+          :onCancel="popupData.onCancel"
+          :onClose="hidePopup"
+        />
+      </template>
 
       <template v-else>
         <div class="popup-content">
@@ -76,6 +89,7 @@ import TerrainProfileStats from "./popups/TerrainProfileStats.vue";
 import ViewshedForm from "./popups/ViewshedForm.vue";
 // Import the new ToolInstructionPopup component
 import ToolInstructionPopup from "./popups/ToolInstructionPopup.vue";
+import ThreeDModelFormPopup from "./popups/ThreeDModelFormPopup.vue";
 
 export default {
   name: "AppPopup",
@@ -84,7 +98,8 @@ export default {
     ServiceAddedPopup,
     TerrainProfileStats,
     ViewshedForm,
-    ToolInstructionPopup, // Register the new component
+    ToolInstructionPopup,
+    ThreeDModelFormPopup,
   },
   data() {
     return {
@@ -130,6 +145,8 @@ export default {
           return "Viewshed Parameters";
         case "terrainProfileStats":
           return "Terrain Profile";
+        case "threeDModelForm": // Add title for 3D Model Form
+          return "Add 3D Model";
         default:
           return "Information";
       }
