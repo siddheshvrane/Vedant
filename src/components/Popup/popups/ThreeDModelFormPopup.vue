@@ -5,6 +5,18 @@
         Adding Model: <strong>{{ file.name }}</strong>
       </p>
 
+      <label class="form-label" for="modelLatitude">Latitude:</label>
+      <input
+        type="number"
+        id="modelLatitude"
+        v-model.number="internalModelOptions.latitude"
+        min="-90"
+        max="90"
+        step="0.000001"
+        class="form-input"
+      />
+      <p v-if="latitudeError" class="error-message">{{ latitudeError }}</p>
+
       <label class="form-label" for="modelLongitude">Longitude:</label>
       <input
         type="number"
@@ -17,17 +29,6 @@
       />
       <p v-if="longitudeError" class="error-message">{{ longitudeError }}</p>
 
-      <label class="form-label" for="modelLatitude">Latitude:</label>
-      <input
-        type="number"
-        id="modelLatitude"
-        v-model.number="internalModelOptions.latitude"
-        min="-90"
-        max="90"
-        step="0.000001"
-        class="form-input"
-      />
-      <p v-if="latitudeError" class="error-message">{{ latitudeError }}</p>
 
       <label class="form-label" for="modelScale">Scale:</label>
       <input

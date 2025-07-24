@@ -204,43 +204,39 @@ class DataAddServiceClass {
             // Handle 3D Model specifically, allowing both file upload and direct URL/coordinates
             else if (payload.contentType === '3dmodel') {
                 if (!file && !payload.modelOptions?.url) {
-                     this.submissionError$.next('Please provide a 3D Model file or URL with coordinates.');
-                     return;
+                    this.submissionError$.next('Please provide a 3D Model file or URL with coordinates.');
+                    return;
                 }
 
                 if (file) {
                     // Scenario: 3D Model from file upload
                     console.log(`DataAddService: Received 3D Model file: ${file.name}`);
 
-                    // Use the model options provided by the ThreeDModelFormPopup
+                    // Assign model options from the popup (longitude, latitude, scale, etc.)
                     if (payload.modelOptions) {
                         Object.assign(srcInfo, payload.modelOptions);
                     }
 
-                    // Determine file type and create URL
+                    // Store the original file object directly in srcInfo.fileContent
+                    // This is the key change to ensure CesiumGeoDataManager has the Blob.
+                    srcInfo.fileContent = file;
+                    console.log(`DataAddService: Stored 3D Model file in srcInfo.fileContent.`);
+
+                    // For GLB, you can optionally generate a Blob URL here if needed elsewhere,
+                    // but CesiumGeoDataManager will handle it from fileContent if it's a Blob.
                     if (file.name.toLowerCase().endsWith('.glb')) {
-                        // For GLB, create a Blob URL directly from the file
-                        srcInfo.url = URL.createObjectURL(file);
-                        srcInfo.gltfData = file; // Store the original file object if needed later by LayerService
-                        console.log(`DataAddService: Processed GLB file as Blob URL: ${srcInfo.url}`);
+                        console.log(`DataAddService: Recognized GLB file. CesiumGeoDataManager will process via fileContent.`);
                     } else if (file.name.toLowerCase().endsWith('.gltf')) {
-                        // For GLTF, create a Blob URL.
-                        // IMPORTANT: This will *only* work if the .gltf is self-contained (rare)
-                        // or if it's accompanied by other files that Cesium can access relatively.
-                        // For local file uploads, external .bin and textures will fail without a dedicated server or GLB conversion.
-                        srcInfo.url = URL.createObjectURL(file);
-                        srcInfo.gltfData = file; // Store the original file object
-                        console.warn(`DataAddService: Processed GLTF file as Blob URL: ${srcInfo.url}. ` +
+                        console.warn(`DataAddService: Uploaded GLTF (.gltf) file. ` +
                                      `NOTE: If this model has external .bin or texture files, they will NOT load unless converted to .glb or served from a web-accessible path.`);
                         this.submissionError$.next(`Uploaded .gltf file. If the model has external resources (like .bin or textures), please convert it to a single .glb file for proper loading.`);
-                        // We still proceed to add the data, but the user is warned.
                     } else {
                         this.submissionError$.next('Unsupported 3D model file type. Please upload a .gltf or .glb file.');
                         return;
                     }
 
                 } else if (payload.modelOptions && payload.modelOptions.url) {
-                    // Scenario: 3D Model from provided URL and coordinates (from ThreeDModelFormPopup, when no file was uploaded)
+                    // Scenario: 3D Model from provided URL and coordinates (when no file was uploaded)
                     srcInfo = {
                         url: payload.modelOptions.url,
                         longitude: payload.modelOptions.longitude,

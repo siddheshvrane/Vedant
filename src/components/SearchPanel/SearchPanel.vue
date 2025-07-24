@@ -98,6 +98,7 @@ export default {
         // It's a coordinate search
         const lat = parseFloat(match[1]);
         const lon = parseFloat(match[3]);
+        const elevation = 15000; // Default elevation for coordinate search
 
         // Basic validation for latitude and longitude ranges
         if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
@@ -107,21 +108,12 @@ export default {
 
         // For manual coordinates, set a very small range for close zoom
         // You can adjust this value (e.g., 5, 10, 20) to find the desired closeness
-        const veryCloseRange = 10; // Meters above the surface for manual coordinate entry
-
-        MapService.zoomToCoordinates({
-            latitude: lat,
-            longitude: lon,
-            // You can optionally set elevation to 0 if you are relying purely on 'range'
-            // elevation: 0,
-            range: veryCloseRange, // Pass the 'range' for very close zoom
-            pitch: -90 // Optional: ensures camera looks straight down
-        });
+        MapService.zoomToCoordinates({ latitude: lat, longitude: lon, elevation: elevation });
         MapService.displayLocationMarker({
             name: `${lat}, ${lon}`,
             identifier: `coord-${lat}-${lon}`,
             // For the marker, elevation can be 0 or the range value
-            getCoordinates: () => ({ latitude: lat, longitude: lon, elevation: veryCloseRange })
+               getCoordinates: () => ({ latitude: lat, longitude: lon, elevation: elevation })
         });
         this.isDropdownVisible = false; // Hide dropdown after action
         this.searchTerm = ''; // Clear search term after successful coordinate search
@@ -145,7 +137,7 @@ export default {
       // Check if the feature has valid point coordinates
       if (locationFeature.geometry && locationFeature.geometry.type === 'Point' && locationFeature.geometry.coordinates) {
         // GeoJSON coords are [lon, lat, elevation]. Use default elevation (500) for named locations.
-        const [lon, lat, elevation = 500] = locationFeature.geometry.coordinates;
+        const [lon, lat, elevation = 50] = locationFeature.geometry.coordinates;
         // Publish event via MapService to zoom to these coordinates
         MapService.zoomToCoordinates({
             latitude: lat,

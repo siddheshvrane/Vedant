@@ -78,61 +78,9 @@ class MapServiceClass {
         this.removeGraphic$.next(graphicIdentifier);
     }
 
-    /**
-     * Dispatches a command to zoom the globe to specific coordinates.
-     * This method now supports specifying a `range` for very close zooms.
-     *
-     * @param {object} options - The zoom options.
-     * @param {number} options.latitude - The latitude.
-     * @param {number} options.longitude - The longitude.
-     * @param {number} [options.elevation=0] - The absolute elevation in meters. Used if `range` is not provided.
-     * @param {number} [options.range] - The distance from the target point in meters. Used for close-up views.
-     * @param {number} [options.heading=0] - Heading in degrees (0 = North).
-     * @param {number} [options.pitch=-90] - Pitch in degrees (-90 = straight down).
-     * @param {number} [options.roll=0] - Roll in degrees.
-     */
-    zoomToCoordinates({ latitude, longitude, elevation = 0, range, heading = 0, pitch = -90, roll = 0 }) {
-        this.zoomToCoordinates$.next({ latitude, longitude, elevation, range, heading, pitch, roll });
-        // Also directly perform the action if viewer is available
-        if (!this.viewer) { // Use this.viewer directly as it's now stored
-            console.warn('Cesium viewer not initialized when calling zoomToCoordinates directly.');
-            return;
-        }
-
-        const position = Cesium.Cartesian3.fromDegrees(longitude, latitude, elevation);
-
-        if (range !== undefined && range !== null) {
-            // Use flyToBoundingSphere for precise close-up control
-            // A small bounding sphere around the point ensures the camera can get very close.
-            const boundingSphere = new Cesium.BoundingSphere(position, 1); // Radius 1 meter, adjust if needed
-
-            this.viewer.camera.flyToBoundingSphere(boundingSphere, {
-                offset: new Cesium.HeadingPitchRange(
-                    Cesium.Math.toRadians(heading),
-                    Cesium.Math.toRadians(pitch),
-                    range // Use the specified range for distance
-                ),
-                duration: 1.5, // Animation duration
-                complete: () => {
-                    console.log(`Zoomed to ${latitude}, ${longitude} with range ${range} meters.`);
-                }
-            });
-        } else {
-            // Fallback to simple flyTo with absolute elevation if no range is specified
-            this.viewer.camera.flyTo({
-                destination: position,
-                orientation: {
-                    heading: Cesium.Math.toRadians(heading),
-                    pitch: Cesium.Math.toRadians(pitch),
-                    roll: Cesium.Math.toRadians(roll)
-                },
-                duration: 1.5, // Animation duration
-                complete: () => {
-                    console.log(`Zoomed to ${latitude}, ${longitude} with elevation ${elevation} meters.`);
-                }
-            });
-        }
-    }
+ zoomToCoordinates(coordinates) {
+        this.zoomToCoordinates$.next(coordinates);
+ }
 
     displayLocationMarker(location) {
         this.displayLocationMarker$.next(location);
