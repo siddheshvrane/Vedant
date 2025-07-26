@@ -98,7 +98,7 @@ export default {
         // It's a coordinate search
         const lat = parseFloat(match[1]);
         const lon = parseFloat(match[3]);
-        const elevation = 15000; // Default elevation for coordinate search
+        const elevation = 500; // Default elevation for coordinate search
 
         // Basic validation for latitude and longitude ranges
         if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
@@ -108,7 +108,7 @@ export default {
 
         // For manual coordinates, set a very small range for close zoom
         // You can adjust this value (e.g., 5, 10, 20) to find the desired closeness
-        MapService.zoomToCoordinates({ latitude: lat, longitude: lon, elevation: elevation });
+        MapService.zoomToCoordinates({ latitude: lat, longitude: lon, });
         MapService.displayLocationMarker({
             name: `${lat}, ${lon}`,
             identifier: `coord-${lat}-${lon}`,

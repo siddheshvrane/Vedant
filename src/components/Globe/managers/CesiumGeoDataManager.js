@@ -25,8 +25,12 @@ class CesiumGeoDataManager {
      * @returns {Promise<Cesium.ImageryLayer|Cesium.DataSource|Cesium.Cesium3DTileset|Cesium.Entity|null>} The Cesium layer object, or null if failed.
      */
     async addLayer(layerEntry, imageryIndex) {
+        // IMPORTANT: The `reconcileLayers` method now handles the "already known" check
+        // by clearing everything and re-adding. This specific check here might be redundant
+        // if `addLayer` is always called via `reconcileLayers` after a clear.
+        // However, keeping it for robustness if `addLayer` is called directly elsewhere.
         if (this.cesiumLayersMap.has(layerEntry.id)) {
-            console.warn(`[DEBUG] CesiumGeoDataManager: Layer with ID ${layerEntry.id} already known. Skipping re-add.`);
+            console.warn(`[DEBUG] CesiumGeoDataManager: Layer with ID ${layerEntry.id} already known. Updating visibility.`);
             const existingLayer = this.cesiumLayersMap.get(layerEntry.id);
             if (existingLayer) {
                 if (existingLayer instanceof Cesium.Entity && existingLayer.model) {
@@ -124,26 +128,24 @@ class CesiumGeoDataManager {
                     console.log(`[DEBUG] CesiumGeoDataManager: Using direct URL for 3D model: ${modelUri}`);
                 } else {
                     console.error(`[ERROR] CesiumGeoDataManager: Missing URL or local file content for 3D model ${layerEntry.name}. Cannot add model.`);
-                    // No modelUri to revoke yet, as it wasn't created
                     return null;
                 }
 
-                // *** FIX STARTS HERE ***
                 const longitude = layerEntry.srcInfo?.longitude;
                 const latitude = layerEntry.srcInfo?.latitude;
-                const elevation = layerEntry.srcInfo?.elevation || 0; // Default elevation to 0 if not provided
+                const elevation = layerEntry.srcInfo?.elevation || 0;
 
                 if (typeof longitude !== 'number' || typeof latitude !== 'number') {
                     console.error(`[ERROR] CesiumGeoDataManager: Position (longitude, latitude) is required for 3D model ${layerEntry.name}. Cannot add model.`);
                     if (modelUri && modelUri.startsWith('blob:')) {
-                        URL.revokeObjectURL(modelUri); // Revoke if a blob URL was created
+                        URL.revokeObjectURL(modelUri);
                     }
                     return null;
                 }
 
                 console.log(`[DEBUG] CesiumGeoDataManager: Model position provided: Lon ${longitude}, Lat ${latitude}, El ${elevation}`);
 
-                let terrainElevation = elevation; // Start with the provided elevation or 0
+                let terrainElevation = elevation;
                 try {
                     if (this.viewer.terrainProvider) {
                         console.log(`[DEBUG] CesiumGeoDataManager: Sampling terrain for elevation...`);
@@ -152,7 +154,6 @@ class CesiumGeoDataManager {
                             this.viewer.terrainProvider,
                             [cartographicPosition]
                         );
-                        // If terrain sampling is successful, use its height. Otherwise, keep the original 'elevation'
                         if (updatedCartographicPosition && updatedCartographicPosition.length > 0 && updatedCartographicPosition[0].height !== undefined) {
                             terrainElevation = updatedCartographicPosition[0].height;
                             console.log(`[DEBUG] CesiumGeoDataManager: Terrain elevation found: ${terrainElevation.toFixed(2)}m`);
@@ -164,12 +165,10 @@ class CesiumGeoDataManager {
                     }
                 } catch (elevationError) {
                     console.error(`[ERROR] CesiumGeoDataManager: Error sampling terrain for ${layerEntry.name}:`, elevationError);
-                    // Continue with default/provided elevation if sampling fails
                 }
 
                 const position = Cesium.Cartesian3.fromDegrees(longitude, latitude, terrainElevation);
 
-                // Ensure orientation properties are accessed safely with optional chaining
                 const heading = layerEntry.srcInfo?.orientation?.heading || 0;
                 const pitch = layerEntry.srcInfo?.orientation?.pitch || 0;
                 const roll = layerEntry.srcInfo?.orientation?.roll || 0;
@@ -185,6 +184,18 @@ class CesiumGeoDataManager {
 
                 try {
                     console.log(`[DEBUG] CesiumGeoDataManager: Attempting to add model entity to viewer...`);
+
+                    const modelScale = layerEntry.srcInfo?.scale || 1.0;
+                    // Changed default minimumPixelSize to 1 to allow shrinking,
+                    // but allow override from srcInfo
+                    const modelMinPixelSize = layerEntry.srcInfo?.minimumPixelSize || 1;
+                    // Default maximumScale for zoom-in, allow override from srcInfo
+                    const modelMaxScale = layerEntry.srcInfo?.maximumScale || 20000;
+
+                    // Define distance display condition for showing only when within a certain range
+                    const distanceDisplayConditionNear = layerEntry.srcInfo?.distanceDisplayConditionNear || 10;
+                    const distanceDisplayConditionFar = layerEntry.srcInfo?.distanceDisplayConditionFar || 100000;
+
                     const modelEntity = this.viewer.entities.add({
                         name: layerEntry.name,
                         position: position,
@@ -192,27 +203,30 @@ class CesiumGeoDataManager {
                         model: {
                             uri: modelUri,
                             show: layerEntry.isVisible,
-                            scale: layerEntry.srcInfo?.scale || 1.0,
-                            minimumPixelSize: layerEntry.srcInfo?.minimumPixelSize || 128,
-                            maximumScreenSpaceError: layerEntry.srcInfo?.maximumScreenSpaceError || 16, // Common for performance
-                            heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND // Crucial for placing on terrain
+                            scale: modelScale,
+                            minimumPixelSize: modelMinPixelSize,
+                            maximumScale: modelMaxScale,
+                            maximumScreenSpaceError: layerEntry.srcInfo?.maximumScreenSpaceError || 16,
+                            heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
                         },
+                        distanceDisplayCondition: new Cesium.DistanceDisplayCondition(
+                            distanceDisplayConditionNear,
+                            distanceDisplayConditionFar
+                        ),
                         id: layerEntry.id
                     });
                     cesiumLayer = modelEntity;
                     if (modelUri.startsWith('blob:')) {
-                        // Store the blob URL on the entity for later revocation
                         modelEntity._blobUrl = modelUri;
                     }
-                    console.log(`[SUCCESS] CesiumGeoDataManager: Added 3D Model (${layerEntry.type}): ${layerEntry.name}. Visible: ${modelEntity.model.show}. Placed on terrain at elevation: ${terrainElevation.toFixed(2)}m`);
+                    console.log(`[SUCCESS] CesiumGeoDataManager: Added 3D Model (${layerEntry.type}): ${layerEntry.name}. Visible: ${modelEntity.model.show}. Placed on terrain at elevation: ${terrainElevation.toFixed(2)}m. Scale: ${modelScale}, MinPxSize: ${modelMinPixelSize}, MaxScale: ${modelMaxScale}. Displayed between ${distanceDisplayConditionNear}m and ${distanceDisplayConditionFar}m.`);
                 } catch (modelAddError) {
                     console.error(`[ERROR] CesiumGeoDataManager: Failed to add 3D model entity ${layerEntry.name}:`, modelAddError);
                     if (modelUri && modelUri.startsWith('blob:')) {
-                        URL.revokeObjectURL(modelUri); // Ensure cleanup on entity add failure
+                        URL.revokeObjectURL(modelUri);
                     }
-                    return null; // Return null if adding entity failed
+                    return null;
                 }
-                // *** FIX ENDS HERE ***
             }
             else if (layerEntry.type === 'wms' && layerEntry.baseUrl && layerEntry.args) {
                 const wmsParameters = {
@@ -296,7 +310,7 @@ class CesiumGeoDataManager {
         } catch (error) {
             console.error(`[CRITICAL ERROR] CesiumGeoDataManager: Uncaught error while attempting to add layer ${layerEntry.name} (Type: ${layerEntry.type}):`, error);
             if (modelUri && modelUri.startsWith('blob:')) {
-                URL.revokeObjectURL(modelUri); // Ensure blob URL is revoked on any catch
+                URL.revokeObjectURL(modelUri);
             }
             return null;
         }
@@ -382,11 +396,10 @@ class CesiumGeoDataManager {
         }
 
         // Clear all entities (including 3D models and temporary markers)
-        // Note: It's generally safer to remove specific entities rather than removeAll if
-        // other parts of your application might add entities that should persist.
-        // For this context, assuming all entities managed by this class are okay to clear.
-        const entitiesToRemove = this.viewer.entities.values.filter(entity =>
-            entity.model || entity === this.currentLocationMarkerEntity // Also clear current location marker
+        // Iterate over a copy of the values array to avoid issues with modifying
+        // the collection while iterating.
+        const entitiesToRemove = [...this.viewer.entities.values].filter(entity =>
+            entity.model || entity === this.currentLocationMarkerEntity
         );
         for (const entity of entitiesToRemove) {
             if (entity._blobUrl && typeof entity._blobUrl === 'string' && entity._blobUrl.startsWith('blob:')) {
@@ -395,40 +408,31 @@ class CesiumGeoDataManager {
             }
             this.viewer.entities.remove(entity);
         }
-        // If there are other entities not managed by this `cesiumLayersMap` that you
-        // *don't* want to clear, you would need more specific filtering here.
-        // For now, based on the previous logs, `removeAll()` seems to be the intended behavior for these dynamic layers.
-        // this.viewer.entities.removeAll(); // Use this if you want to remove absolutely all entities.
-        this.currentLocationMarkerEntity = null; // Ensure the reference is cleared after potential removal
+        this.currentLocationMarkerEntity = null; // Clear the reference after potential removal
 
 
         // Clear all imagery layers (except the base layer, if you have one managed separately)
-        // Adjust this loop if you have a persistent base imagery layer you don't want to remove.
         for (let i = this.viewer.imageryLayers.length - 1; i >= 0; i--) {
             const layer = this.viewer.imageryLayers.get(i);
-            // Example: Skip removing the default Bing Maps/ESRI base layer if you always want it
-            // if (layer.name === 'Bing Maps Aerial' || layer.name === 'Esri World Imagery') {
-            //     continue;
-            // }
+            // You might want to add a condition here to skip removing your default base layer
+            // if (layer.name === 'MyBaseLayerName') continue;
             this.viewer.imageryLayers.remove(layer, true);
         }
         this.cesiumLayersMap.clear(); // Clear your internal map
         console.log('[DEBUG] CesiumGeoDataManager: Cleared all existing dynamic globe layers, data sources, primitives, and entities.');
 
         // Re-add layers in the desired order
-        // Imagery layers are added in reverse UI order to appear correctly (first added is at bottom)
         const imageryLayersReversed = layersToReconcile.filter(l => ['wms', 'wmts'].includes(l.type)).reverse();
-        // Data layers (GeoJSON, KML, CZML, 3D Models, 3D Tilesets) are added after imagery
-        // Their order relative to each other might not be as critical as imagery, but we maintain UI order.
         const dataLayers = layersToReconcile.filter(l => ['geojson', 'kml', 'czml', 'gltf', 'glb', '3dmodel', '3dtiles'].includes(l.type));
 
-
+        // Add imagery layers first (reversed order for correct display)
         for (let i = 0; i < imageryLayersReversed.length; i++) {
             const layerEntry = imageryLayersReversed[i];
             console.log(`[DEBUG] CesiumGeoDataManager: Adding ${layerEntry.type.toUpperCase()} layer ${layerEntry.name} (UI order: ${layersToReconcile.indexOf(layerEntry)}, Cesium index: ${i})`);
             await this.addLayer(layerEntry, i);
         }
 
+        // Add data layers after imagery layers
         for (const layerEntry of dataLayers) {
             console.log(`[DEBUG] CesiumGeoDataManager: Adding ${layerEntry.type.toUpperCase()} layer ${layerEntry.name}`);
             await this.addLayer(layerEntry);
@@ -436,6 +440,7 @@ class CesiumGeoDataManager {
 
         console.log('[DEBUG] CesiumGeoDataManager: Layer reconciliation complete.');
     }
+
     /**
      * Zooms the globe to the extent of a specific layer.
      * @param {object} layerEntry - The full layer entry object (from LayerService).

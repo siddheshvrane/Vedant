@@ -20,10 +20,7 @@
 import BaseSubSidebar from "../SubSidebar.vue";
 import ToolsListItem from "./ToolListItem.vue";
 import MeasurementHistory from "./MeasurementHistory.vue";
-// REMOVED: import TerrainProfilePopup from "../BasicTools/TerrainProfilePopup.vue";
 import { ToolManagementService } from "../../../../services/ToolManagementService";
-// REMOVED: import { getToolState } from "../BasicTools/tool-helpers/tools-helpers.js";
-// getToolState is no longer needed here as handleRemoveProfile moved to Popup.vue
 
 export default {
   name: "BasicToolsSidebar",
@@ -31,7 +28,6 @@ export default {
     BaseSubSidebar,
     ToolsListItem,
     MeasurementHistory,
-    // REMOVED: TerrainProfilePopup,
   },
   data() {
     return {
@@ -42,11 +38,10 @@ export default {
         { name: "3D Area Measure", isActive: false },
         { name: "Viewshield Analysis", isActive: false },
         { name: "Terrain Profile", isActive: false },
+        // >>> ADD THIS NEW LINE <<<
+        { name: "Flythrough Tool", isActive: false }, // Add the new flythrough tool
       ],
       activeToolSubscription: null,
-      // REMOVED: showProfilePopup: false,
-      // REMOVED: terrainProfileData: [],
-      // REMOVED: terrainProfileEntity: null, // ✅ Track the polyline entity
     };
   },
   mounted() {
@@ -58,9 +53,6 @@ export default {
         console.log(`UI: Tool '${activeToolName || "None"}' is now active.`);
       }
     );
-
-    // REMOVED: window.addEventListener("terrain-profile-ready", (e) => { ... });
-    // This event listener is now in Popup.vue
   },
   beforeUnmount() {
     ToolManagementService.deactivateCurrentTool();
@@ -84,15 +76,12 @@ export default {
         }
       }
     },
-
-    // REMOVED: handleRemoveProfile() method
-    // This method is now in Popup.vue
   },
 };
 </script>
 
 <style scoped>
-/* No changes needed in styles unless you want to clean up unused rules */
+/* No changes needed in styles as you noted */
 .sub-sidebar-panel {
   width: 350px;
   height: 100%;

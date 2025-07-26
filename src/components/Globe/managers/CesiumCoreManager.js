@@ -55,34 +55,6 @@ class CesiumCoreManager {
             imageryProvider: false, // CRUCIAL: Start with no default imagery, let GeoDataManager handle it 
             terrain: new Cesium.Terrain(Cesium.CesiumTerrainProvider.fromUrl('https://vedas.sac.gov.in/elevation/cdem_10m_2016/')) 
         }); 
-
-        // --- REMOVE THE BELOW BLOCK --- 
-        // The CesiumGeoDataManager is already handling the addition of "Vedas Satellite Imagery". 
-        // Adding it here again causes conflicts and the 'addEventListener' error. 
-        /* 
-        setTimeout(() => { 
-            if (this.viewer && !this.viewer.isDestroyed()) { 
-                const vedasImageryProvider = new Cesium.WebMapServiceImageryProvider({ 
-                    url: 'https://bhuvan-ras1.nrsc.gov.in/bhuvan/wms', 
-                    layers: 'bhuvan_img', 
-                    parameters: { 
-                        service: 'WMS', 
-                        version: '1.1.1', 
-                        format: 'image/jpeg', 
-                        transparent: true, 
-                        tiled: true, 
-                    }, 
-                    name: 'Vedas Satellite Imagery' 
-                }); 
-                this.viewer.imageryLayers.add(vedasImageryProvider); 
-                console.log('CesiumCoreManager: Vedas imagery layer added.'); 
-            } 
-        }, 100); 
-        */ 
-        // --- END OF BLOCK TO REMOVE --- 
-
-
-        // Ensure depth test is off for terrain, so data on terrain is not clipped by it 
         this.viewer.scene.globe.depthTestAgainstTerrain = false; 
 
         this.viewer.camera.flyTo(DEFAULT_INITIAL_CAMERA_POSITION); 

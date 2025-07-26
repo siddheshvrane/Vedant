@@ -97,7 +97,7 @@ export default {
     },
     minimumPixelSize: {
       type: Number,
-      default: 128,
+      default: 0,
     },
     maximumScale: {
       type: Number,
