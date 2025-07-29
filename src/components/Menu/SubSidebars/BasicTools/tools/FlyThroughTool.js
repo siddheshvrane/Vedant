@@ -12,13 +12,22 @@ import {
 import { PopupService } from '../../../../../services/PopupService.js';
 import { ToolManagementService } from '../../../../../services/ToolManagementService.js';
 
+// Default configuration values
+const DEFAULT_CONFIG = {
+    cameraHeight: 20,           // meters above ground
+    cameraSpeed: 10,           // meters per second
+    cameraTilt: 45,            // degrees (0=straight down, 90=horizontal)
+    showProgressUpdates: true, // show progress during animation
+    pauseBetweenPoints: 200    // milliseconds pause between flight segments
+};
+
 /**
- * Sets up the FlyThrough tool, allowing users to define a camera path and then fly along it.
+ * Sets up the FlyThrough tool with reduced popup frequency and user configuration.
  * @param {Cesium.Viewer} viewer The Cesium Viewer instance.
  */
 export function setupFlyThroughTool(viewer) {
-    console.log("FlyThroughTool: Setting up tool");
-    
+    console.log("FlyThroughTool: Setting up enhanced tool with configuration options");
+
     setToolState({
         viewer: viewer,
         handler: viewer ? new Cesium.ScreenSpaceEventHandler(viewer.canvas) : null,
@@ -27,6 +36,8 @@ export function setupFlyThroughTool(viewer) {
         flythroughPath: null,
         animation: null,
         mousePosition: null,
+        config: { ...DEFAULT_CONFIG }, // Initialize with default config
+        lastPopupTime: 0
     });
 
     const { handler } = getToolState();
@@ -34,17 +45,18 @@ export function setupFlyThroughTool(viewer) {
     viewer.clock.clockRange = Cesium.ClockRange.UNBOUNDED;
     viewer.clock.shouldAnimate = true;
 
-    const toolName = "Flythrough Tool";
+    const toolName = "Enhanced FlyThrough Tool";
     PopupService.showToolInstruction(
-        `Left-click to add path points. Right-click to finish and start flythrough.`,
+        `Click to add path points (minimum 2). Right-click when ready to configure and start flythrough.`,
         toolName
     );
-    console.log("FlyThroughTool: Initial instruction popup shown.");
+    console.log("FlyThroughTool: Initial instruction shown.");
 
-    // LEFT_CLICK Handler
+    // LEFT_CLICK Handler with reduced popup frequency
     handler.setInputAction((click) => {
-        console.log("FlyThroughTool: Left click detected at screen position:", click.position);
-        
+        const currentTime = Date.now();
+        const { lastPopupTime } = getToolState();
+
         let cartesian = viewer.scene.pickPosition(click.position);
         if (!Cesium.defined(cartesian)) {
             cartesian = viewer.camera.pickEllipsoid(click.position, viewer.scene.globe.ellipsoid);
@@ -52,12 +64,16 @@ export function setupFlyThroughTool(viewer) {
 
         if (Cesium.defined(cartesian)) {
             if (isNaN(cartesian.x) || isNaN(cartesian.y) || isNaN(cartesian.z)) {
-                console.error("FlyThroughTool: Picked position contains NaN:", cartesian);
-                PopupService.showToolInstruction(
-                    "Invalid position selected. Please try clicking on the globe.",
-                    toolName,
-                    true
-                );
+                console.error("FlyThroughTool: Invalid position:", cartesian);
+                // Only show error popup if it's been more than 3 seconds since last popup
+                if (currentTime - lastPopupTime > 3000) {
+                    PopupService.showToolInstruction(
+                        "Invalid position. Please click on the globe.",
+                        toolName,
+                        true
+                    );
+                    setToolState({ lastPopupTime: currentTime });
+                }
                 return;
             }
 
@@ -65,9 +81,10 @@ export function setupFlyThroughTool(viewer) {
             drawingPoints.push(cartesian);
             setToolState({ drawingPoints: [...drawingPoints] });
 
-            console.log(`FlyThroughTool: Added point ${drawingPoints.length}:`, cartesian);
+            console.log(`FlyThroughTool: Added point ${drawingPoints.length}`);
             addTemporaryPoint(cartesian);
 
+            // Create or update the polyline
             if (drawingPoints.length === 1) {
                 const activeShape = viewer.entities.add({
                     polyline: {
@@ -88,21 +105,39 @@ export function setupFlyThroughTool(viewer) {
                 setToolState({ activeShape: activeShape });
             }
 
-            PopupService.showToolInstruction(
-                `Point ${drawingPoints.length} added. Continue clicking or right-click to start flythrough.`,
-                toolName
+            // Show popup only for significant milestones or after time intervals
+            const shouldShowPopup = (
+                drawingPoints.length === 1 ||   // First point
+                drawingPoints.length === 2 ||   // Second point (minimum for flythrough)
+                drawingPoints.length % 5 === 0 || // Every 5th point
+                (currentTime - lastPopupTime > 10000) // Every 10 seconds
             );
+
+            if (shouldShowPopup) {
+                const message = drawingPoints.length === 1
+                    ? "First point added. Click to add more points."
+                    : drawingPoints.length === 2
+                        ? "Minimum points reached. Add more or right-click to configure flythrough."
+                        : `${drawingPoints.length} points added. Right-click to start flythrough.`;
+
+                PopupService.showToolInstruction(message, toolName);
+                setToolState({ lastPopupTime: currentTime });
+            }
 
             if (viewer.scene.requestRenderMode) {
                 viewer.scene.requestRender();
             }
         } else {
-            console.warn("FlyThroughTool: Could not pick a valid position on LEFT_CLICK.");
-            PopupService.showToolInstruction(
-                "Could not determine 3D position. Please click directly on the globe surface.",
-                toolName,
-                true
-            );
+            console.warn("FlyThroughTool: Could not pick valid position");
+            // Throttled error message
+            if (currentTime - lastPopupTime > 5000) {
+                PopupService.showToolInstruction(
+                    "Please click directly on the globe surface.",
+                    toolName,
+                    true
+                );
+                setToolState({ lastPopupTime: currentTime });
+            }
         }
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
@@ -129,109 +164,158 @@ export function setupFlyThroughTool(viewer) {
 
     handler.setInputAction(throttledMouseMoveHandler, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
-    // RIGHT_CLICK Handler
+    // RIGHT_CLICK Handler with configuration dialog
     handler.setInputAction(async () => {
-        console.log("FlyThroughTool: Right-click detected, finalizing path");
-        removeEventHandlers();
+        console.log("FlyThroughTool: Right-click detected, showing configuration");
 
-        const { drawingPoints, activeShape } = getToolState();
-        PopupService.hide();
+        const { drawingPoints, activeShape, config } = getToolState();
+        PopupService.hide(); // Hide any current instruction popup
 
         if (drawingPoints.length < 2) {
             console.warn("FlyThroughTool: Not enough points for flythrough");
-            clearDrawing();
-            ToolManagementService.deactivateCurrentTool();
             PopupService.showToolInstruction(
-                `Minimum 2 points required for flythrough path.`,
+                `Need at least 2 points for flythrough. Currently have ${drawingPoints.length}.`,
                 `FlyThrough Error`,
                 true
             );
             return;
         }
 
-        if (Cesium.defined(activeShape)) {
-            viewer.entities.remove(activeShape);
-            setToolState({ activeShape: null });
-        }
+        // Show configuration dialog using PopupService
+        PopupService.showFlyThroughForm({
+            height: config.cameraHeight,
+            tilt: config.cameraTilt,
+            speed: config.cameraSpeed,
+            duration: null, // FlyThroughPopup will calculate or let user input duration
+            loop: false,    // Assuming not looping by default from the form
+            onStart: async (formConfig) => {
+                console.log("FlyThroughTool: Configuration confirmed:", formConfig);
 
-        clearDrawing();
+                // FIXED: Create the final config object with proper mapping from form values
+                const finalConfig = {
+                    cameraHeight: formConfig.height,      // Map 'height' to 'cameraHeight'
+                    cameraSpeed: formConfig.speed,        // Map 'speed' to 'cameraSpeed'  
+                    cameraTilt: formConfig.tilt,          // Map 'tilt' to 'cameraTilt'
+                    duration: formConfig.duration,        // Keep duration as is
+                    loop: formConfig.loop,                // Keep loop as is
+                    showProgressUpdates: config.showProgressUpdates, // Keep existing setting
+                    pauseBetweenPoints: config.pauseBetweenPoints    // Keep existing setting
+                };
 
-        PopupService.showToolInstruction(
-            'Preparing flythrough path...',
-            'Processing FlyThrough',
-            false
-        );
+                console.log("FlyThroughTool: Final mapped config:", finalConfig);
 
-        try {
-            console.log("FlyThroughTool: Starting terrain sampling with", drawingPoints.length, "points");
-            const { sampledPositions } = await sampleTerrainForFlyThrough(drawingPoints, viewer);
+                // Remove event handlers and clean up drawing
+                removeEventHandlers();
 
-            if (sampledPositions.length < 2) {
-                PopupService.showToolInstruction(
-                    'Could not create valid flythrough path. Please try selecting different points.',
-                    'FlyThrough Error',
-                    true
-                );
-                ToolManagementService.deactivateCurrentTool();
-                return;
-            }
-
-            const flythroughPath = viewer.entities.add({
-                polyline: {
-                    positions: sampledPositions,
-                    width: 5,
-                    material: Cesium.Color.CYAN,
-                    clampToGround: true,
-                    show: true,
+                if (Cesium.defined(activeShape)) {
+                    viewer.entities.remove(activeShape);
+                    setToolState({ activeShape: null });
                 }
-            });
-            setToolState({ flythroughPath: flythroughPath });
+                clearDrawing();
 
-            PopupService.showToolInstruction(
-                'Starting flythrough animation...',
-                'FlyThrough Active',
-                false
-            );
-
-            await animateFlyThrough(sampledPositions, viewer);
-
-        } catch (error) {
-            console.error("FlyThroughTool: Error during flythrough:", error);
-            PopupService.showToolInstruction(
-                `Flythrough failed: ${error.message || 'Unknown error'}`,
-                `FlyThrough Error`,
-                true
-            );
-            ToolManagementService.deactivateCurrentTool();
-        }
-
-        if (viewer.scene.requestRenderMode) {
-            viewer.scene.requestRender();
-        }
+                // Start flythrough with the properly mapped configuration
+                await startConfiguredFlyThrough(drawingPoints, viewer, finalConfig);
+            },
+            onCancel: () => {
+                console.log("FlyThroughTool: Configuration cancelled");
+                PopupService.showToolInstruction(
+                    "Flythrough setup cancelled. Continue adding points or right-click again.",
+                    toolName
+                );
+            }
+        });
 
     }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
 }
 
 /**
- * Samples terrain elevations along the drawn path for a smooth flythrough.
+ * Starts the flythrough with user-specified configuration
  */
-async function sampleTerrainForFlyThrough(points, viewer) {
-    console.log("DEBUG: sampleTerrainForFlyThrough - input points:", points.length);
+async function startConfiguredFlyThrough(drawingPoints, viewer, config) {
+    PopupService.showToolInstruction(
+        'Preparing flythrough path...',
+        'Processing FlyThrough',
+        false
+    );
+
+    try {
+        console.log("FlyThroughTool: Starting terrain sampling with config:", config);
+        const { sampledPositions } = await sampleTerrainForFlyThrough(drawingPoints, viewer, config.cameraHeight);
+
+        if (sampledPositions.length < 2) {
+            PopupService.showToolInstruction(
+                'Could not create valid flythrough path. Please try different points.',
+                'FlyThrough Error',
+                true
+            );
+            ToolManagementService.deactivateCurrentTool();
+            return;
+        }
+
+        const flythroughPath = viewer.entities.add({
+            polyline: {
+                positions: sampledPositions,
+                width: 5,
+                material: Cesium.Color.CYAN,
+                clampToGround: true,
+                show: true,
+            }
+        });
+        setToolState({ flythroughPath: flythroughPath });
+
+        if (config.showProgressUpdates) {
+            PopupService.showToolInstruction(
+                `Starting flythrough: ${config.cameraHeight}m height, ${config.cameraSpeed}m/s speed, ${config.cameraTilt}° tilt (0°=down, 90°=horizontal)`,
+                'FlyThrough Active',
+                false
+            );
+        }
+
+        // Store start time in config for completion message
+        config._startTime = Date.now();
+
+        // Pass a callback to animateConfiguredFlyThrough to show the completion popup
+        await animateConfiguredFlyThrough(sampledPositions, viewer, config, () => {
+            const totalTime = ((Date.now() - config._startTime) / 1000).toFixed(1);
+            PopupService.showToolInstruction(
+                `Flythrough completed! Total time: ${totalTime}s`,
+                "Success",
+                true // Show dismiss button for final success message
+            );
+            ToolManagementService.deactivateCurrentTool(); // Deactivate tool after successful completion and popup
+        });
+
+    } catch (error) {
+        console.error("FlyThroughTool: Error during flythrough:", error);
+        PopupService.showToolInstruction(
+            `Flythrough failed: ${error.message || 'Unknown error'}`,
+            `FlyThrough Error`,
+            true
+        );
+        ToolManagementService.deactivateCurrentTool();
+    }
+
+    if (viewer.scene.requestRenderMode) {
+        viewer.scene.requestRender();
+    }
+}
+
+/**
+ * Enhanced terrain sampling with configurable camera height
+ */
+async function sampleTerrainForFlyThrough(points, viewer, cameraHeight = 20) {
+    console.log("DEBUG: sampleTerrainForFlyThrough - input points:", points.length, "height:", cameraHeight);
 
     if (points.length < 2) {
-        console.warn("FlyThroughTool: Less than 2 points provided for terrain sampling");
+        console.warn("FlyThroughTool: Less than 2 points provided");
         return { sampledPositions: [] };
     }
 
-    const cleanPoints = points.filter(p => 
-        Cesium.defined(p) && 
+    const cleanPoints = points.filter(p =>
+        Cesium.defined(p) &&
         !isNaN(p.x) && !isNaN(p.y) && !isNaN(p.z)
     );
-    
-    if (cleanPoints.length !== points.length) {
-        console.warn(`FlyThroughTool: Removed ${points.length - cleanPoints.length} invalid points`);
-    }
-    
+
     if (cleanPoints.length < 2) {
         console.error("FlyThroughTool: Not enough valid points after filtering");
         return { sampledPositions: [] };
@@ -240,26 +324,27 @@ async function sampleTerrainForFlyThrough(points, viewer) {
     let finalPositions = [];
 
     if (Cesium.defined(viewer.terrainProvider) && viewer.terrainProvider.ready) {
-        console.log("FlyThroughTool: Using terrain provider for elevation sampling");
-        
-        const cartographicPoints = cleanPoints.map(p => 
+        console.log("FlyThroughTool: Using terrain provider with height offset:", cameraHeight);
+
+        const cartographicPoints = cleanPoints.map(p =>
             viewer.scene.globe.ellipsoid.cartesianToCartographic(p)
         );
 
         const samplePoints = [];
         samplePoints.push(...cartographicPoints);
-        
+
+        // Add interpolated points for smoother path
         for (let i = 0; i < cartographicPoints.length - 1; i++) {
             const p1 = cartographicPoints[i];
             const p2 = cartographicPoints[i + 1];
-            
+
             const cart1 = viewer.scene.globe.ellipsoid.cartographicToCartesian(p1);
-            const cart2 = viewer.scene.globe.ellipsoid.cartographicToCartesian(p2);
+            const cart2 = viewer.scene.globe.ellipsoid.cartesianToCartesian(p2);
             const distance = Cesium.Cartesian3.distance(cart1, cart2);
-            
+
             if (distance > 1000) {
-                const numSamples = Math.min(15, Math.floor(distance / 1000));
-                
+                const numSamples = Math.min(20, Math.floor(distance / 500));
+
                 for (let j = 1; j < numSamples; j++) {
                     const t = j / numSamples;
                     const interpolated = new Cesium.Cartographic(
@@ -275,23 +360,22 @@ async function sampleTerrainForFlyThrough(points, viewer) {
         try {
             console.log(`FlyThroughTool: Sampling terrain for ${samplePoints.length} points`);
             const updatedCartographics = await Cesium.sampleTerrainMostDetailed(
-                viewer.terrainProvider, 
+                viewer.terrainProvider,
                 samplePoints
             );
-            
-            const heightOffset = 20; // Much lower height for ground-level view
+
             finalPositions = updatedCartographics.map(c => {
-                const adjustedHeight = (c.height || 0) + heightOffset;
+                const adjustedHeight = (c.height || 0) + cameraHeight;
                 const adjustedCartographic = new Cesium.Cartographic(
-                    c.longitude, 
-                    c.latitude, 
+                    c.longitude,
+                    c.latitude,
                     adjustedHeight
                 );
                 return viewer.scene.globe.ellipsoid.cartographicToCartesian(adjustedCartographic);
             });
-            
+
             console.log("FlyThroughTool: Terrain sampling completed successfully");
-            
+
         } catch (error) {
             console.error("FlyThroughTool: Terrain sampling failed:", error);
             finalPositions = cleanPoints.map(p => {
@@ -299,147 +383,197 @@ async function sampleTerrainForFlyThrough(points, viewer) {
                 const elevated = new Cesium.Cartographic(
                     cartographic.longitude,
                     cartographic.latitude,
-                    (cartographic.height || 0) + 30 // Lower fallback height
+                    (cartographic.height || 0) + cameraHeight
                 );
                 return viewer.scene.globe.ellipsoid.cartographicToCartesian(elevated);
             });
             console.log("FlyThroughTool: Using fallback elevation");
         }
     } else {
-        console.warn("FlyThroughTool: No terrain provider available, using ellipsoid heights");
+        console.warn("FlyThroughTool: No terrain provider, using ellipsoid heights");
         finalPositions = cleanPoints.map(p => {
             const cartographic = viewer.scene.globe.ellipsoid.cartesianToCartographic(p);
             const elevated = new Cesium.Cartographic(
                 cartographic.longitude,
                 cartographic.latitude,
-                (cartographic.height || 0) + 25 // Low height for ground-level view
+                (cartographic.height || 0) + cameraHeight
             );
             return viewer.scene.globe.ellipsoid.cartographicToCartesian(elevated);
         });
     }
 
-    const validPositions = finalPositions.filter(p => 
-        Cesium.defined(p) && 
+    const validPositions = finalPositions.filter(p =>
+        Cesium.defined(p) &&
         !isNaN(p.x) && !isNaN(p.y) && !isNaN(p.z)
     );
 
-    if (validPositions.length !== finalPositions.length) {
-        console.warn(`FlyThroughTool: Filtered out ${finalPositions.length - validPositions.length} invalid positions`);
-    }
-
-    console.log(`FlyThroughTool: Returning ${validPositions.length} valid positions for animation`);
+    console.log(`FlyThroughTool: Returning ${validPositions.length} valid positions`);
     return { sampledPositions: validPositions };
 }
 
 /**
- * Animates the camera along the defined path with proper viewing angle.
+ * Calculate camera orientation for a specific flight segment
+ * @param {Cesium.Cartesian3} currentPosition Current camera position
+ * @param {Cesium.Cartesian3} nextPosition Next position in the path
+ * @param {number} tiltAngle Camera tilt angle in degrees
+ * @returns {object} Camera orientation with direction and up vectors
  */
-async function animateFlyThrough(pathPositions, viewer) {
-    console.log("DEBUG: animateFlyThrough - starting with", pathPositions.length, "positions");
+function calculateSegmentOrientation(currentPosition, nextPosition, tiltAngle) {
+    // Direction vector from current to next position (where we're heading)
+    const direction = Cesium.Cartesian3.subtract(nextPosition, currentPosition, new Cesium.Cartesian3());
+    const normalizedDirection = Cesium.Cartesian3.normalize(direction, new Cesium.Cartesian3());
+
+    // Get surface normal at current position (points up from ground)
+    const surfaceNormal = Cesium.Cartesian3.normalize(currentPosition, new Cesium.Cartesian3());
+
+    // Calculate right vector (perpendicular to both direction and surface normal)
+    const right = Cesium.Cartesian3.cross(normalizedDirection, surfaceNormal, new Cesium.Cartesian3());
+    const normalizedRight = Cesium.Cartesian3.normalize(right, new Cesium.Cartesian3());
+
+    // Correct tilt calculation
+    // 0° = looking straight down (along surface normal)
+    // 90° = looking horizontally (along direction vector)
+    const tiltRadians = Cesium.Math.toRadians(tiltAngle);
+
+    // Create tilted direction by blending surface normal and forward direction
+    const tiltedDirection = new Cesium.Cartesian3();
+
+    if (tiltAngle === 0) {
+        // Looking straight down
+        Cesium.Cartesian3.negate(surfaceNormal, tiltedDirection);
+    } else if (tiltAngle === 90) {
+        // Looking horizontally forward
+        Cesium.Cartesian3.clone(normalizedDirection, tiltedDirection);
+    } else {
+        // Blend between down and forward based on tilt angle
+        const downWeight = Math.cos(tiltRadians);
+        const forwardWeight = Math.sin(tiltRadians);
+
+        const downVector = Cesium.Cartesian3.negate(surfaceNormal, new Cesium.Cartesian3());
+        const forwardVector = normalizedDirection;
+
+        // Weighted combination
+        const weightedDown = Cesium.Cartesian3.multiplyByScalar(downVector, downWeight, new Cesium.Cartesian3());
+        const weightedForward = Cesium.Cartesian3.multiplyByScalar(forwardVector, forwardWeight, new Cesium.Cartesian3());
+
+        Cesium.Cartesian3.add(weightedDown, weightedForward, tiltedDirection);
+        Cesium.Cartesian3.normalize(tiltedDirection, tiltedDirection);
+    }
+
+    // Calculate proper up vector
+    const cameraUp = Cesium.Cartesian3.cross(normalizedRight, tiltedDirection, new Cesium.Cartesian3());
+    const normalizedCameraUp = Cesium.Cartesian3.normalize(cameraUp, new Cesium.Cartesian3());
+
+    return {
+        direction: tiltedDirection,
+        up: normalizedCameraUp
+    };
+}
+
+/**
+ * Enhanced animation with smooth continuous movement and direction changes
+ * @param {Array<Cesium.Cartesian3>} pathPositions The calculated path positions.
+ * @param {Cesium.Viewer} viewer The Cesium Viewer instance.
+ * @param {object} config The flythrough configuration.
+ * @param {Function} onComplete Callback function to execute when the animation finishes.
+ */
+async function animateConfiguredFlyThrough(pathPositions, viewer, config, onComplete) {
+    console.log("DEBUG: animateConfiguredFlyThrough - config:", config);
 
     if (pathPositions.length < 2) {
         console.warn("FlyThroughTool: Not enough points to animate");
+        onComplete();
         return;
     }
 
-    // Calculate duration
+    // Calculate total distance and duration based on user speed
     let totalDistance = 0;
     for (let i = 0; i < pathPositions.length - 1; i++) {
         totalDistance += Cesium.Cartesian3.distance(pathPositions[i], pathPositions[i + 1]);
     }
 
-    const baseSpeed = 5; // Much slower speed for detailed viewing (50 m/s)
-    const minDuration = 8;
-    const maxDuration = 60;
-    const duration = Math.max(minDuration, Math.min(maxDuration, totalDistance / baseSpeed));
-    
-    console.log(`FlyThroughTool: Animation - ${totalDistance.toFixed(0)}m path, ${duration.toFixed(1)}s duration`);
+    // Use duration from config if provided, otherwise calculate based on speed
+    let duration;
+    if (config.duration && config.duration > 0) {
+        duration = config.duration;
+        // If duration is specified, adjust speed to match
+        config.cameraSpeed = totalDistance / duration;
+        console.log(`FlyThroughTool: Using specified duration ${duration}s, adjusted speed to ${config.cameraSpeed.toFixed(1)}m/s`);
+    } else {
+        duration = totalDistance / config.cameraSpeed;
+    }
 
-    // Fly through each point sequentially
+    console.log(`FlyThroughTool: ${totalDistance.toFixed(0)}m path, ${duration.toFixed(1)}s duration at ${config.cameraSpeed.toFixed(1)}m/s`);
+
     let currentIndex = 0;
-    
+
+    // Position camera at first point with initial orientation
+    const firstOrientation = calculateSegmentOrientation(pathPositions[0], pathPositions[1], config.cameraTilt);
+    viewer.camera.setView({
+        destination: pathPositions[0],
+        orientation: firstOrientation
+    });
+
     const flyToNextPoint = () => {
+        console.log(`FlyThroughTool: flyToNextPoint called, currentIndex: ${currentIndex}, total points: ${pathPositions.length}`);
+        
+        // Check if we've completed all segments
         if (currentIndex >= pathPositions.length - 1) {
-            // Animation complete
-            console.log("FlyThroughTool: Animation completed successfully");
+            console.log("FlyThroughTool: Animation completed successfully - reached all points");
             setToolState({ animation: null });
-            PopupService.showToolInstruction("Flythrough completed!", "Success", false);
-            setTimeout(() => {
-                ToolManagementService.deactivateCurrentTool();
-            }, 2000);
+
+            if (config.showProgressUpdates) {
+                PopupService.hide();
+            }
+            onComplete();
             return;
         }
 
-        // Position camera at ground level with the tilted viewing angle
         const currentPosition = pathPositions[currentIndex];
         const nextPosition = pathPositions[currentIndex + 1];
-        
-        // Get terrain height at current position for ground clamping
-        const currentCartographic = viewer.scene.globe.ellipsoid.cartesianToCartographic(currentPosition);
-        const groundHeight = currentCartographic.height || 0;
-        
-        // Clamp camera to just above ground level (5-10 meters above terrain)
-        const cameraHeight = groundHeight + 10; // 10 meters above ground
-        const clampedCameraCartographic = new Cesium.Cartographic(
-            currentCartographic.longitude,
-            currentCartographic.latitude,
-            cameraHeight
-        );
-        const clampedCameraPosition = viewer.scene.globe.ellipsoid.cartographicToCartesian(clampedCameraCartographic);
-        
-        const segmentDuration = duration / (pathPositions.length - 1);
-        
-        console.log(`Flying from point ${currentIndex + 1} to ${currentIndex + 2}/${pathPositions.length} at ${cameraHeight.toFixed(1)}m height`);
-        
-        // Calculate direction vector from current to next position
-        const direction = Cesium.Cartesian3.subtract(nextPosition, clampedCameraPosition, new Cesium.Cartesian3());
-        const normalizedDirection = Cesium.Cartesian3.normalize(direction, new Cesium.Cartesian3());
-        
-        // Get the surface normal (up vector) at current position
-        const surfaceNormal = Cesium.Cartesian3.normalize(clampedCameraPosition, new Cesium.Cartesian3());
-        
-        // Tilt the direction slightly downward to see the path ahead (15 degrees)
-        const tiltAngle = Cesium.Math.toRadians(15); // Gentle downward tilt to see the route
-        
-        // Calculate right vector (perpendicular to both direction and surface normal)
-        const right = Cesium.Cartesian3.cross(normalizedDirection, surfaceNormal, new Cesium.Cartesian3());
-        const normalizedRight = Cesium.Cartesian3.normalize(right, new Cesium.Cartesian3());
-        
-        // Create a quaternion rotation to tilt the direction vector downward
-        const rotationAxis = normalizedRight;
-        const quaternion = Cesium.Quaternion.fromAxisAngle(rotationAxis, -tiltAngle);
-        const rotationMatrix = Cesium.Matrix3.fromQuaternion(quaternion);
-        
-        // Apply the rotation to get the tilted direction
-        const tiltedDirection = Cesium.Matrix3.multiplyByVector(rotationMatrix, normalizedDirection, new Cesium.Cartesian3());
-        
-        // Calculate the proper up vector for the tilted camera
-        const cameraUp = Cesium.Cartesian3.cross(normalizedRight, tiltedDirection, new Cesium.Cartesian3());
-        const normalizedCameraUp = Cesium.Cartesian3.normalize(cameraUp, new Cesium.Cartesian3());
 
-        const flightPromise = viewer.camera.flyTo({
-            destination: clampedCameraPosition, // Use clamped ground-level position
-            orientation: {
-                direction: tiltedDirection,
-                up: normalizedCameraUp
-            },
+        console.log(`FlyThroughTool: Flying from point ${currentIndex} to point ${currentIndex + 1}`);
+
+        // Calculate segment duration based on distance to maintain constant speed
+        const segmentDistance = Cesium.Cartesian3.distance(currentPosition, nextPosition);
+        const segmentDuration = segmentDistance / config.cameraSpeed;
+
+        // Show progress if enabled
+        if (config.showProgressUpdates && (currentIndex % 3 === 0 || currentIndex < 5)) {
+            const progress = Math.round((currentIndex / (pathPositions.length - 1)) * 100);
+            const elapsed = ((Date.now() - config._startTime) / 1000).toFixed(0);
+            PopupService.showToolInstruction(
+                `Flying: ${progress}% complete (${elapsed}s elapsed) - Point ${currentIndex + 1}/${pathPositions.length}`,
+                'FlyThrough Progress',
+                false
+            );
+        }
+
+        // Calculate orientation for current segment
+        const currentOrientation = calculateSegmentOrientation(currentPosition, nextPosition, config.cameraTilt);
+
+        // Simple and reliable flight - just fly to the next point
+        viewer.camera.flyTo({
+            destination: nextPosition,
+            orientation: currentOrientation,
             duration: segmentDuration,
             easingFunction: Cesium.EasingFunction.CUBIC_IN_OUT,
             complete: () => {
+                console.log(`FlyThroughTool: Completed flight to point ${currentIndex + 1}`);
                 currentIndex++;
-                // Continue to next point after a brief pause
-                setTimeout(flyToNextPoint, 200);
+                // Continue to next point after a short pause
+                setTimeout(flyToNextPoint, config.pauseBetweenPoints);
             },
             cancel: () => {
-                console.log("FlyThroughTool: Animation cancelled");
+                console.log("FlyThroughTool: Animation cancelled by user");
                 setToolState({ animation: null });
                 PopupService.showToolInstruction("Flythrough cancelled", "Cancelled", true);
                 ToolManagementService.deactivateCurrentTool();
             }
         });
 
-        // Store the flight promise for cancellation
-        setToolState({ 
+        // Store animation reference for potential cancellation
+        setToolState({
             animation: {
                 cancel: () => {
                     viewer.camera.cancelFlight();
@@ -448,9 +582,9 @@ async function animateFlyThrough(pathPositions, viewer) {
         });
     };
 
-    // Start the sequential flight
-    flyToNextPoint();
-    console.log(`FlyThroughTool: Starting ground-level flight through ${pathPositions.length} points with 15° downward tilt`);
+    // Start the flythrough after a short delay
+    setTimeout(flyToNextPoint, 300);
+    console.log(`FlyThroughTool: Starting smooth flight with ${config.cameraHeight}m height, ${config.cameraTilt}° tilt (0°=down, 90°=horizontal), ${config.cameraSpeed.toFixed(1)}m/s speed`);
 }
 
 /**
@@ -458,7 +592,7 @@ async function animateFlyThrough(pathPositions, viewer) {
  */
 export function stopFlyThrough() {
     console.log("FlyThroughTool: Stopping and cleaning up");
-    
+
     const { animation, viewer, flythroughPath } = getToolState();
 
     if (Cesium.defined(animation)) {
@@ -481,8 +615,10 @@ export function stopFlyThrough() {
         activeShape: null,
         animation: null,
         mousePosition: null,
+        config: { ...DEFAULT_CONFIG }, // Reset config to default
+        lastPopupTime: 0
     });
 
-    PopupService.hide();
+    PopupService.hide(); // Ensure popup is hidden on tool deactivation
     console.log("FlyThroughTool: Cleanup completed");
 }

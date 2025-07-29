@@ -14,11 +14,15 @@ import {
 } from "../components/Menu/SubSidebars/BasicTools/tools/ViewshieldAnalysisTool.js";
 import { setupTerrainProfileTool } from "../components/Menu/SubSidebars/BasicTools/tools/TerrainProfileTool.js";
 
-// Corrected import for FlyThroughTool: Import 'stopFlyThrough' not 'clearFlyThroughTool'
+// --- START OF IMPORTANT CHANGE FOR FLYTHROUGHTOOL IMPORT ---
+// Corrected import for FlyThroughTool: Only import what your FlyThroughTool.js actually exports.
+// Your provided FlyThroughTool.js exports 'setupFlyThroughTool' and 'stopFlyThrough'.
 import {
     setupFlyThroughTool,
-    stopFlyThrough, // <-- Corrected import name
+    stopFlyThrough,
 } from "../components/Menu/SubSidebars/BasicTools/tools/FlyThroughTool.js";
+// --- END OF IMPORTANT CHANGE FOR FLYTHROUGHTOOL IMPORT ---
+
 
 // Import helper functions and common drawing methods
 import {
@@ -29,6 +33,9 @@ import {
     addPersistentEntity,
     removeAllToolEntities,
 } from "../components/Menu/SubSidebars/BasicTools/tool-helpers/tools-helpers.js";
+
+// Import the FlyThroughModePopup component
+import FlyThroughModePopup from "../components/Popup/popups/FlyThroughModePopup.vue"; // Adjust path as necessary
 
 class ToolManagementServiceClass {
     activeTool$ = new BehaviorSubject(null);
@@ -122,18 +129,49 @@ class ToolManagementServiceClass {
                 setupAreaMeasureTool(false, true);
                 break;
             case "Viewshield Analysis":
-                setupViewshieldAnalysisTool(viewer, {
+                PopupService.showViewshedForm({
                     observerHeight: 1.75,
                     viewDistance: 5000,
                     rayCount: 64,
+                    onStart: (params) => {
+                        console.log("[TMS]: Starting Viewshed Analysis with params:", params);
+                        setupViewshieldAnalysisTool(viewer, params);
+                    },
+                    onCancel: () => {
+                        console.log("[TMS]: Viewshed Analysis setup cancelled.");
+                        this.deactivateCurrentTool();
+                    },
                 });
                 break;
             case "Terrain Profile":
                 setupTerrainProfileTool(viewer);
                 break;
-            // NEW: Case for FlyThrough Tool
             case "Flythrough Tool": // This name must match exactly what's in BasicToolSidebar.vue
-                setupFlyThroughTool(viewer); // Pass viewer to the tool's setup function
+                PopupService.show({
+                    component: FlyThroughModePopup,
+                    title: "Fly-Through Mode Selection",
+                    onSelect: (mode) => {
+                        console.log(`[TMS]: Flythrough Mode selected in popup: ${mode}`);
+                        if (mode === "path") {
+                            // --- START OF IMPORTANT CHANGE FOR FLYTHROUGHTOOL ACTIVATION ---
+                            // Call setupFlyThroughTool directly. Your FlyThroughTool.js
+                            // handles the subsequent drawing and config form internally.
+                            setupFlyThroughTool(viewer);
+                            // --- END OF IMPORTANT CHANGE FOR FLYTHROUGHTOOL ACTIVATION ---
+                        } else {
+                            // Handle other modes if necessary, or just deactivate
+                            console.log(`[TMS]: ${mode} mode selected. Not activating FlyThroughTool for this mode yet.`);
+                            this.deactivateCurrentTool(); // Deactivate if not 'path' for now
+                        }
+                    },
+                    onCancel: () => {
+                        console.log("[TMS]: Flythrough Mode selection cancelled.");
+                        this.deactivateCurrentTool(); // Deactivate the tool if the popup is cancelled
+                    },
+                    props: {
+                        // You can pass any props to the FlyThroughModePopup here if needed
+                    }
+                });
                 break;
             default:
                 console.warn(`[TMS]: Unknown tool requested: ${toolName}`);
@@ -150,7 +188,6 @@ class ToolManagementServiceClass {
                 case "Viewshield Analysis":
                     clearViewshield();
                     break;
-                // Corrected cleanup for FlyThrough Tool
                 case "Flythrough Tool":
                     stopFlyThrough(); // <-- Call 'stopFlyThrough'
                     break;
