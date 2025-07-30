@@ -26,6 +26,12 @@ import {
     stopFlightModeTool,
 } from "../components/Menu/SubSidebars/BasicTools/tools/FlightModeTool.js";
 
+// Import MarkerModeTool
+import {
+    setupMarkerModeTool,
+    stopMarkerModeTool,
+} from "../components/Menu/SubSidebars/BasicTools/tools/MarkerModeTool.js";
+
 // Import helper functions and common drawing methods
 import {
     clearDrawing,
@@ -161,18 +167,18 @@ class ToolManagementServiceClass {
                             // Activate flight mode with keyboard controls
                             setupFlightModeTool(viewer);
                         } else if (mode === "marker") {
-                            // Handle marker mode (not implemented yet)
-                            console.log(`[TMS]: Marker mode selected. Not implemented yet.`);
+                            // Activate marker mode
+                            console.log(`[TMS]: Activating Marker Mode flythrough`);
+                            setupMarkerModeTool(viewer);
+                        } else {
+                            // Handle other modes if necessary, or just deactivate
+                            console.log(`[TMS]: ${mode} mode selected. Not implemented yet.`);
                             PopupService.showToolInstruction(
-                                "Marker mode is not yet implemented.",
+                                `${mode} mode is not yet implemented.`,
                                 "Feature Not Available",
                                 true
                             );
                             this.deactivateCurrentTool();
-                        } else {
-                            // Handle other modes if necessary, or just deactivate
-                            console.log(`[TMS]: ${mode} mode selected. Not implemented yet.`);
-                            this.deactivateCurrentTool(); // Deactivate if mode not implemented
                         }
                     },
                     onCancel: () => {
@@ -201,9 +207,11 @@ class ToolManagementServiceClass {
                     break;
                 case "Flythrough Tool":
                     // Check which mode is active and call appropriate cleanup
-                    const { flightActive } = getToolState();
+                    const { flightActive, activeMarkerMode } = getToolState(); 
                     if (flightActive) {
                         stopFlightModeTool(); // Stop flight mode
+                    } else if (activeMarkerMode) {
+                        stopMarkerModeTool(); // Stop marker mode
                     } else {
                         stopFlyThrough(); // Stop path-based flythrough
                     }

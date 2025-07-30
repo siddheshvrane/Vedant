@@ -1,9 +1,5 @@
 import { BehaviorSubject } from "rxjs";
 
-/**
- * PopupService: Manages the display and data for *all* application-wide popups.
- * This service now directly accepts a Vue component to render, making it more flexible.
- */
 class PopupServiceClass {
     // Controls overall visibility of the single popup component
     isVisible$ = new BehaviorSubject(false);
@@ -119,28 +115,6 @@ class PopupServiceClass {
         return new Promise((resolve, reject) => {
             this._confirmationResolver = resolve;
             this._confirmationRejecter = reject;
-
-            // Dynamically import ConfirmationPopup component if it's separate
-            // For now, assuming it's available or managed by a parent Popup.vue
-            // This is a placeholder, you'd integrate this with your actual ConfirmationPopup.vue
-            // For a simpler setup, you might have a generic popup component that
-            // renders different internal components based on the 'type' data,
-            // but the current approach suggests passing the component directly.
-            // If ConfirmationPopup.vue is a distinct component, you'd need to import it.
-            // For this example, we'll assume a generic 'type' approach for `showConfirmation`
-            // and `showToolInstruction` for simplicity, or you'd pass a dedicated ConfirmationPopup component.
-
-            // Given your original PopupService structure, it seems you have a single <Popup> component
-            // that then renders sub-components based on `popupContent$.type`.
-            // Let's adapt this to continue using the 'type' for known internal popups,
-            // while the new `show({ component, ... })` is for external, dynamic components.
-
-            // The 'type' based popups will still use the old show(type, data) internally,
-            // but the public `show` method now takes the component directly.
-            // This requires your main Popup.vue to dynamically render the component property.
-
-            // For `showConfirmation`, we'll keep the `type` for now and assume the main Popup.vue
-            // handles rendering the ConfirmationPopup based on `type === 'confirmation'`.
             this._showInternalTypeBasedPopup("confirmation", {
                 message,
                 title,
@@ -220,11 +194,6 @@ class PopupServiceClass {
     }
 
     /**
-     * NEW: Convenience method to show the 'flyThroughForm' popup.
-     * This method is now redundant with the new generic `show` method
-     * if `FlyThroughModePopup` is passed directly.
-     * I'm keeping it for consistency but ideally it would be removed
-     * in favor of the direct `PopupService.show({ component: FlyThroughModePopup, ... })` call.
      *
      * @deprecated Use `PopupService.show({ component: FlyThroughModePopup, ... })` directly.
      * @param {object} params - { height?: number, tilt?: number, speed?: number, duration?: number, loop?: boolean, onStart: Function, onCancel: Function }
@@ -234,6 +203,46 @@ class PopupServiceClass {
         this._showInternalTypeBasedPopup("flyThroughForm", params);
     }
 
+    /**
+     * NEW: Shows the marker sequence configuration form
+     * @param {object} params - Marker configuration parameters
+     * @param {Array} params.markers - Array of marker objects with id, order, waitTime, coordinates, description
+     * @param {number} params.totalDuration - Total estimated duration
+     * @param {boolean} params.enableSmoothing - Whether to enable camera smoothing
+     * @param {number} params.previewDuration - Duration for marker preview
+     * @param {Function} params.onStart - Callback when flythrough starts
+     * @param {Function} params.onPreview - Callback when marker is previewed
+     * @param {Function} params.onCancel - Callback when cancelled
+     */
+    showMarkerSequenceForm(params) {
+        // Import MarkerSequencePopup dynamically to avoid circular dependencies
+        // You might need to adjust this import path based on your project structure
+        import('../components/Popup/popups/MarkerSequencePopup.vue').then(({ default: MarkerSequencePopup }) => {
+            this.show({
+                component: MarkerSequencePopup,
+                title: "🎯 Configure Marker Flythrough",
+                props: {
+                    markers: params.markers || [],
+                    totalDuration: params.totalDuration || 0,
+                    enableSmoothing: params.enableSmoothing !== undefined ? params.enableSmoothing : true,
+                    previewDuration: params.previewDuration || 2.0,
+                    onStart: params.onStart,
+                    onPreview: params.onPreview,
+                    onCancel: params.onCancel,
+                },
+                onSelect: params.onStart,
+                onCancel: params.onCancel,
+            });
+        }).catch(error => {
+            console.error("Failed to load MarkerSequencePopup component:", error);
+            // Fallback to a simple alert or instruction
+            this.showToolInstruction(
+                "Failed to load marker configuration popup. Please try again.",
+                "Error",
+                true
+            );
+        });
+    }
 
     /**
      * Resolves the pending confirmation promise. Called by the Popup component.

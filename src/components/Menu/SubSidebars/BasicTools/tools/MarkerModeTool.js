@@ -40,12 +40,15 @@ const MARKER_COLORS = [
 export function setupMarkerModeTool(viewer) {
     console.log("MarkerModeTool: Setting up marker-based flythrough tool");
 
-    // Initialize tool state
+    // Clear any existing handlers first
+    removeEventHandlers();
+
+    // Initialize tool state with fresh arrays
     setToolState({
         viewer: viewer,
         handler: viewer ? new Cesium.ScreenSpaceEventHandler(viewer.canvas) : null,
-        markerPoints: [],               // Array of marker data objects
-        markerEntities: [],             // Visual marker entities
+        markerPoints: [],               // Fresh array for marker data objects
+        markerEntities: [],             // Fresh array for visual marker entities
         activeMarkerMode: true,
         markerConfig: { ...DEFAULT_MARKER_CONFIG },
         nextMarkerId: 1,
@@ -56,25 +59,32 @@ export function setupMarkerModeTool(viewer) {
     const { handler } = getToolState();
     const toolName = "Marker Mode";
 
+    if (!handler) {
+        console.error("MarkerModeTool: Cannot create event handler - viewer not available");
+        return;
+    }
+
     // Show detailed initial instructions
     PopupService.showToolInstruction(
-        `📍 MARKER MODE INSTRUCTIONS:\n\n` +
-        `🖱️ CONTROLS:\n` +
-        `• Left-click to ADD waypoint markers\n` +
-        `• Right-click to FINISH and configure flythrough\n\n` +
-        `📋 WHAT GETS RECORDED:\n` +
+        `MARKER MODE INSTRUCTIONS:\n\n` +
+        `CONTROLS:\n` +
+        `• LEFT-CLICK to ADD waypoint markers\n` +
+        `• RIGHT-CLICK to FINISH and configure flythrough\n\n` +
+        `WHAT GETS RECORDED:\n` +
         `• Location coordinates & elevation\n` +
         `• Camera position & viewing angle\n` +
         `• Zoom level & orientation\n` +
         `• Marker order for flythrough sequence\n\n` +
-        `🎯 Each marker captures your current camera view!\n` +
-        `Position your camera as desired, then left-click to mark.`,
+        `Each marker captures your current camera view!\n` +
+        `Position your camera as desired, then left-click to mark.\n\n` +
+        `TIP: Create multiple markers for zoom in/out effects!`,
         "Marker Mode Setup",
         true // Show dismiss button
     );
 
     // LEFT_CLICK Handler - Add marker point
     handler.setInputAction((click) => {
+        console.log("MarkerModeTool: Left click detected");
         const { isRecording } = getToolState();
         
         if (isRecording) {
@@ -83,8 +93,9 @@ export function setupMarkerModeTool(viewer) {
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
     // RIGHT_CLICK Handler - Finish recording and show configuration
-    handler.setInputAction(() => {
-        const { isRecording, markerPoints } = getToolState();
+    handler.setInputAction((click) => {
+        console.log("MarkerModeTool: Right click detected");
+        const { isRecording } = getToolState();
         
         if (isRecording) {
             finishMarkerRecording(viewer, toolName);
@@ -97,10 +108,13 @@ export function setupMarkerModeTool(viewer) {
  */
 function addMarkerPoint(viewer, click, toolName) {
     const currentTime = Date.now();
-    const { lastMarkerTime, nextMarkerId, markerPoints, markerEntities, markerConfig } = getToolState();
+    let { lastMarkerTime, nextMarkerId, markerPoints, markerEntities, markerConfig } = getToolState();
+
+    console.log(`MarkerModeTool: Attempting to add marker ${nextMarkerId}`);
 
     // Throttle marker creation to prevent accidental rapid clicking
-    if (currentTime - lastMarkerTime < 500) {
+    if (currentTime - lastMarkerTime < 300) { // Reduced from 500ms to 300ms
+        console.log("MarkerModeTool: Click throttled");
         return;
     }
 
@@ -157,12 +171,21 @@ function addMarkerPoint(viewer, click, toolName) {
         order: nextMarkerId // Initial order same as ID
     };
 
+    // Ensure we have fresh arrays to work with
+    if (!Array.isArray(markerPoints)) {
+        markerPoints = [];
+    }
+    if (!Array.isArray(markerEntities)) {
+        markerEntities = [];
+    }
+
     // Add to marker points array
-    markerPoints.push(markerData);
+    const newMarkerPoints = [...markerPoints, markerData];
 
     // Create visual marker entity
     const markerColor = MARKER_COLORS[(nextMarkerId - 1) % MARKER_COLORS.length];
     const markerEntity = viewer.entities.add({
+        id: `marker_${nextMarkerId}`, // Add unique ID for easier management
         position: cartesian,
         point: {
             pixelSize: markerConfig.markerSize * 2,
@@ -174,36 +197,39 @@ function addMarkerPoint(viewer, click, toolName) {
         },
         label: markerConfig.showMarkerLabels ? {
             text: `${nextMarkerId}`,
-            font: '14pt Arial',
+            font: '16pt Arial',
             fillColor: Cesium.Color.WHITE,
             outlineColor: Cesium.Color.BLACK,
             outlineWidth: 2,
             style: Cesium.LabelStyle.FILL_AND_OUTLINE,
             verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-            pixelOffset: new Cesium.Cartesian2(0, -30),
+            pixelOffset: new Cesium.Cartesian2(0, -35),
             disableDepthTestDistance: Number.POSITIVE_INFINITY
         } : undefined,
         description: createMarkerDescription(markerData)
     });
 
-    markerEntities.push(markerEntity);
+    const newMarkerEntities = [...markerEntities, markerEntity];
 
-    // Update state
+    // Update state with new arrays
     setToolState({
-        markerPoints: [...markerPoints],
-        markerEntities: [...markerEntities],
+        markerPoints: newMarkerPoints,
+        markerEntities: newMarkerEntities,
         nextMarkerId: nextMarkerId + 1,
         lastMarkerTime: currentTime
     });
 
-    // Show feedback
+    // Show feedback with current count
     PopupService.showToolInstruction(
-        `Marker ${nextMarkerId} added! Total: ${markerPoints.length} markers. Right-click when ready to configure flythrough.`,
-        toolName,
+        `Marker ${nextMarkerId} added!\n\n` +
+        `Total markers: ${newMarkerPoints.length}\n` +
+        `Continue left-clicking to add more markers, or right-click when ready to configure flythrough.`,
+        `${toolName} - ${newMarkerPoints.length} Markers`,
         false
     );
 
     console.log(`MarkerModeTool: Added marker ${nextMarkerId} at`, markerData.coordinates);
+    console.log(`MarkerModeTool: Total markers now: ${newMarkerPoints.length}`);
 
     if (viewer.scene.requestRenderMode) {
         viewer.scene.requestRender();
@@ -221,7 +247,8 @@ function createMarkerDescription(markerData) {
            `Lon: ${coords.longitude.toFixed(6)}°<br/>` +
            `Elevation: ${coords.elevation.toFixed(1)}m</p>` +
            `<p><strong>Camera Distance:</strong> ${markerData.distanceFromCamera.toFixed(1)}m</p>` +
-           `<p><strong>Wait Time:</strong> ${markerData.waitTime}s</p>`;
+           `<p><strong>Wait Time:</strong> ${markerData.waitTime}s</p>` +
+           `<p><strong>Order:</strong> ${markerData.order}</p>`;
 }
 
 /**
@@ -230,10 +257,25 @@ function createMarkerDescription(markerData) {
 function finishMarkerRecording(viewer, toolName) {
     const { markerPoints } = getToolState();
 
-    if (markerPoints.length === 0) {
+    console.log(`MarkerModeTool: Finishing recording with ${markerPoints ? markerPoints.length : 0} markers`);
+
+    if (!markerPoints || markerPoints.length === 0) {
         PopupService.showToolInstruction(
-            "No markers placed yet. Left-click to add waypoint markers first.",
-            "No Markers",
+            "No markers placed yet!\n\n" +
+            "Please left-click on the globe to add waypoint markers first.\n\n" +
+            "TIP: Position your camera at different zoom levels and angles for varied flythrough effects.",
+            "No Markers Found",
+            true
+        );
+        return;
+    }
+
+    if (markerPoints.length === 1) {
+        PopupService.showToolInstruction(
+            "Only 1 marker found!\n\n" +
+            "For a flythrough, you need at least 2 markers.\n\n" +
+            "Continue left-clicking to add more markers, or right-click again when ready.",
+            "Need More Markers",
             true
         );
         return;
@@ -245,7 +287,7 @@ function finishMarkerRecording(viewer, toolName) {
     // Remove event handlers for marker placement
     removeEventHandlers();
 
-    console.log(`MarkerModeTool: Finished recording ${markerPoints.length} markers`);
+    console.log(`MarkerModeTool: Successfully finished recording ${markerPoints.length} markers`);
 
     // Show marker configuration form
     showMarkerConfigurationForm(markerPoints, toolName);
@@ -255,6 +297,8 @@ function finishMarkerRecording(viewer, toolName) {
  * Shows the configuration form for marker-based flythrough
  */
 function showMarkerConfigurationForm(markerPoints, toolName) {
+    console.log("MarkerModeTool: Showing configuration form for", markerPoints.length, "markers");
+
     // Create form data structure for the popup
     const formData = {
         markers: markerPoints.map(marker => ({
@@ -264,7 +308,7 @@ function showMarkerConfigurationForm(markerPoints, toolName) {
             coordinates: marker.coordinates,
             description: `Marker ${marker.id} (${marker.coordinates.latitude.toFixed(4)}°, ${marker.coordinates.longitude.toFixed(4)}°, ${marker.coordinates.elevation.toFixed(1)}m)`
         })),
-        totalDuration: markerPoints.reduce((sum, marker) => sum + marker.waitTime, 0),
+        totalDuration: markerPoints.reduce((sum, marker) => sum + (marker.waitTime || 0), 0),
         enableSmoothing: DEFAULT_MARKER_CONFIG.enableCameraSmoothing,
         previewDuration: DEFAULT_MARKER_CONFIG.previewDuration
     };
@@ -286,8 +330,12 @@ function showMarkerConfigurationForm(markerPoints, toolName) {
         onCancel: () => {
             console.log("MarkerModeTool: Configuration cancelled");
             PopupService.showToolInstruction(
-                "Marker flythrough cancelled. You can continue adding markers or right-click again to reconfigure.",
-                toolName,
+                "Marker flythrough cancelled.\n\n" +
+                "You can:\n" +
+                "• Continue adding markers (left-click)\n" +
+                "• Right-click again to reconfigure\n" +
+                "• Deactivate the tool to exit",
+                toolName + " - Cancelled",
                 true
             );
             // Re-enable recording mode
@@ -324,7 +372,9 @@ function previewMarkerPosition(markerId) {
 
     // Show preview feedback
     PopupService.showToolInstruction(
-        `Previewing Marker ${markerId} camera view...`,
+        `Previewing Marker ${markerId}\n\n` +
+        `Camera view as recorded when marker was placed.\n` +
+        `This is how the flythrough will look at this waypoint.`,
         "Preview Mode",
         false
     );
@@ -335,6 +385,8 @@ function previewMarkerPosition(markerId) {
  */
 async function startMarkerBasedFlythrough(configData) {
     const { markerPoints, viewer } = getToolState();
+    
+    console.log("MarkerModeTool: Starting flythrough with", markerPoints.length, "markers");
     
     // Remove event handlers and visual markers
     removeEventHandlers();
@@ -355,7 +407,7 @@ async function startMarkerBasedFlythrough(configData) {
         }
     });
 
-    console.log(`MarkerModeTool: Starting flythrough sequence with ${orderedMarkers.length} markers`);
+    console.log(`MarkerModeTool: Starting flythrough sequence with ${orderedMarkers.length} ordered markers`);
 
     // Start the flythrough animation
     await animateMarkerFlythrough(orderedMarkers, configData);
@@ -368,7 +420,10 @@ async function animateMarkerFlythrough(orderedMarkers, configData) {
     const { viewer } = getToolState();
     
     PopupService.showToolInstruction(
-        `Starting marker flythrough: ${orderedMarkers.length} waypoints...`,
+        `🚀 Starting marker flythrough\n\n` +
+        `📍 Waypoints: ${orderedMarkers.length}\n` +
+        `⚙️ Smoothing: ${configData.enableSmoothing ? 'ON' : 'OFF'}\n` +
+        `⏱️ Total estimated time: ${orderedMarkers.reduce((sum, m) => sum + m.waitTime, 0).toFixed(1)}s`,
         'Flythrough Active',
         false
     );
@@ -383,12 +438,16 @@ async function animateMarkerFlythrough(orderedMarkers, configData) {
 
         // Show progress
         PopupService.showToolInstruction(
-            `Waypoint ${marker.id} (${i + 1}/${orderedMarkers.length}) - Waiting ${marker.waitTime}s`,
+            `Waypoint ${marker.id} (${i + 1}/${orderedMarkers.length})\n\n` +
+            `${marker.coordinates.latitude.toFixed(4)}°, ${marker.coordinates.longitude.toFixed(4)}°\n` +
+            `Elevation: ${marker.coordinates.elevation.toFixed(1)}m\n` +
+            `Wait time: ${marker.waitTime}s\n\n` +
+            `${isLastMarker ? 'Final waypoint!' : 'Next: Marker ' + orderedMarkers[i + 1]?.id}`,
             'Flythrough Progress',
             false
         );
 
-        // Fly to marker camera position
+        // Fly to marker camera position with zoom effects
         await new Promise((resolve) => {
             viewer.camera.flyTo({
                 destination: marker.cameraState.position,
@@ -396,7 +455,7 @@ async function animateMarkerFlythrough(orderedMarkers, configData) {
                     direction: marker.cameraState.direction,
                     up: marker.cameraState.up
                 },
-                duration: configData.enableSmoothing ? 2.0 : 1.0,
+                duration: configData.enableSmoothing ? 2.5 : 1.5, // Slightly longer for better zoom effects
                 easingFunction: configData.enableSmoothing ? 
                     Cesium.EasingFunction.CUBIC_IN_OUT : 
                     Cesium.EasingFunction.LINEAR,
@@ -404,7 +463,7 @@ async function animateMarkerFlythrough(orderedMarkers, configData) {
             });
         });
 
-        // Wait at marker position
+        // Wait at marker position (this allows time to appreciate the zoom level)
         if (!isLastMarker || marker.waitTime > 0) {
             await new Promise(resolve => setTimeout(resolve, marker.waitTime * 1000));
         }
@@ -413,7 +472,12 @@ async function animateMarkerFlythrough(orderedMarkers, configData) {
     // Show completion message
     const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
     PopupService.showToolInstruction(
-        `Marker flythrough completed! Total time: ${totalTime}s, Waypoints visited: ${orderedMarkers.length}`,
+        `Marker flythrough completed!\n\n` +
+        `Statistics:\n` +
+        `• Total time: ${totalTime}s\n` +
+        `• Waypoints visited: ${orderedMarkers.length}\n` +
+        `• Average time per waypoint: ${(totalTime / orderedMarkers.length).toFixed(1)}s\n\n` +
+        `Flythrough finished successfully!`,
         "Flythrough Complete",
         true
     );
@@ -429,13 +493,14 @@ function clearMarkerVisuals() {
     const { viewer, markerEntities } = getToolState();
     
     if (markerEntities && markerEntities.length > 0) {
+        console.log(`MarkerModeTool: Clearing ${markerEntities.length} marker visuals`);
         markerEntities.forEach(entity => {
             if (viewer && viewer.entities.contains(entity)) {
                 viewer.entities.remove(entity);
             }
         });
         setToolState({ markerEntities: [] });
-        console.log("MarkerModeTool: Cleared marker visuals");
+        console.log("MarkerModeTool: Cleared all marker visuals");
     }
 }
 
@@ -454,7 +519,7 @@ export function stopMarkerModeTool() {
     clearDrawing();
     removeEventHandlers();
     
-    // Reset tool state
+    // Reset tool state with fresh empty arrays
     setToolState({
         markerPoints: [],
         markerEntities: [],
