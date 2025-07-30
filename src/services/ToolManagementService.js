@@ -14,15 +14,17 @@ import {
 } from "../components/Menu/SubSidebars/BasicTools/tools/ViewshieldAnalysisTool.js";
 import { setupTerrainProfileTool } from "../components/Menu/SubSidebars/BasicTools/tools/TerrainProfileTool.js";
 
-// --- START OF IMPORTANT CHANGE FOR FLYTHROUGHTOOL IMPORT ---
-// Corrected import for FlyThroughTool: Only import what your FlyThroughTool.js actually exports.
-// Your provided FlyThroughTool.js exports 'setupFlyThroughTool' and 'stopFlyThrough'.
+// Import FlyThroughTool
 import {
     setupFlyThroughTool,
     stopFlyThrough,
 } from "../components/Menu/SubSidebars/BasicTools/tools/FlyThroughTool.js";
-// --- END OF IMPORTANT CHANGE FOR FLYTHROUGHTOOL IMPORT ---
 
+// Import FlightModeTool
+import {
+    setupFlightModeTool,
+    stopFlightModeTool,
+} from "../components/Menu/SubSidebars/BasicTools/tools/FlightModeTool.js";
 
 // Import helper functions and common drawing methods
 import {
@@ -153,15 +155,24 @@ class ToolManagementServiceClass {
                     onSelect: (mode) => {
                         console.log(`[TMS]: Flythrough Mode selected in popup: ${mode}`);
                         if (mode === "path") {
-                            // --- START OF IMPORTANT CHANGE FOR FLYTHROUGHTOOL ACTIVATION ---
-                            // Call setupFlyThroughTool directly. Your FlyThroughTool.js
-                            // handles the subsequent drawing and config form internally.
+                            // Activate path-based flythrough
                             setupFlyThroughTool(viewer);
-                            // --- END OF IMPORTANT CHANGE FOR FLYTHROUGHTOOL ACTIVATION ---
+                        } else if (mode === "flight") {
+                            // Activate flight mode with keyboard controls
+                            setupFlightModeTool(viewer);
+                        } else if (mode === "marker") {
+                            // Handle marker mode (not implemented yet)
+                            console.log(`[TMS]: Marker mode selected. Not implemented yet.`);
+                            PopupService.showToolInstruction(
+                                "Marker mode is not yet implemented.",
+                                "Feature Not Available",
+                                true
+                            );
+                            this.deactivateCurrentTool();
                         } else {
                             // Handle other modes if necessary, or just deactivate
-                            console.log(`[TMS]: ${mode} mode selected. Not activating FlyThroughTool for this mode yet.`);
-                            this.deactivateCurrentTool(); // Deactivate if not 'path' for now
+                            console.log(`[TMS]: ${mode} mode selected. Not implemented yet.`);
+                            this.deactivateCurrentTool(); // Deactivate if mode not implemented
                         }
                     },
                     onCancel: () => {
@@ -189,7 +200,13 @@ class ToolManagementServiceClass {
                     clearViewshield();
                     break;
                 case "Flythrough Tool":
-                    stopFlyThrough(); // <-- Call 'stopFlyThrough'
+                    // Check which mode is active and call appropriate cleanup
+                    const { flightActive } = getToolState();
+                    if (flightActive) {
+                        stopFlightModeTool(); // Stop flight mode
+                    } else {
+                        stopFlyThrough(); // Stop path-based flythrough
+                    }
                     break;
                 default:
                     // Default cleanup for other tools (line, area measures)
