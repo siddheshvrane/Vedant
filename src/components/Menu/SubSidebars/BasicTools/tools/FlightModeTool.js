@@ -47,9 +47,17 @@ const FLIGHT_KEYS = {
 export function setupFlightModeTool(viewer) {
     console.log("FlightModeTool: Setting up flight mode with keyboard controls");
 
+    // Get CesiumCoreManager instance from viewer
+    const coreManager = getCoreManagerFromViewer(viewer);
+    if (!coreManager) {
+        console.error("FlightModeTool: Cannot access CesiumCoreManager");
+        return;
+    }
+
     // Initialize tool state
     setToolState({
         viewer: viewer,
+        coreManager: coreManager,
         handler: viewer ? new Cesium.ScreenSpaceEventHandler(viewer.canvas) : null,
         flightActive: false,
         flightConfig: { ...DEFAULT_FLIGHT_CONFIG },
@@ -85,7 +93,7 @@ export function setupFlightModeTool(viewer) {
         const { flightActive } = getToolState();
         
         if (!flightActive) {
-            startFlightMode(viewer, toolName);
+            startFlightMode(toolName);
         }
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
@@ -94,18 +102,29 @@ export function setupFlightModeTool(viewer) {
         const { flightActive } = getToolState();
         
         if (flightActive) {
-            stopFlightMode(viewer, toolName);
+            stopFlightMode(toolName);
         }
     }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
 }
 
 /**
+ * Gets CesiumCoreManager instance from viewer (helper function)
+ * This assumes the viewer has a reference to its core manager
+ */
+function getCoreManagerFromViewer(viewer) {
+    // This would need to be implemented based on how you structure the relationship
+    // between viewer and core manager. For now, we'll use a global reference approach
+    return window.cesiumCoreManager || null;
+}
+
+/**
  * Starts the flight mode with keyboard controls
  */
-function startFlightMode(viewer, toolName) {
+function startFlightMode(toolName) {
     console.log("FlightModeTool: Starting flight mode");
     
-    const startPosition = viewer.camera.position.clone();
+    const { viewer, coreManager } = getToolState();
+    const startPosition = coreManager.getCameraState().position.clone();
     const startTime = Date.now();
     
     setToolState({ 
@@ -115,10 +134,10 @@ function startFlightMode(viewer, toolName) {
     });
 
     // Set up keyboard event listeners
-    setupKeyboardControls(viewer);
+    setupKeyboardControls();
     
     // Start animation loop
-    startFlightAnimation(viewer);
+    startFlightAnimation();
     
     // Update instructions
     const { flightConfig } = getToolState();
@@ -130,12 +149,8 @@ function startFlightMode(viewer, toolName) {
         );
     }
 
-    // Disable default camera controls
-    viewer.scene.screenSpaceCameraController.enableRotate = false;
-    viewer.scene.screenSpaceCameraController.enableTranslate = false;
-    viewer.scene.screenSpaceCameraController.enableZoom = false;
-    viewer.scene.screenSpaceCameraController.enableTilt = false;
-    viewer.scene.screenSpaceCameraController.enableLook = false;
+    // Disable default camera controls using CesiumCoreManager
+    coreManager.setDefaultCameraControlsEnabled(false);
 
     console.log("FlightModeTool: Flight mode started successfully");
 }
@@ -143,10 +158,10 @@ function startFlightMode(viewer, toolName) {
 /**
  * Stops the flight mode and restores normal camera controls
  */
-function stopFlightMode(viewer, toolName) {
+function stopFlightMode(toolName) {
     console.log("FlightModeTool: Stopping flight mode");
     
-    const { animationFrame, flightStartTime } = getToolState();
+    const { animationFrame, flightStartTime, coreManager } = getToolState();
     
     // Stop animation loop
     if (animationFrame) {
@@ -156,12 +171,8 @@ function stopFlightMode(viewer, toolName) {
     // Remove keyboard event listeners
     removeKeyboardControls();
     
-    // Restore default camera controls
-    viewer.scene.screenSpaceCameraController.enableRotate = true;
-    viewer.scene.screenSpaceCameraController.enableTranslate = true;
-    viewer.scene.screenSpaceCameraController.enableZoom = true;
-    viewer.scene.screenSpaceCameraController.enableTilt = true;
-    viewer.scene.screenSpaceCameraController.enableLook = true;
+    // Restore default camera controls using CesiumCoreManager
+    coreManager.setDefaultCameraControlsEnabled(true);
     
     // Update state
     setToolState({
@@ -187,7 +198,7 @@ function stopFlightMode(viewer, toolName) {
 /**
  * Sets up keyboard event listeners for flight controls
  */
-function setupKeyboardControls(viewer) {
+function setupKeyboardControls() {
     const { activeKeys } = getToolState();
     
     const keyDownHandler = (event) => {
@@ -243,7 +254,7 @@ function isFlightKey(keyCode) {
 /**
  * Starts the flight animation loop
  */
-function startFlightAnimation(viewer) {
+function startFlightAnimation() {
     const animate = () => {
         const { flightActive } = getToolState();
         
@@ -251,7 +262,7 @@ function startFlightAnimation(viewer) {
             return; // Stop animation if flight is no longer active
         }
         
-        updateCameraFromInput(viewer);
+        updateCameraFromInput();
         
         // Request next frame
         const frameId = requestAnimationFrame(animate);
@@ -262,11 +273,10 @@ function startFlightAnimation(viewer) {
 }
 
 /**
- * Updates camera position and orientation based on active keys
+ * Updates camera position and orientation based on active keys using CesiumCoreManager
  */
-function updateCameraFromInput(viewer) {
-    const { activeKeys, flightConfig } = getToolState();
-    const camera = viewer.camera;
+function updateCameraFromInput() {
+    const { activeKeys, flightConfig, coreManager, viewer } = getToolState();
     
     if (activeKeys.size === 0) {
         return; // No keys pressed, no movement needed
@@ -284,21 +294,20 @@ function updateCameraFromInput(viewer) {
     const turnSpeed = flightConfig.turnSpeed * deltaTime;
     const pitchSpeed = flightConfig.pitchSpeed * deltaTime;
     
-    // Get camera vectors
-    const forward = Cesium.Cartesian3.clone(camera.direction);
-    const right = Cesium.Cartesian3.clone(camera.right);
-    const up = Cesium.Cartesian3.clone(camera.up);
+    // Get current camera state from CesiumCoreManager
+    const cameraState = coreManager.getCameraState();
+    const { position, direction, right, up } = cameraState;
     
     // Movement calculations
     const movement = new Cesium.Cartesian3(0, 0, 0);
     
     // Forward/Backward movement
     if (FLIGHT_KEYS.FORWARD.some(key => activeKeys.has(key))) {
-        const forwardMovement = Cesium.Cartesian3.multiplyByScalar(forward, moveSpeed, new Cesium.Cartesian3());
+        const forwardMovement = Cesium.Cartesian3.multiplyByScalar(direction, moveSpeed, new Cesium.Cartesian3());
         Cesium.Cartesian3.add(movement, forwardMovement, movement);
     }
     if (FLIGHT_KEYS.BACKWARD.some(key => activeKeys.has(key))) {
-        const backwardMovement = Cesium.Cartesian3.multiplyByScalar(forward, -moveSpeed, new Cesium.Cartesian3());
+        const backwardMovement = Cesium.Cartesian3.multiplyByScalar(direction, -moveSpeed, new Cesium.Cartesian3());
         Cesium.Cartesian3.add(movement, backwardMovement, movement);
     }
     
@@ -322,24 +331,23 @@ function updateCameraFromInput(viewer) {
         Cesium.Cartesian3.add(movement, downMovement, movement);
     }
     
-    // Apply movement
+    // Apply movement using CesiumCoreManager
     if (!Cesium.Cartesian3.equals(movement, Cesium.Cartesian3.ZERO)) {
-        const newPosition = Cesium.Cartesian3.add(camera.position, movement, new Cesium.Cartesian3());
-        camera.position = newPosition;
+        coreManager.moveCamera(movement);
     }
     
-    // Camera rotation (look around)
+    // Camera rotation (look around) using CesiumCoreManager
     if (FLIGHT_KEYS.LOOK_LEFT.some(key => activeKeys.has(key))) {
-        camera.lookLeft(turnSpeed);
+        coreManager.rotateCamera('left', turnSpeed);
     }
     if (FLIGHT_KEYS.LOOK_RIGHT.some(key => activeKeys.has(key))) {
-        camera.lookRight(turnSpeed);
+        coreManager.rotateCamera('right', turnSpeed);
     }
     if (FLIGHT_KEYS.LOOK_UP.some(key => activeKeys.has(key))) {
-        camera.lookUp(pitchSpeed);
+        coreManager.rotateCamera('up', pitchSpeed);
     }
     if (FLIGHT_KEYS.LOOK_DOWN.some(key => activeKeys.has(key))) {
-        camera.lookDown(pitchSpeed);
+        coreManager.rotateCamera('down', pitchSpeed);
     }
     
     // Request render if in render mode
@@ -354,11 +362,11 @@ function updateCameraFromInput(viewer) {
 export function stopFlightModeTool() {
     console.log("FlightModeTool: Cleaning up flight mode tool");
     
-    const { viewer, flightActive, animationFrame } = getToolState();
+    const { viewer, flightActive, animationFrame, coreManager } = getToolState();
     
     // Stop flight mode if active
     if (flightActive && viewer) {
-        stopFlightMode(viewer, "Flight Mode");
+        stopFlightMode("Flight Mode");
     }
     
     // Cancel any pending animation frame
@@ -381,7 +389,8 @@ export function stopFlightModeTool() {
         animationFrame: null,
         keyboardHandler: null,
         startPosition: null,
-        flightStartTime: null
+        flightStartTime: null,
+        coreManager: null
     });
     
     // Hide any active popups

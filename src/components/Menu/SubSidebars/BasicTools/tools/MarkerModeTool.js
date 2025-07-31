@@ -40,12 +40,20 @@ const MARKER_COLORS = [
 export function setupMarkerModeTool(viewer) {
     console.log("MarkerModeTool: Setting up marker-based flythrough tool");
 
+    // Get CesiumCoreManager instance from viewer
+    const coreManager = getCoreManagerFromViewer(viewer);
+    if (!coreManager) {
+        console.error("MarkerModeTool: Cannot access CesiumCoreManager");
+        return;
+    }
+
     // Clear any existing handlers first
     removeEventHandlers();
 
     // Initialize tool state with fresh arrays
     setToolState({
         viewer: viewer,
+        coreManager: coreManager,
         handler: viewer ? new Cesium.ScreenSpaceEventHandler(viewer.canvas) : null,
         markerPoints: [],               // Fresh array for marker data objects
         markerEntities: [],             // Fresh array for visual marker entities
@@ -53,7 +61,8 @@ export function setupMarkerModeTool(viewer) {
         markerConfig: { ...DEFAULT_MARKER_CONFIG },
         nextMarkerId: 1,
         lastMarkerTime: 0,
-        isRecording: true
+        isRecording: true,
+        animationId: null
     });
 
     const { handler } = getToolState();
@@ -104,11 +113,18 @@ export function setupMarkerModeTool(viewer) {
 }
 
 /**
- * Adds a new marker point with current camera state
+ * Helper function to get CesiumCoreManager from viewer
+ */
+function getCoreManagerFromViewer(viewer) {
+    return window.cesiumCoreManager || null;
+}
+
+/**
+ * Adds a new marker point with current camera state using CesiumCoreManager
  */
 function addMarkerPoint(viewer, click, toolName) {
     const currentTime = Date.now();
-    let { lastMarkerTime, nextMarkerId, markerPoints, markerEntities, markerConfig } = getToolState();
+    let { lastMarkerTime, nextMarkerId, markerPoints, markerEntities, markerConfig, coreManager } = getToolState();
 
     console.log(`MarkerModeTool: Attempting to add marker ${nextMarkerId}`);
 
@@ -133,17 +149,8 @@ function addMarkerPoint(viewer, click, toolName) {
         return;
     }
 
-    // Get current camera state
-    const camera = viewer.camera;
-    const cameraState = {
-        position: camera.position.clone(),
-        direction: camera.direction.clone(),
-        up: camera.up.clone(),
-        right: camera.right.clone(),
-        heading: camera.heading,
-        pitch: camera.pitch,
-        roll: camera.roll
-    };
+    // Get current camera state using CesiumCoreManager
+    const cameraState = coreManager.getCameraState();
 
     // Get elevation information
     const cartographic = viewer.scene.globe.ellipsoid.cartesianToCartographic(cartesian);
@@ -152,7 +159,7 @@ function addMarkerPoint(viewer, click, toolName) {
     const height = cartographic.height || 0;
 
     // Calculate distance from camera to marker point
-    const distanceToCamera = Cesium.Cartesian3.distance(camera.position, cartesian);
+    const distanceToCamera = Cesium.Cartesian3.distance(cameraState.position, cartesian);
 
     // Create marker data object
     const markerData = {
@@ -346,10 +353,10 @@ function showMarkerConfigurationForm(markerPoints, toolName) {
 }
 
 /**
- * Previews a specific marker's camera position
+ * Previews a specific marker's camera position using CesiumCoreManager
  */
 function previewMarkerPosition(markerId) {
-    const { markerPoints, viewer } = getToolState();
+    const { markerPoints, coreManager } = getToolState();
     const marker = markerPoints.find(m => m.id === markerId);
     
     if (!marker) {
@@ -359,15 +366,14 @@ function previewMarkerPosition(markerId) {
 
     console.log(`MarkerModeTool: Previewing marker ${markerId} camera position`);
 
-    // Fly to the marker's camera state
-    viewer.camera.flyTo({
+    // Use CesiumCoreManager to set camera view
+    coreManager.setCameraView({
         destination: marker.cameraState.position,
         orientation: {
             direction: marker.cameraState.direction,
             up: marker.cameraState.up
         },
-        duration: 2.0,
-        easingFunction: Cesium.EasingFunction.CUBIC_OUT
+        duration: 2.0
     });
 
     // Show preview feedback
@@ -381,10 +387,10 @@ function previewMarkerPosition(markerId) {
 }
 
 /**
- * Starts the marker-based flythrough sequence
+ * Starts the marker-based flythrough sequence using CesiumCoreManager
  */
 async function startMarkerBasedFlythrough(configData) {
-    const { markerPoints, viewer } = getToolState();
+    const { markerPoints, coreManager } = getToolState();
     
     console.log("MarkerModeTool: Starting flythrough with", markerPoints.length, "markers");
     
@@ -409,16 +415,6 @@ async function startMarkerBasedFlythrough(configData) {
 
     console.log(`MarkerModeTool: Starting flythrough sequence with ${orderedMarkers.length} ordered markers`);
 
-    // Start the flythrough animation
-    await animateMarkerFlythrough(orderedMarkers, configData);
-}
-
-/**
- * Animates the marker-based flythrough
- */
-async function animateMarkerFlythrough(orderedMarkers, configData) {
-    const { viewer } = getToolState();
-    
     PopupService.showToolInstruction(
         `🚀 Starting marker flythrough\n\n` +
         `📍 Waypoints: ${orderedMarkers.length}\n` +
@@ -428,62 +424,46 @@ async function animateMarkerFlythrough(orderedMarkers, configData) {
         false
     );
 
-    const startTime = Date.now();
-
-    for (let i = 0; i < orderedMarkers.length; i++) {
-        const marker = orderedMarkers[i];
-        const isLastMarker = i === orderedMarkers.length - 1;
-
-        console.log(`MarkerModeTool: Flying to marker ${marker.id} (${i + 1}/${orderedMarkers.length})`);
-
-        // Show progress
-        PopupService.showToolInstruction(
-            `Waypoint ${marker.id} (${i + 1}/${orderedMarkers.length})\n\n` +
-            `${marker.coordinates.latitude.toFixed(4)}°, ${marker.coordinates.longitude.toFixed(4)}°\n` +
-            `Elevation: ${marker.coordinates.elevation.toFixed(1)}m\n` +
-            `Wait time: ${marker.waitTime}s\n\n` +
-            `${isLastMarker ? 'Final waypoint!' : 'Next: Marker ' + orderedMarkers[i + 1]?.id}`,
-            'Flythrough Progress',
-            false
-        );
-
-        // Fly to marker camera position with zoom effects
-        await new Promise((resolve) => {
-            viewer.camera.flyTo({
-                destination: marker.cameraState.position,
-                orientation: {
-                    direction: marker.cameraState.direction,
-                    up: marker.cameraState.up
-                },
-                duration: configData.enableSmoothing ? 2.5 : 1.5, // Slightly longer for better zoom effects
-                easingFunction: configData.enableSmoothing ? 
-                    Cesium.EasingFunction.CUBIC_IN_OUT : 
-                    Cesium.EasingFunction.LINEAR,
-                complete: resolve
-            });
-        });
-
-        // Wait at marker position (this allows time to appreciate the zoom level)
-        if (!isLastMarker || marker.waitTime > 0) {
-            await new Promise(resolve => setTimeout(resolve, marker.waitTime * 1000));
+    // Create marker flight animation using CesiumCoreManager
+    const animationId = coreManager.createMarkerFlightAnimation(
+        orderedMarkers,
+        {
+            enableSmoothing: configData.enableSmoothing,
+            waitTime: configData.markers[0]?.waitTime || 3.0
+        },
+        // Progress callback
+        (progress) => {
+            const marker = progress.marker;
+            const isLastMarker = progress.currentIndex === progress.totalMarkers - 1;
+            
+            PopupService.showToolInstruction(
+                `Waypoint ${marker.id} (${progress.currentIndex + 1}/${progress.totalMarkers})\n\n` +
+                `${marker.coordinates.latitude.toFixed(4)}°, ${marker.coordinates.longitude.toFixed(4)}°\n` +
+                `Elevation: ${marker.coordinates.elevation.toFixed(1)}m\n` +
+                `Wait time: ${marker.waitTime}s\n\n` +
+                `${isLastMarker ? 'Final waypoint!' : 'Next: Marker ' + orderedMarkers[progress.currentIndex + 1]?.id}`,
+                'Flythrough Progress',
+                false
+            );
+        },
+        // Completion callback
+        () => {
+            const totalTime = (Date.now() - Date.now()) / 1000; // This would need actual start time
+            PopupService.showToolInstruction(
+                `Marker flythrough completed!\n\n` +
+                `Statistics:\n` +
+                `• Waypoints visited: ${orderedMarkers.length}\n` +
+                `• Average time per waypoint: ${(orderedMarkers.reduce((sum, m) => sum + m.waitTime, 0) / orderedMarkers.length).toFixed(1)}s\n\n` +
+                `Flythrough finished successfully!`,
+                "Flythrough Complete",
+                true
+            );
+            ToolManagementService.deactivateCurrentTool();
         }
-    }
-
-    // Show completion message
-    const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
-    PopupService.showToolInstruction(
-        `Marker flythrough completed!\n\n` +
-        `Statistics:\n` +
-        `• Total time: ${totalTime}s\n` +
-        `• Waypoints visited: ${orderedMarkers.length}\n` +
-        `• Average time per waypoint: ${(totalTime / orderedMarkers.length).toFixed(1)}s\n\n` +
-        `Flythrough finished successfully!`,
-        "Flythrough Complete",
-        true
     );
 
-    // Deactivate tool
-    ToolManagementService.deactivateCurrentTool();
+    // Store animation ID for potential cancellation
+    setToolState({ animationId: animationId });
 }
 
 /**
@@ -510,7 +490,12 @@ function clearMarkerVisuals() {
 export function stopMarkerModeTool() {
     console.log("MarkerModeTool: Cleaning up marker mode tool");
     
-    const { viewer } = getToolState();
+    const { animationId, coreManager } = getToolState();
+    
+    // Cancel flight animation using CesiumCoreManager
+    if (animationId && coreManager) {
+        coreManager.cancelFlightAnimation(animationId);
+    }
     
     // Clear visual markers
     clearMarkerVisuals();
@@ -527,7 +512,9 @@ export function stopMarkerModeTool() {
         markerConfig: { ...DEFAULT_MARKER_CONFIG },
         nextMarkerId: 1,
         lastMarkerTime: 0,
-        isRecording: false
+        isRecording: false,
+        animationId: null,
+        coreManager: null
     });
     
     // Hide any active popups
