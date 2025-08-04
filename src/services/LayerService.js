@@ -105,6 +105,10 @@ class LayerServiceClass {
         // Trigger a full synchronization of globe layers to ensure new layer is added
         // and all layers retain correct visibility and Z-order.
         this.syncGlobeLayers();
+
+        // --- NEW LINE ADDED HERE ---
+        // After adding the new layer, call the zoom method to redirect the globe's camera.
+        this.zoomToLayer(entry.id);
     }
 
     /**
@@ -171,6 +175,10 @@ class LayerServiceClass {
 
     // --- Existing methods ---
 
+    /**
+     * Tells the MapService to zoom the globe camera to a specific layer's extent.
+     * @param {string} layerId - The ID of the layer to zoom to.
+     */
     zoomToLayer(layerId) {
         const layer = this.#layerDataMap.get(layerId); // Get full data for zoom
         if (layer) {

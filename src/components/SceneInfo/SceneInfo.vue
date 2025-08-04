@@ -25,7 +25,7 @@
 </template>
 
 <script>
-import { MapService, UserInterfaceService } from '../../services/controller.js';
+import { MapService, UserInterfaceService } from '../../controller.js';
 
 export default {
   name: 'SceneInfo',

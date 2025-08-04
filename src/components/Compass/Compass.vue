@@ -6,7 +6,7 @@
 
 <script>
 import * as Cesium from 'cesium';
-import { MapService } from '../../services/controller.js'; // Imports the singleton MapService for communication.
+import { MapService } from '../../controller.js'; // Imports the singleton MapService for communication.
 import compassImage from '../../assets/compass.png'; // Corrected path to the compass image asset.
 
 export default {

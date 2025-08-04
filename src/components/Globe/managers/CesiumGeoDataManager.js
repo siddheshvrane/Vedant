@@ -20,6 +20,7 @@ class CesiumGeoDataManager {
 
     /**
      * Adds a geospatial layer to the Cesium globe based on its type.
+     * Stores a Promise in the map until the layer is fully loaded.
      * @param {object} layerEntry - The full Data or Service model.
      * @param {number} [imageryIndex] - Optional. For imagery layers, the exact index at which to insert the layer.
      * @returns {Promise<Cesium.ImageryLayer|Cesium.DataSource|Cesium.Cesium3DTileset|Cesium.Entity|null>} The Cesium layer object, or null if failed.
@@ -32,14 +33,17 @@ class CesiumGeoDataManager {
         if (this.cesiumLayersMap.has(layerEntry.id)) {
             console.warn(`[DEBUG] CesiumGeoDataManager: Layer with ID ${layerEntry.id} already known. Updating visibility.`);
             const existingLayer = this.cesiumLayersMap.get(layerEntry.id);
-            if (existingLayer) {
-                if (existingLayer instanceof Cesium.Entity && existingLayer.model) {
-                    existingLayer.model.show = layerEntry.isVisible;
+            // Wait for the layer to resolve if it's a promise
+            const resolvedLayer = existingLayer instanceof Promise ? await existingLayer : existingLayer;
+
+            if (resolvedLayer) {
+                if (resolvedLayer instanceof Cesium.Entity && resolvedLayer.model) {
+                    resolvedLayer.model.show = layerEntry.isVisible;
                 } else {
-                    existingLayer.show = layerEntry.isVisible;
+                    resolvedLayer.show = layerEntry.isVisible;
                 }
             }
-            return existingLayer;
+            return resolvedLayer;
         }
 
         let cesiumLayer = null;
@@ -451,25 +455,8 @@ class CesiumGeoDataManager {
             return;
         }
 
-        let cesiumLayer = this.cesiumLayersMap.get(layerEntry.id);
-
-        // If the layer is still a pending promise, await it
-        if (cesiumLayer instanceof Promise) {
-            try {
-                cesiumLayer = await cesiumLayer;
-                // Update the map with the resolved layer
-                if (cesiumLayer) {
-                    this.cesiumLayersMap.set(layerEntry.id, cesiumLayer);
-                } else {
-                    console.warn(`[WARN] CesiumGeoDataManager: Failed to resolve layer promise for zoom: ${layerEntry.id}. Resolved to null.`);
-                    return;
-                }
-            } catch (error) {
-                console.error(`[ERROR] CesiumGeoDataManager: Failed to resolve layer promise for zoom: ${layerEntry.id}`, error);
-                return;
-            }
-        }
-
+        const cesiumLayer = this.cesiumLayersMap.get(layerEntry.id);
+        
         if (!cesiumLayer) {
             console.warn(`[WARN] CesiumGeoDataManager: Layer ${layerEntry.id} not found or not yet available for zoom.`);
             return;

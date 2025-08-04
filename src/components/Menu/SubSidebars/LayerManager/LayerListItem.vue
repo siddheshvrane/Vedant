@@ -44,7 +44,6 @@
 </template>
 
 <script>
-// Ensure the import path for PopupService is correct relative to LayerListItem.vue
 import { PopupService } from '../../../../services/PopupService.js'; 
 
 export default {
@@ -201,11 +200,16 @@ export default {
 .move-up-icon, .move-down-icon {
     color: rgb(255, 255, 255); /* Neutral gray similar to Bootstrap secondary */
 }
+
+/* This is the key change. We now use the standard `:disabled` pseudo-class */
 .move-up-icon:hover:not(:disabled), .move-down-icon:hover:not(:disabled) {
     color: #dbdbdb; /* Darker gray on hover */
 }
+
 .move-up-icon:disabled, .move-down-icon:disabled {
-    opacity: 1; /* Visually indicate disabled state */
+    opacity: 0.3; /* Visually indicate disabled state */
     cursor: not-allowed;
+    /* Optional: Remove hover effects for disabled state */
+    pointer-events: none;
 }
 </style>

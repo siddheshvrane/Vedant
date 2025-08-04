@@ -41,6 +41,9 @@ class CesiumCoreManager {
         // Flight animation state
         this.flightAnimations = new Map(); // Store multiple flight animations by ID
         this.nextAnimationId = 1;
+
+        // Current visualization mode
+        this.currentVisualizationMode = '3D';
     } 
 
     /** 
@@ -761,29 +764,57 @@ class CesiumCoreManager {
         }; 
     } 
 
+    /**
+     * Sets the globe visualization mode with complete logic handling.
+     * This method now contains all the logic that was previously in MapService.
+     * @param {string} mode - The visualization mode ('2D', '3D').
+     */
     setGlobeVisualizationMode(mode) { 
         if (!this.viewer) { 
             console.warn('CesiumCoreManager: Viewer not initialized, cannot set visualization mode.'); 
             return; 
         } 
 
+        console.log("CesiumCoreManager: Setting visualization mode to", mode);
+        this.currentVisualizationMode = mode;
+
+        let targetCesiumMode;
+
         switch (mode) { 
             case '2D': 
-                this.viewer.scene.mode = Cesium.SceneMode.COLUMBUS_VIEW; 
-                this.viewer.scene.screenSpaceCameraController.enableTilt = false; 
+                targetCesiumMode = Cesium.SceneMode.SCENE2D;
+                // For 2D, disable lighting and shadows as they don't apply
+                this.viewer.scene.globe.enableLighting = false;
+                this.viewer.shadows = false;
+                this.viewer.scene.screenSpaceCameraController.enableTilt = false;
                 break; 
             case '3D': 
-                this.viewer.scene.mode = Cesium.SceneMode.SCENE3D; 
-                this.viewer.scene.screenSpaceCameraController.enableTilt = true; 
+                targetCesiumMode = Cesium.SceneMode.SCENE3D;
+                // For 3D, enable lighting and shadows
+                this.viewer.scene.globe.enableLighting = true;
+                this.viewer.shadows = true;
+                this.viewer.scene.screenSpaceCameraController.enableTilt = true;
                 break; 
             default: 
                 console.warn(`CesiumCoreManager: Unknown visualization mode: ${mode}.`); 
-                break; 
+                return;
         } 
+
+        this.viewer.scene.mode = targetCesiumMode;
+        console.log(`CesiumCoreManager: Visualization mode set to ${mode}`);
     } 
 
+    /**
+     * Gets the current visualization mode.
+     * @returns {string} The current visualization mode.
+     */
+    getCurrentVisualizationMode() {
+        return this.currentVisualizationMode;
+    }
+
     /** 
-     * Sets the globe's clock to a specific time, affecting day/night rendering. 
+     * Sets the globe's clock to a specific time, affecting day/night rendering.
+     * This method now contains all the logic that was previously in MapService.
      * @param {object} time - An object containing hour, minute, and ampm properties. 
      */ 
     setGlobeClockTime(time) { 
@@ -796,6 +827,7 @@ class CesiumCoreManager {
         let militaryHour = parseInt(hour, 10); 
         const parsedMinute = parseInt(minute, 10); 
 
+        // Convert to military time
         if (ampm === 'PM' && militaryHour !== 12) { 
             militaryHour += 12; 
         } else if (ampm === 'AM' && militaryHour === 12) { 
@@ -812,7 +844,34 @@ class CesiumCoreManager {
         // Set the Cesium viewer's clock current time 
         this.viewer.clock.currentTime = newJulianDate; 
         console.log(`CesiumCoreManager: Globe clock time set to: ${newDateTime.toLocaleTimeString()}`); 
-    } 
+    }
+
+    /**
+     * Gets the current globe clock time as a formatted object.
+     * @returns {object} Current time {hour, minute, ampm}.
+     */
+    getCurrentGlobeClockTime() {
+        if (!this.viewer) {
+            return null;
+        }
+
+        const currentTime = Cesium.JulianDate.toDate(this.viewer.clock.currentTime);
+        let hour = currentTime.getHours();
+        const minute = currentTime.getMinutes();
+        let ampm = 'AM';
+
+        if (hour >= 12) {
+            ampm = 'PM';
+            if (hour > 12) hour -= 12;
+        }
+        if (hour === 0) hour = 12; // 12 AM
+
+        return {
+            hour: String(hour).padStart(2, '0'),
+            minute: String(minute).padStart(2, '0'),
+            ampm: ampm
+        };
+    }
 } 
 
 export default CesiumCoreManager;

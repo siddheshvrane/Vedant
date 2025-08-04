@@ -27,7 +27,7 @@ import ProjectLogo from './components/ProjectLogo/ProjectLogo.vue';
 import Menu from './components/Menu/Menu.vue';
 import Popup from './components/Popup/Popup.vue';
 
-import { MapService, UserInterfaceService } from './services/controller.js';
+import { MapService, UserInterfaceService } from './controller.js';
 
 export default {
   name: 'App',
