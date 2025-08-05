@@ -7,15 +7,15 @@
         :confirmText="popupData.confirmText"
         :cancelText="popupData.cancelText"
         :onConfirm="popupData.onConfirm"
-        :onCancel="popupData.onCancel"
-      />
+        :onCancel="popupData.onCancel" />
     </template>
 
     <div
       v-else
       class="unified-popup poppins-font"
-      :style="currentPopupType === 'terrainProfileStats' ? popupStyle : {}"
-    >
+      :style="
+        ['terrainProfileStats'].includes(currentPopupType) ? popupStyle : {}
+      ">
       <div class="popup-header-common" @mousedown="startDrag">
         <h5 class="popup-title">{{ getTitleForCurrentPopup }}</h5>
         <button @click="hidePopup" class="close-btn" title="Close">
@@ -25,10 +25,7 @@
 
       <!-- NEW: Dynamic component rendering for component-based popups -->
       <template v-if="popupComponent">
-        <component 
-          :is="popupComponent" 
-          v-bind="popupData"
-        />
+        <component :is="popupComponent" v-bind="popupData" />
       </template>
 
       <!-- EXISTING: Type-based popup rendering -->
@@ -37,8 +34,7 @@
           :layerName="popupData.layerName"
           :srs="popupData.srs"
           :extent="popupData.extent"
-          :onClose="hidePopup"
-        />
+          :onClose="hidePopup" />
       </template>
 
       <template v-else-if="currentPopupType === 'toolInstruction'">
@@ -46,8 +42,7 @@
           :message="popupData.message"
           :title="popupData.title"
           :showDismissButton="popupData.showDismissButton"
-          :onClose="hidePopup"
-        />
+          :onClose="hidePopup" />
       </template>
 
       <template v-else-if="currentPopupType === 'viewshedForm'">
@@ -57,8 +52,7 @@
           :rayCount="popupData.rayCount"
           :onStart="popupData.onStart"
           :onCancel="popupData.onCancel"
-          :onClose="hidePopup"
-        />
+          :onClose="hidePopup" />
       </template>
 
       <template v-else-if="currentPopupType === 'terrainProfileStats'">
@@ -66,8 +60,7 @@
           :profile="popupData.profile"
           :terrainProfileEntity="popupData.entity"
           :onRemoveProfile="handleRemoveProfile"
-          :onClose="hidePopup"
-        />
+          :onClose="hidePopup" />
       </template>
 
       <template v-else-if="currentPopupType === 'threeDModelForm'">
@@ -80,16 +73,14 @@
           :maximumScale="popupData.maximumScale"
           :onStart="popupData.onStart"
           :onCancel="popupData.onCancel"
-          :onClose="hidePopup"
-        />
+          :onClose="hidePopup" />
       </template>
 
       <template v-else-if="currentPopupType === 'flyThroughMode'">
         <FlyThroughModePopup
           :onSelect="popupData.onSelect"
           :onCancel="popupData.onCancel"
-          :onClose="hidePopup"
-        />
+          :onClose="hidePopup" />
       </template>
 
       <template v-else-if="currentPopupType === 'flyThroughForm'">
@@ -101,8 +92,13 @@
           :loop="popupData.loop"
           :onStart="popupData.onStart"
           :onCancel="popupData.onCancel"
-          :onClose="hidePopup"
-        />
+          :onClose="hidePopup" />
+      </template>
+      <template v-else-if="dynamicPopupComponent">
+        <component
+          :is="dynamicPopupComponent"
+          v-bind="popupData"
+          :onClose="hidePopup" />
       </template>
 
       <template v-else>
@@ -119,7 +115,6 @@
 
 <script>
 import { PopupService } from "../../services/PopupService.js";
-
 import ConfirmationPopup from "./popups/ConfirmationPopup.vue";
 import ServiceAddedPopup from "./popups/ServiceAddedPopup.vue";
 import TerrainProfileStats from "./popups/TerrainProfileStats.vue";
@@ -155,8 +150,13 @@ export default {
     };
   },
   computed: {
+    dynamicPopupComponent() {
+      if (typeof window === "undefined") return null;
+      const registry = window.__popupRegistry || {};
+      return registry[this.currentPopupType] || null;
+    },
     popupStyle() {
-      if (this.currentPopupType !== "terrainProfileStats") {
+      if (!["terrainProfileStats"].includes(this.currentPopupType)) {
         return {};
       }
 
@@ -180,7 +180,7 @@ export default {
       if (this.popupComponent && this.popupData.title) {
         return this.popupData.title;
       }
-      
+
       // EXISTING: Handle titles for type-based popups
       switch (this.currentPopupType) {
         case "serviceAdded":
@@ -212,7 +212,7 @@ export default {
     this.contentSubscription = PopupService.popupContent$.subscribe(
       (content) => {
         console.log("AppPopup received popupContent:", content);
-        
+
         // NEW: Handle component-based popups
         if (content.component) {
           this.popupComponent = content.component;
@@ -226,7 +226,7 @@ export default {
         }
 
         // Reset position for non-draggable popups or calculate for draggable ones
-        if (content.type === "terrainProfileStats") {
+        if (["terrainProfileStats"].includes(content.type)) {
           const popupWidth = 1200;
           const popupHeight = 700;
           this.popupPosition = {
@@ -258,7 +258,7 @@ export default {
   },
   methods: {
     startDrag(event) {
-      if (this.currentPopupType !== "terrainProfileStats") return;
+      if (!["terrainProfileStats"].includes(this.currentPopupType)) return;
       this.dragging = true;
       this.dragOffset = {
         x: event.clientX - this.popupPosition.x,
@@ -341,6 +341,15 @@ export default {
   max-height: 90vh;
   overflow-y: auto;
   border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.non-blocking {
+  pointer-events: none; /* allow clicks to go through overlay */
+  background-color: transparent !important;
+}
+
+.non-blocking .unified-popup {
+  pointer-events: auto; /* still allow interaction with popup itself */
 }
 
 .popup-header-common {
