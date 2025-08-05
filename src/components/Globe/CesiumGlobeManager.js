@@ -35,7 +35,7 @@ class CesiumGlobeManager {
         // Initialize the geo data manager with the created viewer
         this.geoDataManager = new CesiumGeoDataManager(this.viewer);
 
-        // Subscribe to MapService events
+        // Subscribe to MapService events (now pure communication)
         this.setupSubscriptions();
 
         console.log('CesiumGlobeManager: All sub-managers initialized.');
@@ -44,75 +44,83 @@ class CesiumGlobeManager {
 
     /**
      * Sets up subscriptions to MapService subjects.
+     * MapService now only handles communication, all logic is in respective managers.
      */
     setupSubscriptions() {
+        // Visualization mode changes - delegate to CesiumCoreManager  
         this.subscriptions.push(
-            MapService.globeClockTimeChanged$.subscribe(time => {
-                this.setGlobeClockTime(time);
+            MapService.visualizationModeChanged$.subscribe(mode => {
+                this.coreManager.setGlobeVisualizationMode(mode);
             })
         );
 
-        // Existing subscriptions (if any, ensure they are also pushed to this.subscriptions)
+        // Globe clock time changes - delegate to CesiumCoreManager
         this.subscriptions.push(
-            MapService.visualizationModeChanged$.subscribe(mode => {
-                this.setGlobeVisualizationMode(mode);
+            MapService.globeClockTimeChanged$.subscribe(time => {
+                this.coreManager.setGlobeClockTime(time);
             })
         );
+
+        // Layer management - delegate to CesiumGeoDataManager
         this.subscriptions.push(
             MapService.addLayerToGlobe$.subscribe(layerEntry => {
-                this.addCesiumLayer(layerEntry);
+                this.geoDataManager.addLayer(layerEntry);
             })
         );
         this.subscriptions.push(
             MapService.removeLayerFromGlobe$.subscribe(layerId => {
-                this.removeCesiumLayer(layerId);
+                this.geoDataManager.removeLayer(layerId);
             })
         );
         this.subscriptions.push(
             MapService.toggleLayerVisibilityOnGlobe$.subscribe(({ layerId, isVisible }) => {
-                this.toggleCesiumLayerVisibility(layerId, isVisible);
+                this.geoDataManager.toggleLayerVisibility(layerId, isVisible);
             })
         );
         this.subscriptions.push(
             MapService.reconcileGlobeLayers$.subscribe(layersToReconcile => {
-                this.reconcileGlobeLayers(layersToReconcile);
+                this.geoDataManager.reconcileLayers(layersToReconcile);
             })
         );
         this.subscriptions.push(
             MapService.zoomToLayerOnGlobe$.subscribe(layerEntry => {
-                this.zoomToLayer(layerEntry);
+                this.geoDataManager.zoomToLayer(layerEntry);
             })
         );
+
+        // Camera and navigation controls - delegate to CesiumCoreManager
         this.subscriptions.push(
             MapService.zoomToCoordinates$.subscribe(coordinates => {
-                this.zoomToCoordinates(coordinates);
-            })
-        );
-        this.subscriptions.push(
-            MapService.renderGraphic$.subscribe(graphic => {
-                this.renderGraphic(graphic);
-            })
-        );
-        this.subscriptions.push(
-            MapService.removeGraphic$.subscribe(graphicIdentifier => {
-                this.removeGraphic(graphicIdentifier);
-            })
-        );
-        this.subscriptions.push(
-            MapService.displayLocationMarker$.subscribe(location => {
-                this.displayLocationMarker(location);
+                this.coreManager.zoomToCoordinates(coordinates);
             })
         );
         this.subscriptions.push(
             MapService.orientToNorth$.subscribe(() => {
-                this.orientToNorth();
+                this.coreManager.orientToNorth();
+            })
+        );
+
+        // Graphics rendering - delegate to CesiumGeoDataManager
+        this.subscriptions.push(
+            MapService.renderGraphic$.subscribe(graphic => {
+                this.geoDataManager.renderGraphic(graphic);
+            })
+        );
+        this.subscriptions.push(
+            MapService.removeGraphic$.subscribe(graphicIdentifier => {
+                this.geoDataManager.removeGraphic(graphicIdentifier);
+            })
+        );
+        this.subscriptions.push(
+            MapService.displayLocationMarker$.subscribe(location => {
+                this.geoDataManager.displayLocationMarker(location);
             })
         );
     }
 
     // --- Delegate methods to respective consolidated managers ---
 
-    // Core Management (Viewer, Camera, Scene Info)
+    // Core Management (Viewer, Camera, Scene Info) - Delegate to CesiumCoreManager
     addCameraChangeListener(callback) {
         this.coreManager.addCameraChangeListener(callback);
     }
@@ -141,19 +149,39 @@ class CesiumGlobeManager {
         return this.coreManager.getSceneInformation();
     }
 
+    /**
+     * Sets visualization mode - now delegates to CesiumCoreManager which handles all logic.
+     * @param {string} mode - The visualization mode ('2D', '3D').
+     */
     setGlobeVisualizationMode(mode) {
         this.coreManager.setGlobeVisualizationMode(mode);
     }
 
     /**
-     * Delegates setting the globe's clock time to CesiumCoreManager.
+     * Sets globe clock time - now delegates to CesiumCoreManager which handles all logic.
      * @param {object} time - An object containing hour, minute, and ampm properties.
      */
     setGlobeClockTime(time) {
         this.coreManager.setGlobeClockTime(time);
     }
 
-    // --- New Camera Control Methods (delegated to CesiumCoreManager) ---
+    /**
+     * Gets current visualization mode.
+     * @returns {string} Current visualization mode.
+     */
+    getCurrentVisualizationMode() {
+        return this.coreManager.getCurrentVisualizationMode();
+    }
+
+    /**
+     * Gets current globe clock time.
+     * @returns {object} Current time {hour, minute, ampm}.
+     */
+    getCurrentGlobeClockTime() {
+        return this.coreManager.getCurrentGlobeClockTime();
+    }
+
+    // --- Camera Control Methods (delegated to CesiumCoreManager) ---
 
     /**
      * Sets camera position and orientation

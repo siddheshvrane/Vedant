@@ -27,7 +27,7 @@ import PluginManagerSidebar from './SubSidebars/Plugins/PluginManagerSidebar.vue
 import BasicToolsSidebar from './SubSidebars/BasicTools/BasicToolsSidebar.vue';
 
 import MenuItems from './MenuItems.vue';
-import { UserInterfaceService, MenuItemService, MapService } from '../../services/controller.js';
+import { UserInterfaceService, MenuItemService, MapService } from '../../controller.js';
 
 export default {
   name: 'Sidebar',

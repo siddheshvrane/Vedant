@@ -13,7 +13,7 @@
 </template>
 
 <script>
-import { UserInterfaceService } from '../../services/controller.js';
+import { UserInterfaceService } from '../../controller.js';
 import Sidebar from './Sidebar.vue';
 
 export default {

@@ -23,7 +23,7 @@
 <script>
 import BaseSubSidebar from '../SubSidebar.vue'; // Adjust path if BaseSubSidebar is elsewhere
 import LayerListItem from './LayerListItem.vue'; // Adjust path based on where you put LayerListItem.vue
-import { LayerService } from '../../../../services/controller.js'; // Import the new LayerService
+import { LayerService } from '../../../../controller.js'; // Import the new LayerService
 
 export default {
   name: 'LayerManagerSidebar',

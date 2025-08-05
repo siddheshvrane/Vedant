@@ -16,7 +16,7 @@
 <script>
 import BaseSubSidebar from '../SubSidebar.vue';
 import GeoSpatialForm from './GeoSpatialForm.vue';
-import { DataAddService } from '../../../../services/controller.js'; // Import DataAddService
+import { DataAddService } from '../../../../controller.js'; // Import DataAddService
 import { PopupService } from '../../../../services/PopupService.js'; // Assuming named export for PopupService
 import ThreeDModelFormPopup from '../../../Popup/popups/ThreeDModelFormPopup.vue'; // Import ThreeDModelFormPopup
 

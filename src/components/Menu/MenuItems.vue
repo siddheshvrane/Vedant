@@ -15,7 +15,7 @@
 </template>
 
 <script>
-import { UserInterfaceService } from '../../services/controller.js';
+import { UserInterfaceService } from '../../controller.js';
 import MenuItem from '../../datamodels/MenuItem.js';
 
 export default {
