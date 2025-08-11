@@ -1,5 +1,17 @@
 <template>
-  <div v-if="showPopup" class="unified-popup-overlay">
+  <!-- Standalone plugin popup window (no overlay) -->
+  <template v-if="isPluginPopup && popupComponent">
+    <div
+      class="plugin-popup-wrapper"
+      :style="pluginPopupStyle"
+      @mousedown="startPluginDrag($event)">
+      <component :is="popupComponent" v-bind="popupData" />
+      <div class="resize-handle" @mousedown="startPluginResize"></div>
+    </div>
+  </template>
+
+  <!-- Normal popups with overlay -->
+  <div v-else-if="showPopup" class="unified-popup-overlay">
     <template v-if="currentPopupType === 'confirmation'">
       <ConfirmationPopup
         :title="popupData.title"
@@ -16,19 +28,23 @@
       :style="
         ['terrainProfileStats'].includes(currentPopupType) ? popupStyle : {}
       ">
-      <div class="popup-header-common" @mousedown="startDrag">
+      <!-- HEADER (only for non-plugin popups) -->
+      <div
+        v-if="!isPluginPopup"
+        class="popup-header-common"
+        @mousedown="startDrag($event)">
         <h5 class="popup-title">{{ getTitleForCurrentPopup }}</h5>
         <button @click="hidePopup" class="close-btn" title="Close">
           <i class="fas fa-times"></i>
         </button>
       </div>
 
-      <!-- NEW: Dynamic component rendering for component-based popups -->
+      <!-- COMPONENT-BASED POPUP -->
       <template v-if="popupComponent">
         <component :is="popupComponent" v-bind="popupData" />
       </template>
 
-      <!-- EXISTING: Type-based popup rendering -->
+      <!-- TYPE-BASED POPUPS -->
       <template v-else-if="currentPopupType === 'serviceAdded'">
         <ServiceAddedPopup
           :layerName="popupData.layerName"
@@ -94,6 +110,7 @@
           :onCancel="popupData.onCancel"
           :onClose="hidePopup" />
       </template>
+
       <template v-else-if="dynamicPopupComponent">
         <component
           :is="dynamicPopupComponent"
@@ -147,9 +164,30 @@ export default {
       popupPosition: { x: 0, y: 0 },
       dragOffset: { x: 0, y: 0 },
       dragging: false,
+      pluginPopupPosition: { x: 150, y: 150 },
+      pluginPopupSize: { width: 800, height: 500 },
+      pluginDragging: false,
+      pluginResizing: false,
+      pluginDragOffset: { x: 0, y: 0 },
+      pluginResizeStart: {},
     };
   },
   computed: {
+    pluginPopupStyle() {
+      return {
+        position: "fixed", // change to fixed so it stays in viewport
+        top: this.pluginPopupPosition.y + "px",
+        left: this.pluginPopupPosition.x + "px",
+        width: this.pluginPopupSize.width + "px",
+        height: this.pluginPopupSize.height + "px",
+        background: "rgba(30,30,30,0.95)",
+        border: "1px solid rgba(255,255,255,0.2)",
+        zIndex: 3000,
+      };
+    },
+    isPluginPopup() {
+      return this.popupData?.tabs !== undefined; // tabs array means it's a plugin popup
+    },
     dynamicPopupComponent() {
       if (typeof window === "undefined") return null;
       const registry = window.__popupRegistry || {};
@@ -257,6 +295,49 @@ export default {
     );
   },
   methods: {
+    startPluginDrag(e) {
+      if (!this.isPluginPopup) return;
+      this.pluginDragging = true;
+      this.pluginDragOffset.x = e.clientX - this.pluginPopupPosition.x;
+      this.pluginDragOffset.y = e.clientY - this.pluginPopupPosition.y;
+      document.addEventListener("mousemove", this.onPluginDrag);
+      document.addEventListener("mouseup", this.stopPluginDrag);
+    },
+    onPluginDrag(e) {
+      if (!this.pluginDragging) return;
+      this.pluginPopupPosition.x = e.clientX - this.pluginDragOffset.x;
+      this.pluginPopupPosition.y = e.clientY - this.pluginDragOffset.y;
+    },
+    stopPluginDrag() {
+      this.pluginDragging = false;
+      document.removeEventListener("mousemove", this.onPluginDrag);
+      document.removeEventListener("mouseup", this.stopPluginDrag);
+    },
+    startPluginResize(e) {
+      if (!this.isPluginPopup) return;
+      this.pluginResizing = true;
+      this.pluginResizeStart = {
+        x: e.clientX,
+        y: e.clientY,
+        width: this.pluginPopupSize.width,
+        height: this.pluginPopupSize.height,
+      };
+      document.addEventListener("mousemove", this.onPluginResize);
+      document.addEventListener("mouseup", this.stopPluginResize);
+    },
+    onPluginResize(e) {
+      if (!this.pluginResizing) return;
+      this.pluginPopupSize.width =
+        this.pluginResizeStart.width + (e.clientX - this.pluginResizeStart.x);
+      this.pluginPopupSize.height =
+        this.pluginResizeStart.height + (e.clientY - this.pluginResizeStart.y);
+    },
+    stopPluginResize() {
+      this.pluginResizing = false;
+      document.removeEventListener("mousemove", this.onPluginResize);
+      document.removeEventListener("mouseup", this.stopPluginResize);
+    },
+
     startDrag(event) {
       if (!["terrainProfileStats"].includes(this.currentPopupType)) return;
       this.dragging = true;
@@ -372,6 +453,21 @@ export default {
   color: #007bff;
   flex-grow: 1;
   text-align: left;
+}
+
+.plugin-popup-wrapper {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.resize-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.3);
+  cursor: se-resize;
 }
 
 .close-btn {

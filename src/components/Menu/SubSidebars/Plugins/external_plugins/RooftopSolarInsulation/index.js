@@ -2,9 +2,9 @@ import {
   setupRooftopSolarInsulationTool,
   clearRooftopSolarInsulation,
   updateShadowTime,
-} from "./RooftopSolarInsulationCore.js";
+} from "./src/RooftopSolarInsulationCore.js";
 
-import RooftopPopup from "./Rooftop.vue";
+import RooftopPopup from "./src/Rooftop.vue";
 import { MapService } from "../../../../../../services/MapService.js"; // Used if needed for viewer etc.
 
 /** @type {import('@/types/plugin.types').Plugin} */
@@ -12,7 +12,7 @@ export default {
   name: "rooftop-solar-insulation",
   title: "Rooftop Solar Insulation",
   subtitle: "Displays seasonal solar insulation for rooftop buildings.",
-  pfpUrl: "https://placehold.co/60x60/ff9900/ffffff?text=☀️",
+  pfpUrl: "https://vedas.sac.gov.in/vapps/lama/assets/theme_pics/cityModel.png",
   popupComponent: RooftopPopup,
 
   enable({ PopupService }) {
@@ -42,8 +42,15 @@ export default {
 
   open() {
     try {
-      this._context?.PopupService._showInternalTypeBasedPopup("rooftop", {
-        title: "Rooftop Solar Insulation",
+      this._context?.PopupService.show({
+        isPlugin: true,
+        pluginId: this.name,
+        tabTitle: "Rooftop Solar Insulation",
+        component: this.popupComponent,
+        props: {
+          selectedSeason: this._context.defaultOptions.selectedSeason,
+          shadowTime: this._context.defaultOptions.shadowTime,
+        },
       });
       console.log("[Rooftop Plugin] Opened popup");
     } catch (err) {

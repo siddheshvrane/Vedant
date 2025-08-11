@@ -1,20 +1,80 @@
-// RooftopSolarInsulationCore.js
-
 import * as Cesium from "cesium";
 import {
   getToolState,
   setToolState,
   removeEventHandlers,
   clearDrawing,
-} from "../../../BasicTools/tool-helpers/tools-helpers";
-import { PopupService } from "../../../../../../services/PopupService";
+} from "../../../../BasicTools/tool-helpers/tools-helpers";
+import { PopupService } from "../../../../../../../services/PopupService";
 import BuildingStats from "./BuildingStats.vue";
+import { eventBus } from "../../../evenBus";
 
 let buildingEntities = [];
-let lastSelectedEntity = null;
+export let lastSelectedEntity = null;
 let viewerRef = null;
+let selectedEntityChangedListener = null;
 
+// **New: store the latest options for access in selection listener**
+let currentOptions = {
+  selectedSeason: "",
+  shadowTime: 12,
+  selectedDate: null,
+};
+
+// Normalize season string, treat empty or "none" as no season
+function normalizeSeason(season) {
+  if (!season) return ""; // empty string means none
+  const s = season.trim().toLowerCase();
+  if (s === "none") return "";
+  return s;
+}
+
+// Updates building polygon colors based on selected season or height
+export function updateBuildingColorsForSeason(season) {
+  season = normalizeSeason(season);
+  console.log(
+    "[Rooftop] updateBuildingColorsForSeason called with season:",
+    season
+  );
+
+  if (!buildingEntities.length) {
+    console.log("[Rooftop] No building entities to update.");
+    return;
+  }
+
+  for (const entity of buildingEntities) {
+    if (!entity.custom_prop) continue;
+
+    // If no season, fallback to "Average"
+    const seasonValue = season
+      ? getSeasonValue(entity.custom_prop, season)
+      : entity.custom_prop.Average;
+
+    entity.polygon.material = getMaterialColor(
+      season === "height" ? entity.custom_prop.Height : seasonValue,
+      season !== "height" && season !== ""
+    );
+  }
+  console.log("[Rooftop] Building colors updated.");
+}
+
+// Sets up the rooftop solar insulation tool and loads buildings within visible extent
 export function setupRooftopSolarInsulationTool(viewer, options) {
+  console.log(
+    "[Rooftop] setupRooftopSolarInsulationTool called with options:",
+    options
+  );
+
+  if (!options) {
+    console.warn("[Rooftop] Warning: options object missing!");
+    return;
+  }
+
+  // **Save current options globally**
+  currentOptions.selectedSeason = normalizeSeason(options.selectedSeason);
+  currentOptions.shadowTime = options.shadowTime ?? 12;
+  currentOptions.selectedDate = options.selectedDate ?? null;
+
   if (!viewer) {
     console.warn("[RooftopSolarInsulation] Viewer unavailable.");
     return;
@@ -24,18 +84,25 @@ export function setupRooftopSolarInsulationTool(viewer, options) {
   setToolState({ viewer });
   viewerRef = viewer;
 
-  // Enable Cesium shadows
   viewer.shadows = true;
   viewer.scene.shadowMap.enabled = true;
-  updateShadowTime(options.shadowTime);
+
+  // Update shadow time with date and season info
+  updateShadowTime(
+    currentOptions.shadowTime,
+    currentOptions.selectedDate,
+    currentOptions.selectedSeason
+  );
 
   const zoomLevel = getZoomLevel(viewer);
+  console.log("[Rooftop] Current zoom level:", zoomLevel);
   if (zoomLevel < 6) {
     alert("Please zoom in further to load buildings.");
     return;
   }
 
   const extent = getAccurateScreenExtent(viewer);
+  console.log("[Rooftop] Screen extent:", extent);
   if (!extent) {
     alert("Unable to determine screen extent.");
     return;
@@ -54,8 +121,8 @@ export function setupRooftopSolarInsulationTool(viewer, options) {
       const { west, east, south, north } = extent;
       const visibleEntities = [];
 
-      geojson.features.forEach((feature) => {
-        if (feature.geometry?.type !== "MultiPolygon") return;
+      for (const feature of geojson.features) {
+        if (feature.geometry?.type !== "MultiPolygon") continue;
 
         const polygons = feature.geometry.coordinates;
         const props = feature.properties;
@@ -63,21 +130,24 @@ export function setupRooftopSolarInsulationTool(viewer, options) {
 
         const lon = (bbox[0] + bbox[2]) / 2;
         const lat = (bbox[1] + bbox[3]) / 2;
-        if (lon < west || lon > east || lat < south || lat > north) return;
+        if (lon < west || lon > east || lat < south || lat > north) continue;
 
         const height = coordZ(polygons[0]) || props.height || 10;
-        const seasonValue = getSeasonValue(props, options.selectedSeason);
+        // If no season, fallback to Average
+        const seasonValue = currentOptions.selectedSeason
+          ? getSeasonValue(props, currentOptions.selectedSeason)
+          : props.Average;
         const color = getMaterialColor(
-          options.selectedSeason === "height" ? height : seasonValue,
-          options.selectedSeason !== "height"
+          currentOptions.selectedSeason === "height" ? height : seasonValue,
+          currentOptions.selectedSeason !== "height" &&
+            currentOptions.selectedSeason !== ""
         );
 
-        polygons.forEach((polygon) => {
-          polygon.forEach((ring) => {
+        for (const polygon of polygons) {
+          for (const ring of polygon) {
             const positions = ring.map((coord) =>
               Cesium.Cartesian3.fromDegrees(coord[0], coord[1], 0)
             );
-            console.log("Building Feature:", feature);
 
             const entity = viewer.entities.add({
               polygon: {
@@ -101,7 +171,6 @@ export function setupRooftopSolarInsulationTool(viewer, options) {
                 September: props.September,
                 December: props.December,
                 Average: props.Average,
-
                 times: props.times || [
                   "5:15",
                   "6:15",
@@ -134,9 +203,9 @@ export function setupRooftopSolarInsulationTool(viewer, options) {
             });
 
             visibleEntities.push(entity);
-          });
-        });
-      });
+          }
+        }
+      }
 
       buildingEntities = visibleEntities;
       console.log(`[Rooftop] ✅ Rendered ${visibleEntities.length} buildings.`);
@@ -146,11 +215,19 @@ export function setupRooftopSolarInsulationTool(viewer, options) {
       alert("Failed to load rooftop building data.");
     });
 
-  viewer.selectedEntityChanged.addEventListener((selected) => {
+  // Clean up previous listener if any
+  if (selectedEntityChangedListener && viewer.selectedEntityChanged) {
+    viewer.selectedEntityChanged.removeEventListener(
+      selectedEntityChangedListener
+    );
+  }
+
+  selectedEntityChangedListener = (selected) => {
     if (!selected || !selected.custom_prop) return;
 
     if (lastSelectedEntity?.polygon) {
       lastSelectedEntity.polygon.outlineColor = Cesium.Color.DARKGRAY;
+      lastSelectedEntity.polygon.outlineWidth = 1;
     }
 
     selected.polygon.outlineColor = Cesium.Color.RED;
@@ -161,9 +238,36 @@ export function setupRooftopSolarInsulationTool(viewer, options) {
     const lat = parseFloat(props.centroid[1]).toFixed(5);
     const lon = parseFloat(props.centroid[0]).toFixed(5);
 
+    console.log(`[Rooftop] Selected building at lat:${lat}, lon:${lon}`);
+
+    // Determine hourly data based on current season
+    const season = currentOptions.selectedSeason || "";
+    const shadowTime = currentOptions.shadowTime ?? 12;
+
+    let hourlyData = [];
+    switch (season.toLowerCase()) {
+      case "march":
+        hourlyData = props.MarchHourly || [];
+        break;
+      case "june":
+        hourlyData = props.JuneHourly || [];
+        break;
+      case "september":
+        hourlyData = props.SeptemberHourly || [];
+        break;
+      case "december":
+        hourlyData = props.DecemberHourly || [];
+        break;
+      default:
+        hourlyData = props.AverageHourly || [];
+        break;
+    }
+
     PopupService.show({
+      isPlugin: true,
+      pluginId: "rooftop-solar-insulation",
+      tabTitle: "Building Solar Stats",
       component: BuildingStats,
-      title: "Building Solar Stats",
       props: {
         data: {
           latitude: lat,
@@ -180,31 +284,122 @@ export function setupRooftopSolarInsulationTool(viewer, options) {
           SeptemberHourly: props.SeptemberHourly,
           DecemberHourly: props.DecemberHourly,
         },
-        onClose: () => PopupService.hide(), // required!
+        onClose: () => PopupService.hide(),
       },
     });
-  });
+
+    eventBus.emit("update-building-stats", {
+      latitude: lat,
+      longitude: lon,
+      height: props.Height,
+      March: props.March,
+      June: props.June,
+      September: props.September,
+      December: props.December,
+      Average: props.Average,
+      times: props.times,
+      MarchHourly: props.MarchHourly,
+      JuneHourly: props.JuneHourly,
+      SeptemberHourly: props.SeptemberHourly,
+      DecemberHourly: props.DecemberHourly,
+      selectedSeason: season,
+      shadowTime: shadowTime,
+      hourlyData: hourlyData,
+    });
+  };
+
+  viewer.selectedEntityChanged.addEventListener(selectedEntityChangedListener);
 }
+
+// ... rest of your code unchanged ...
 
 export function clearRooftopSolarInsulation() {
   const { viewer } = getToolState();
   if (viewer && buildingEntities.length) {
-    buildingEntities.forEach((e) => viewer.entities.remove(e));
+    for (const e of buildingEntities) {
+      viewer.entities.remove(e);
+    }
   }
   buildingEntities = [];
   lastSelectedEntity = null;
   removeEventHandlers();
   clearDrawing();
+
+  // Remove event listener if any
+  if (viewer && selectedEntityChangedListener) {
+    viewer.selectedEntityChanged.removeEventListener(
+      selectedEntityChangedListener
+    );
+    selectedEntityChangedListener = null;
+  }
+
   console.log("[Rooftop] Tool cleared.");
 }
 
-export function updateShadowTime(hour) {
-  if (!viewerRef) return;
+// Get building data for a specific season, including current season value
+export function getUpdatedBuildingDataForSeason(entity, season) {
+  season = normalizeSeason(season);
+  console.log(
+    "[Rooftop] getUpdatedBuildingDataForSeason called with season:",
+    season
+  );
+  if (!entity?.custom_prop) return null;
+
+  const val = season
+    ? getSeasonValue(entity.custom_prop, season)
+    : entity.custom_prop.Average;
+  console.log("[Rooftop] Season value for entity:", val);
+  return {
+    ...entity.custom_prop,
+    CurrentSeasonValue: val,
+  };
+}
+
+// Update Cesium scene shadows based on hour, date, and season
+export function updateShadowTime(hour, dateObj, selectedSeason) {
+  selectedSeason = normalizeSeason(selectedSeason);
+  console.log("[Rooftop] updateShadowTime called with:", {
+    hour,
+    dateObj,
+    selectedSeason,
+  });
+  if (!viewerRef) {
+    console.warn("[Rooftop] Viewer reference not set.");
+    return;
+  }
 
   const validHour =
     typeof hour === "number" && hour >= 0 && hour <= 23 ? hour : 12;
-  const date = new Date();
-  date.setUTCHours(validHour, 0, 0, 0); // prevents Invalid Date
+  let date;
+
+  // If season is set (and not empty), override date to seasonal fixed date only if dateObj is missing
+  if (selectedSeason && !dateObj) {
+    const year = new Date().getFullYear();
+    switch (selectedSeason) {
+      case "march":
+        date = new Date(year, 2, 21); // March 21
+        break;
+      case "june":
+        date = new Date(year, 5, 21); // June 21
+        break;
+      case "september":
+        date = new Date(year, 8, 21); // September 21
+        break;
+      case "december":
+        date = new Date(year, 11, 21); // December 21
+        break;
+      default:
+        date = new Date();
+        console.warn(
+          "[Rooftop] updateShadowTime unknown season, using current date."
+        );
+    }
+  } else {
+    // No season or season empty string, use dateObj if provided or current date
+    date = dateObj instanceof Date ? new Date(dateObj) : new Date();
+  }
+
+  date.setHours(validHour, 0, 0, 0);
 
   const julian = Cesium.JulianDate.fromDate(date);
   viewerRef.clock.currentTime = julian;
@@ -217,7 +412,9 @@ export function updateShadowTime(hour) {
   }
 
   viewerRef.scene.requestRender();
-  console.log(`[Rooftop] ☀️ Shadow time updated to ${validHour}:00 UTC`);
+  console.log(
+    `[Rooftop] ☀️ Shadow datetime updated to ${date.toLocaleString()} (local)`
+  );
 }
 
 // ------------------ Helpers ------------------
@@ -253,7 +450,15 @@ function pickGlobePosition(viewer, screenPosition) {
 }
 
 function getSeasonValue(props, season) {
-  switch (season) {
+  if (!season || typeof season !== "string" || season === "") {
+    console.warn(
+      "[Rooftop] getSeasonValue received invalid or empty season:",
+      season
+    );
+    return props.Average;
+  }
+
+  switch (season.toLowerCase()) {
     case "march":
       return props.March;
     case "june":
@@ -269,45 +474,45 @@ function getSeasonValue(props, season) {
 }
 
 function scaleZValuesInGeoJSON(geojson) {
-  geojson.features.forEach((f) => {
-    const height = f.properties.height;
-    if (typeof height !== "number") return;
+  for (const feature of geojson.features) {
+    const height = feature.properties.height;
+    if (typeof height !== "number") continue;
 
     let minZ = Infinity;
-    const coords = f.geometry.coordinates;
-    coords.forEach((poly) =>
-      poly.forEach((ring) =>
-        ring.forEach((c) => {
+    const coords = feature.geometry.coordinates;
+    for (const poly of coords) {
+      for (const ring of poly) {
+        for (const c of ring) {
           if (c.length === 3 && typeof c[2] === "number") {
             minZ = Math.min(minZ, c[2]);
           }
-        })
-      )
-    );
+        }
+      }
+    }
 
-    if (!isFinite(minZ) || minZ === 0) return;
+    if (!isFinite(minZ) || minZ === 0) continue;
 
-    coords.forEach((poly) =>
-      poly.forEach((ring) =>
-        ring.forEach((c) => {
+    for (const poly of coords) {
+      for (const ring of poly) {
+        for (const c of ring) {
           if (c.length === 3) c[2] = c[2] - minZ + height;
-        })
-      )
-    );
-  });
+        }
+      }
+    }
+  }
 
   return geojson;
 }
 
 function coordZ(rings) {
   let maxZ = 0;
-  rings.forEach((ring) =>
-    ring.forEach((coord) => {
+  for (const ring of rings) {
+    for (const coord of ring) {
       if (coord.length >= 3 && typeof coord[2] === "number") {
         maxZ = Math.max(maxZ, coord[2]);
       }
-    })
-  );
+    }
+  }
   return maxZ || 0;
 }
 

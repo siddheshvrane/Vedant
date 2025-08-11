@@ -1,274 +1,343 @@
+// services/PopupService.js
 import { BehaviorSubject } from "rxjs";
 
 class PopupServiceClass {
-    // Controls overall visibility of the single popup component
-    isVisible$ = new BehaviorSubject(false);
+  isVisible$ = new BehaviorSubject(false);
+  popupContent$ = new BehaviorSubject({
+    component: null,
+    title: "",
+    props: {},
+    onSelect: null,
+    onCancel: null,
+    onClose: null,
+    type: null,
+  });
 
-    // Holds the data for the *currently active* popup, including the component itself
-    // and its props/callbacks.
-    popupContent$ = new BehaviorSubject({
-        component: null, // The Vue component to render
-        title: "",       // Title for the popup header
-        props: {},       // Props to pass to the component
-        // Callbacks from the popup to the service/caller
-        onSelect: null,  // Generic callback for selection/start action
-        onCancel: null,  // Generic callback for cancel action
-        onClose: null,   // Internal callback to hide the popup from within the component
+  _confirmationResolver = null;
+  _confirmationRejecter = null;
+
+  // Store plugin popup state per pluginId
+  pluginPopups = new Map(); // pluginId -> { tabs: [ {id,title,component,props} ], activeTabIndex }
+
+  /**
+   * Shows a popup. For plugin tab behavior pass: isPlugin: true and pluginId: "yourPluginId".
+   * Additional optional field: tabTitle (string).
+   *
+   * Backwards-compatible: existing calls without isPlugin still work.
+   */
+  show({
+    component,
+    title = "",
+    props = {},
+    onSelect = null,
+    onCancel = null,
+    // plugin-specific:
+    isPlugin = false,
+    pluginId = null,
+    tabTitle = "",
+  } = {}) {
+    // plugin flow: append to plugin's tab list and render PluginPopupContainer
+    if (isPlugin && pluginId) {
+      let state = this.pluginPopups.get(pluginId);
+      if (!state) {
+        state = { tabs: [], activeTabIndex: 0 };
+        this.pluginPopups.set(pluginId, state);
+      }
+
+      // Check if a tab with the same component AND title already exists to avoid duplicates
+      const existingIndex = state.tabs.findIndex(
+        (tab) =>
+          tab.title === (tabTitle || title || "Tab") &&
+          tab.component === component
+      );
+
+      if (existingIndex !== -1) {
+        // Activate existing tab and update props if needed
+        state.activeTabIndex = existingIndex;
+
+        // Optionally update props of existing tab to latest
+        state.tabs[existingIndex].props = {
+          ...state.tabs[existingIndex].props,
+          ...props,
+          onSelect,
+          onCancel,
+          onClose: () => this._closePluginContainer(pluginId),
+        };
+
+        this._emitPluginContainer(pluginId);
+        return;
+      }
+
+      // create the tab entry
+      const tabEntry = {
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        title: tabTitle || title || "Tab",
+        component,
+        props: {
+          ...props,
+          onSelect,
+          onCancel,
+          // components inside plugin tab can call this to close the whole plugin container (or we wire their own close per-tab).
+          onClose: () => this._closePluginContainer(pluginId),
+        },
+      };
+
+      state.tabs.push(tabEntry);
+      state.activeTabIndex = state.tabs.length - 1;
+
+      // emit the plugin container (dynamic import to avoid circular deps)
+      this._emitPluginContainer(pluginId);
+      return;
+    }
+
+    // fallback: original behaviour for non-plugin popups
+    if (!component) {
+      console.error("PopupService.show: 'component' parameter is required.");
+      return;
+    }
+
+    // ensure any pending confirmation is rejected
+    if (this._confirmationRejecter) {
+      this._confirmationRejecter(
+        new Error("New popup opened before previous confirmation was resolved.")
+      );
+      this._confirmationResolver = null;
+      this._confirmationRejecter = null;
+    }
+
+    const onClose = () => this.hide();
+
+    this.popupContent$.next({
+      component,
+      title,
+      props: {
+        ...props,
+        onSelect,
+        onCancel,
+        onClose,
+      },
+      onSelect,
+      onCancel,
+      onClose,
+      type: null,
     });
+    this.isVisible$.next(true);
+  }
 
-    // Resolvers for the confirmation promise
-    _confirmationResolver = null;
-    _confirmationRejecter = null;
+  // INTERNAL: load and emit plugin container component with current plugin state
+  _emitPluginContainer(pluginId) {
+    const pluginState = this.pluginPopups.get(pluginId);
+    if (!pluginState) return;
 
-    /**
-     * Shows a generic popup with a specified Vue component and its props/callbacks.
-     * @param {object} options - Options for the popup.
-     * @param {import("vue").DefineComponent} options.component - The Vue component to render inside the popup.
-     * @param {string} [options.title=''] - The title for the popup.
-     * @param {object} [options.props={}] - Props to pass directly to the component.
-     * @param {Function} [options.onSelect] - Callback when the component signals a "select" or "start" action.
-     * @param {Function} [options.onCancel] - Callback when the component signals a "cancel" action.
-     */
-    show({ component, title = "", props = {}, onSelect = null, onCancel = null }) {
-        if (!component) {
-            console.error("PopupService.show: 'component' parameter is required.");
-            return;
-        }
-
-        // Ensure any previous confirmation is rejected if a new popup is opened
-        if (this._confirmationRejecter) {
-            this._confirmationRejecter(
-                new Error("New popup opened before previous confirmation was resolved.")
-            );
-            this._confirmationResolver = null;
-            this._confirmationRejecter = null;
-        }
-
-        // The onClose callback is passed to the component itself, allowing it to hide the popup
-        // by calling this.onClose() internally.
-        const onClose = () => this.hide();
-
+    import("../components/Menu/SubSidebars/Plugins/PluginPopupContainer.vue")
+      .then(({ default: PluginPopupContainer }) => {
         this.popupContent$.next({
-            component,
-            title,
-            props: {
-                ...props,
-                onSelect, // Pass these down to the component so it can use them
-                onCancel,
-                onClose,  // Make sure the component can call onClose to hide itself
+          component: PluginPopupContainer,
+          title: pluginState.title || "",
+          props: {
+            pluginId,
+            tabs: pluginState.tabs,
+            activeTabIndex: pluginState.activeTabIndex,
+            // Remove re-emitting on tab switch to prevent remounting
+            onTabSwitch: (index) => {
+              pluginState.activeTabIndex = index;
+              // Do NOT call this._emitPluginContainer(pluginId) here
+              // The PluginPopupContainer component should handle this internally
             },
-            onSelect, // Also store them here for internal service logic if needed
-            onCancel,
-            onClose,
+            onTabClose: (index) => {
+              if (!pluginState) return;
+              pluginState.tabs.splice(index, 1);
+              if (pluginState.activeTabIndex >= pluginState.tabs.length) {
+                pluginState.activeTabIndex = pluginState.tabs.length - 1;
+              }
+              if (pluginState.tabs.length === 0) {
+                this.pluginPopups.delete(pluginId);
+                this.hide();
+              } else {
+                this._emitPluginContainer(pluginId);
+              }
+            },
+            onCloseContainer: () => this._closePluginContainer(pluginId),
+          },
+          onClose: () => this._closePluginContainer(pluginId),
+          type: null,
         });
         this.isVisible$.next(true);
-    }
-
-    /**
-     * Hides the currently displayed popup.
-     * If a confirmation is pending, it implicitly cancels it.
-     */
-    hide() {
-        this.isVisible$.next(false);
-        // Reset the content after hiding
-        this.popupContent$.next({
-            component: null,
-            title: "",
-            props: {},
-            onSelect: null,
-            onCancel: null,
-            onClose: null,
-        });
-        // If a confirmation was pending, reject it as it's being dismissed without explicit action
-        if (this._confirmationRejecter) {
-            this._confirmationRejecter(
-                new Error("Confirmation dismissed by user or system.")
-            );
-            this._confirmationResolver = null;
-            this._confirmationRejecter = null;
+      })
+      .catch((err) => {
+        console.error("Failed to load PluginPopupContainer.vue:", err);
+        // fallback: show first tab's component directly if plugin container can't be loaded
+        const fallbackTab = pluginState.tabs[pluginState.activeTabIndex];
+        if (fallbackTab) {
+          this.popupContent$.next({
+            component: fallbackTab.component,
+            title: fallbackTab.title || "",
+            props: fallbackTab.props || {},
+            onClose: () => this._closePluginContainer(pluginId),
+            type: null,
+          });
+          this.isVisible$.next(true);
         }
-    }
+      });
+  }
 
-    /**
-     * Shows a confirmation dialog and returns a Promise that resolves with true (confirmed) or false (canceled).
-     * @param {string} message - The confirmation message.
-     * @param {string} [title='Confirm Action'] - Optional title for the confirmation dialog.
-     * @param {string} [confirmText='Confirm'] - Text for the confirmation button.
-     * @param {string} [cancelText='Cancel'] - Text for the cancel button.
-     * @returns {Promise<boolean>} A promise that resolves to true if confirmed, false if canceled.
-     */
-    showConfirmation(
+  _closePluginContainer(pluginId) {
+    this.pluginPopups.delete(pluginId);
+    this.hide();
+  }
+
+  hide() {
+    this.isVisible$.next(false);
+    this.popupContent$.next({
+      component: null,
+      title: "",
+      props: {},
+      onSelect: null,
+      onCancel: null,
+      onClose: null,
+      type: null,
+    });
+    if (this._confirmationRejecter) {
+      this._confirmationRejecter(
+        new Error("Confirmation dismissed by user or system.")
+      );
+      this._confirmationResolver = null;
+      this._confirmationRejecter = null;
+    }
+  }
+
+  // --- existing type-based helpers untouched ---
+
+  _showInternalTypeBasedPopup(type, data) {
+    if (!type) {
+      console.error(
+        "PopupService._showInternalTypeBasedPopup: 'type' parameter is required."
+      );
+      return;
+    }
+    this.popupContent$.next({
+      component: null,
+      title: data.title || "",
+      props: data,
+      type: type,
+      onSelect: data.onSelect,
+      onCancel: data.onCancel,
+      onClose: () => this.hide(),
+    });
+    this.isVisible$.next(true);
+  }
+
+  showServiceAdded(params) {
+    this._showInternalTypeBasedPopup("serviceAdded", params);
+  }
+
+  showToolInstruction(
+    message,
+    title = "Tool Instructions",
+    showDismissButton = true
+  ) {
+    this._showInternalTypeBasedPopup("toolInstruction", {
+      message,
+      title,
+      showDismissButton,
+    });
+  }
+
+  showViewshedForm(params) {
+    this._showInternalTypeBasedPopup("viewshedForm", params);
+  }
+
+  showTerrainProfileStats(params) {
+    this._showInternalTypeBasedPopup("terrainProfileStats", params);
+  }
+
+  showThreeDModelForm(params) {
+    this._showInternalTypeBasedPopup("threeDModelForm", params);
+  }
+
+  showFlyThroughForm(params) {
+    console.warn(
+      "PopupService.showFlyThroughForm is deprecated. Use PopupService.show({ component: FlyThroughModePopup, ... }) directly."
+    );
+    this._showInternalTypeBasedPopup("flyThroughForm", params);
+  }
+
+  showMarkerSequenceForm(params) {
+    import("../components/Popup/popups/MarkerSequencePopup.vue")
+      .then(({ default: MarkerSequencePopup }) => {
+        this.show({
+          component: MarkerSequencePopup,
+          title: "🎯 Configure Marker Flythrough",
+          props: {
+            markers: params.markers || [],
+            totalDuration: params.totalDuration || 0,
+            enableSmoothing:
+              params.enableSmoothing !== undefined
+                ? params.enableSmoothing
+                : true,
+            previewDuration: params.previewDuration || 2.0,
+            onStart: params.onStart,
+            onPreview: params.onPreview,
+            onCancel: params.onCancel,
+          },
+          onSelect: params.onStart,
+          onCancel: params.onCancel,
+        });
+      })
+      .catch((error) => {
+        console.error("Failed to load MarkerSequencePopup component:", error);
+        this.showToolInstruction(
+          "Failed to load marker configuration popup. Please try again.",
+          "Error",
+          true
+        );
+      });
+  }
+
+  showConfirmation(
+    message,
+    title = "Confirm Action",
+    confirmText = "Confirm",
+    cancelText = "Cancel"
+  ) {
+    if (this._confirmationRejecter) {
+      this._confirmationRejecter(
+        new Error(
+          "New confirmation dialog opened before previous one was resolved."
+        )
+      );
+    }
+    return new Promise((resolve, reject) => {
+      this._confirmationResolver = resolve;
+      this._confirmationRejecter = reject;
+      this._showInternalTypeBasedPopup("confirmation", {
         message,
-        title = "Confirm Action",
-        confirmText = "Confirm",
-        cancelText = "Cancel"
-    ) {
-        // If a confirmation is already active, reject the previous one
-        if (this._confirmationRejecter) {
-            this._confirmationRejecter(
-                new Error(
-                    "New confirmation dialog opened before previous one was resolved."
-                )
-            );
-        }
+        title,
+        confirmText,
+        cancelText,
+        onConfirm: () => this.resolveConfirmation(true),
+        onCancel: () => this.resolveConfirmation(false),
+      });
+    });
+  }
 
-        return new Promise((resolve, reject) => {
-            this._confirmationResolver = resolve;
-            this._confirmationRejecter = reject;
-            this._showInternalTypeBasedPopup("confirmation", {
-                message,
-                title,
-                confirmText,
-                cancelText,
-                onConfirm: () => this.resolveConfirmation(true),
-                onCancel: () => this.resolveConfirmation(false),
-            });
-        });
+  resolveConfirmation(result) {
+    if (this._confirmationResolver) {
+      this._confirmationResolver(result);
+      this._confirmationResolver = null;
+      this._confirmationRejecter = null;
+      this.hide();
     }
+  }
 
-    // Internal helper for popups that are still managed by a 'type' string
-    // This assumes your main Popup.vue component reads `popupContent$.value.type`
-    // and `popupContent$.value.data` to render specific internal sub-components.
-    _showInternalTypeBasedPopup(type, data) {
-        if (!type) {
-            console.error("PopupService._showInternalTypeBasedPopup: 'type' parameter is required.");
-            return;
-        }
-        this.popupContent$.next({
-            component: null, // Set component to null for type-based popups
-            title: data.title || "",
-            props: data, // Pass data as props
-            type: type, // Keep the type for backward compatibility with your main Popup.vue
-            onSelect: data.onSelect,
-            onCancel: data.onCancel,
-            onClose: () => this.hide(),
-        });
-        this.isVisible$.next(true);
+  rejectConfirmation(error) {
+    if (this._confirmationRejecter) {
+      this._confirmationRejecter(error);
+      this._confirmationResolver = null;
+      this._confirmationRejecter = null;
+      this.hide();
     }
-
-
-    /**
-     * Convenience method to show the 'serviceAdded' popup.
-     * @param {object} params - { layerName: string, srs: string, extent: string }
-     */
-    showServiceAdded(params) {
-        this._showInternalTypeBasedPopup("serviceAdded", params);
-    }
-
-    /**
-     * Convenience method to show the 'toolInstruction' popup.
-     * @param {string} message - The instruction message.
-     * @param {string} [title='Tool Instructions'] - Optional title.
-     * @param {boolean} [showDismissButton=true] - Optional flag for dismiss button.
-     */
-    showToolInstruction(
-        message,
-        title = "Tool Instructions",
-        showDismissButton = true
-    ) {
-        this._showInternalTypeBasedPopup("toolInstruction", { message, title, showDismissButton });
-    }
-
-    /**
-     * Convenience method to show the 'viewshedForm' popup.
-     * @param {object} params - { observerHeight: number, viewDistance: number, rayCount: number, onStart: Function, onCancel: Function }
-     */
-    showViewshedForm(params) {
-        this._showInternalTypeBasedPopup("viewshedForm", params);
-    }
-
-    /**
-     * NEW: Convenience method to show the 'terrainProfileStats' popup.
-     * @param {object} params - { profile: Array, entity: Cesium.Entity }
-     */
-    showTerrainProfileStats(params) {
-        this._showInternalTypeBasedPopup("terrainProfileStats", params);
-    }
-
-    /**
-     * NEW: Convenience method to show the 'threeDModelForm' popup.
-     * @param {object} params - { url?: string, longitude?: number, latitude?: number, scale?: number, minimumPixelSize?: number, maximumScale?: number, onStart: Function, onCancel: Function }
-     */
-    showThreeDModelForm(params) {
-        this._showInternalTypeBasedPopup("threeDModelForm", params);
-    }
-
-    /**
-     *
-     * @deprecated Use `PopupService.show({ component: FlyThroughModePopup, ... })` directly.
-     * @param {object} params - { height?: number, tilt?: number, speed?: number, duration?: number, loop?: boolean, onStart: Function, onCancel: Function }
-     */
-    showFlyThroughForm(params) {
-        console.warn("PopupService.showFlyThroughForm is deprecated. Use PopupService.show({ component: FlyThroughModePopup, ... }) directly.");
-        this._showInternalTypeBasedPopup("flyThroughForm", params);
-    }
-
-    /**
-     * NEW: Shows the marker sequence configuration form
-     * @param {object} params - Marker configuration parameters
-     * @param {Array} params.markers - Array of marker objects with id, order, waitTime, coordinates, description
-     * @param {number} params.totalDuration - Total estimated duration
-     * @param {boolean} params.enableSmoothing - Whether to enable camera smoothing
-     * @param {number} params.previewDuration - Duration for marker preview
-     * @param {Function} params.onStart - Callback when flythrough starts
-     * @param {Function} params.onPreview - Callback when marker is previewed
-     * @param {Function} params.onCancel - Callback when cancelled
-     */
-    showMarkerSequenceForm(params) {
-        // Import MarkerSequencePopup dynamically to avoid circular dependencies
-        // You might need to adjust this import path based on your project structure
-        import('../components/Popup/popups/MarkerSequencePopup.vue').then(({ default: MarkerSequencePopup }) => {
-            this.show({
-                component: MarkerSequencePopup,
-                title: "🎯 Configure Marker Flythrough",
-                props: {
-                    markers: params.markers || [],
-                    totalDuration: params.totalDuration || 0,
-                    enableSmoothing: params.enableSmoothing !== undefined ? params.enableSmoothing : true,
-                    previewDuration: params.previewDuration || 2.0,
-                    onStart: params.onStart,
-                    onPreview: params.onPreview,
-                    onCancel: params.onCancel,
-                },
-                onSelect: params.onStart,
-                onCancel: params.onCancel,
-            });
-        }).catch(error => {
-            console.error("Failed to load MarkerSequencePopup component:", error);
-            // Fallback to a simple alert or instruction
-            this.showToolInstruction(
-                "Failed to load marker configuration popup. Please try again.",
-                "Error",
-                true
-            );
-        });
-    }
-
-    /**
-     * Resolves the pending confirmation promise. Called by the Popup component.
-     * @param {boolean} result - True for confirmed, false for canceled.
-     */
-    resolveConfirmation(result) {
-        if (this._confirmationResolver) {
-            this._confirmationResolver(result);
-            this._confirmationResolver = null;
-            this._confirmationRejecter = null;
-            this.hide(); // Hide the popup after action
-        }
-    }
-
-    /**
-     * Rejects the pending confirmation promise. Called by the Popup component (e.g., if dismissed externally).
-     * @param {Error} error - The error to reject with.
-     */
-    rejectConfirmation(error) {
-        if (this._confirmationRejecter) {
-            this._confirmationRejecter(error);
-            this._confirmationResolver = null;
-            this._confirmationRejecter = null;
-            this.hide(); // Hide the popup after action
-        }
-    }
+  }
 }
 
 export const PopupService = new PopupServiceClass();

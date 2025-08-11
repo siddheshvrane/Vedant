@@ -11,7 +11,7 @@
         <h6 class="plugin-title card-title text-light mb-0">
           {{ plugin.title }}
         </h6>
-        <p class="plugin-subtitle card-subtitle text-muted">
+        <p class="plugin-subtitle card-subtitle">
           {{ plugin.subtitle }}
         </p>
       </div>
@@ -42,12 +42,6 @@
           <i v-else class="fas fa-folder-open me-1"></i>
           Open
         </button>
-
-        <button
-          class="btn btn-sm btn-outline-secondary action-button"
-          @click="$emit('help-plugin', plugin.id)">
-          <i class="fas fa-question-circle me-1"></i> Help
-        </button>
       </div>
     </div>
   </li>
@@ -75,7 +69,6 @@ function togglePlugin() {
   } else {
     PluginManager.enablePlugin(props.plugin);
   }
-  // Simulate short delay for UI feedback
   setTimeout(() => (loading.value = false), 400);
 }
 
@@ -91,7 +84,7 @@ function openPlugin() {
   --card-bg: rgba(246, 246, 246);
   --border-color: rgba(60, 60, 60, 0.7);
   --text-color: #e0e0e0;
-  --muted-text-color: #a0a0a0;
+  --muted-text-color: #58a6ff; /* changed subtitle color to light blue */
   --bs-primary: #0d6efd;
   --bs-primary-rgb: 13, 110, 253;
   --bs-secondary: #6c757d;
@@ -149,7 +142,7 @@ function openPlugin() {
 }
 
 .plugin-subtitle {
-  color: var(--muted-text-color);
+  color: #a0a0a0 !important; /* or your desired color */
   font-size: 0.9em;
   line-height: 1.4;
 }
