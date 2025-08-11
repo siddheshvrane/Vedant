@@ -21,9 +21,9 @@
 </template>
 
 <script>
-import BaseSubSidebar from '../SubSidebar.vue'; // Adjust path if BaseSubSidebar is elsewhere
-import LayerListItem from './LayerListItem.vue'; // Adjust path based on where you put LayerListItem.vue
-import { LayerService } from '../../../../controller.js'; // Import the new LayerService
+import BaseSubSidebar from '../SubSidebar.vue';
+import LayerListItem from './LayerListItem.vue';
+import { LayerService } from '../../../../services/LayerService.js'; // Pure communication service
 
 export default {
   name: 'LayerManagerSidebar',
@@ -33,8 +33,8 @@ export default {
   },
   data() {
     return {
-      layers: [], // Layers will now be populated from LayerService
-      layerServiceSubscription: null, // To manage the RxJS subscription
+      layers: [],
+      layerServiceSubscription: null,
     };
   },
   methods: {

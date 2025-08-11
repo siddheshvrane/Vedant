@@ -1,346 +1,351 @@
 // src/components/Globe/CesiumGlobeManager.js
-// No direct Cesium import here, as sub-managers handle it
-import CesiumCoreManager from './managers/CesiumCoreManager';
-import CesiumGeoDataManager from './managers/CesiumGeoDataManager';
-import { MapService } from '../../services/MapService'; // Import MapService
+import CesiumCoreManager from './managers/CesiumCoreManager.js';
+import CesiumGeoDataManager from './managers/CesiumGeoDataManager.js';
+import CesiumGraphicManager from './managers/CesiumGraphicManager.js';
+import LayerManager from '../Menu/SubSidebars/LayerManager/LayerManager.js';
+import { MapService } from '../../services/MapService.js';
 
+/**
+ * CesiumGlobeManager: Central coordinator for all Cesium-related operations.
+ * This class orchestrates interactions between different specialized managers
+ * and handles communication with MapService.
+ */
 class CesiumGlobeManager {
-    constructor(containerId, options = {}) {
-        // Initialize CesiumCoreManager
-        this.coreManager = new CesiumCoreManager(containerId, options);
-        this.viewer = null; // Will be populated after coreManager.initViewer()
-
-        // CesiumGeoDataManager will be initialized with the viewer instance
-        this.geoDataManager = null;
-
-        this.subscriptions = []; // To manage RxJS subscriptions
+    constructor(containerId) {
+        this.containerId = containerId;
+        
+        // Initialize specialized managers
+        this.coreManager = new CesiumCoreManager(containerId);
+        this.geoDataManager = null; // Initialized after viewer creation
+        this.graphicManager = null; // Initialized after viewer creation
+        this.layerManager = new LayerManager(); // Initialize layer management
+        
+        // Setup MapService subscriptions for communication
+        this.setupMapServiceSubscriptions();
+        
+        console.log('CesiumGlobeManager: Initialized with specialized managers');
     }
 
     /**
-     * Initializes the Cesium Viewer and all sub-managers.
-     * @returns {Cesium.Viewer} The initialized Cesium Viewer instance.
+     * Sets up subscriptions to MapService communication events
+     */
+    setupMapServiceSubscriptions() {
+        try {
+            // Check if MapService and its observables exist before subscribing
+            if (!MapService) {
+                console.error('CesiumGlobeManager: MapService is not available');
+                return;
+            }
+
+            // Layer management events
+            if (MapService.reconcileGlobeLayers$) {
+                MapService.reconcileGlobeLayers$.subscribe(layersToReconcile => {
+                    if (layersToReconcile && this.geoDataManager) {
+                        this.geoDataManager.reconcileLayers(layersToReconcile);
+                    }
+                });
+            } else {
+                console.warn('CesiumGlobeManager: MapService.reconcileGlobeLayers$ is not available');
+            }
+
+            if (MapService.toggleLayerVisibilityOnGlobe$) {
+                MapService.toggleLayerVisibilityOnGlobe$.subscribe(({ layerId, isVisible }) => {
+                    if (this.geoDataManager) {
+                        this.geoDataManager.toggleLayerVisibility(layerId, isVisible);
+                    }
+                });
+            } else {
+                console.warn('CesiumGlobeManager: MapService.toggleLayerVisibilityOnGlobe$ is not available');
+            }
+
+            if (MapService.zoomToLayer$) {
+                MapService.zoomToLayer$.subscribe(layerEntry => {
+                    if (layerEntry && this.geoDataManager) {
+                        this.geoDataManager.zoomToLayer(layerEntry);
+                    }
+                });
+            } else {
+                console.warn('CesiumGlobeManager: MapService.zoomToLayer$ is not available');
+            }
+
+            // Visualization mode changes
+            if (MapService.setGlobeVisualizationMode$) {
+                MapService.setGlobeVisualizationMode$.subscribe(mode => {
+                    if (mode) {
+                        this.coreManager.setGlobeVisualizationMode(mode);
+                    }
+                });
+            } else {
+                console.warn('CesiumGlobeManager: MapService.setGlobeVisualizationMode$ is not available');
+            }
+
+            // Time control changes
+            if (MapService.setGlobeClockTime$) {
+                MapService.setGlobeClockTime$.subscribe(time => {
+                    if (time) {
+                        this.coreManager.setGlobeClockTime(time);
+                    }
+                });
+            } else {
+                console.warn('CesiumGlobeManager: MapService.setGlobeClockTime$ is not available');
+            }
+
+            // Coordinate zoom requests
+            if (MapService.zoomToCoordinates$) {
+                MapService.zoomToCoordinates$.subscribe(coordinates => {
+                    if (coordinates) {
+                        this.coreManager.zoomToCoordinates(coordinates);
+                    }
+                });
+            } else {
+                console.warn('CesiumGlobeManager: MapService.zoomToCoordinates$ is not available');
+            }
+
+            // Graphic rendering
+            if (MapService.renderGraphic$) {
+                MapService.renderGraphic$.subscribe(graphic => {
+                    if (graphic && this.graphicManager) {
+                        this.graphicManager.renderGraphic(graphic);
+                    }
+                });
+            } else {
+                console.warn('CesiumGlobeManager: MapService.renderGraphic$ is not available');
+            }
+
+            if (MapService.removeGraphic$) {
+                MapService.removeGraphic$.subscribe(graphicId => {
+                    if (graphicId && this.graphicManager) {
+                        this.graphicManager.removeGraphic(graphicId);
+                    }
+                });
+            } else {
+                console.warn('CesiumGlobeManager: MapService.removeGraphic$ is not available');
+            }
+
+            if (MapService.displayLocationMarker$) {
+                MapService.displayLocationMarker$.subscribe(location => {
+                    if (location && this.graphicManager) {
+                        this.graphicManager.displayLocationMarker(location);
+                    }
+                });
+            } else {
+                console.warn('CesiumGlobeManager: MapService.displayLocationMarker$ is not available');
+            }
+
+            console.log('CesiumGlobeManager: Subscribed to available MapService communication events');
+        } catch (error) {
+            console.error('CesiumGlobeManager: Error setting up MapService subscriptions:', error);
+        }
+    }
+
+    /**
+     * Initializes the Cesium viewer and all dependent managers
+     * @returns {Cesium.Viewer} The initialized viewer instance
      */
     init() {
-        if (this.viewer) {
-            console.warn('CesiumGlobeManager: Viewer already initialized.');
-            return this.viewer;
+        const viewer = this.coreManager.initViewer();
+        
+        if (viewer) {
+            // Initialize managers that depend on the viewer
+            this.geoDataManager = new CesiumGeoDataManager(viewer);
+            this.graphicManager = new CesiumGraphicManager(viewer);
+            
+            console.log('CesiumGlobeManager: All managers initialized successfully');
         }
-
-        // Initialize the core manager which creates the Cesium Viewer
-        this.viewer = this.coreManager.initViewer();
-
-        // Make CesiumCoreManager globally accessible for tools
-        window.cesiumCoreManager = this.coreManager;
-
-        // Initialize the geo data manager with the created viewer
-        this.geoDataManager = new CesiumGeoDataManager(this.viewer);
-
-        // Subscribe to MapService events (now pure communication)
-        this.setupSubscriptions();
-
-        console.log('CesiumGlobeManager: All sub-managers initialized.');
-        return this.viewer;
+        
+        return viewer;
     }
 
     /**
-     * Sets up subscriptions to MapService subjects.
-     * MapService now only handles communication, all logic is in respective managers.
+     * Destroys all managers and cleans up resources
      */
-    setupSubscriptions() {
-        // Visualization mode changes - delegate to CesiumCoreManager  
-        this.subscriptions.push(
-            MapService.visualizationModeChanged$.subscribe(mode => {
-                this.coreManager.setGlobeVisualizationMode(mode);
-            })
-        );
-
-        // Globe clock time changes - delegate to CesiumCoreManager
-        this.subscriptions.push(
-            MapService.globeClockTimeChanged$.subscribe(time => {
-                this.coreManager.setGlobeClockTime(time);
-            })
-        );
-
-        // Layer management - delegate to CesiumGeoDataManager
-        this.subscriptions.push(
-            MapService.addLayerToGlobe$.subscribe(layerEntry => {
-                this.geoDataManager.addLayer(layerEntry);
-            })
-        );
-        this.subscriptions.push(
-            MapService.removeLayerFromGlobe$.subscribe(layerId => {
-                this.geoDataManager.removeLayer(layerId);
-            })
-        );
-        this.subscriptions.push(
-            MapService.toggleLayerVisibilityOnGlobe$.subscribe(({ layerId, isVisible }) => {
-                this.geoDataManager.toggleLayerVisibility(layerId, isVisible);
-            })
-        );
-        this.subscriptions.push(
-            MapService.reconcileGlobeLayers$.subscribe(layersToReconcile => {
-                this.geoDataManager.reconcileLayers(layersToReconcile);
-            })
-        );
-        this.subscriptions.push(
-            MapService.zoomToLayerOnGlobe$.subscribe(layerEntry => {
-                this.geoDataManager.zoomToLayer(layerEntry);
-            })
-        );
-
-        // Camera and navigation controls - delegate to CesiumCoreManager
-        this.subscriptions.push(
-            MapService.zoomToCoordinates$.subscribe(coordinates => {
-                this.coreManager.zoomToCoordinates(coordinates);
-            })
-        );
-        this.subscriptions.push(
-            MapService.orientToNorth$.subscribe(() => {
-                this.coreManager.orientToNorth();
-            })
-        );
-
-        // Graphics rendering - delegate to CesiumGeoDataManager
-        this.subscriptions.push(
-            MapService.renderGraphic$.subscribe(graphic => {
-                this.geoDataManager.renderGraphic(graphic);
-            })
-        );
-        this.subscriptions.push(
-            MapService.removeGraphic$.subscribe(graphicIdentifier => {
-                this.geoDataManager.removeGraphic(graphicIdentifier);
-            })
-        );
-        this.subscriptions.push(
-            MapService.displayLocationMarker$.subscribe(location => {
-                this.geoDataManager.displayLocationMarker(location);
-            })
-        );
+    destroy() {
+        // Clean up layer manager
+        if (this.layerManager) {
+            this.layerManager.destroy();
+            this.layerManager = null;
+        }
+        
+        // Clean up core manager (this will destroy the viewer)
+        if (this.coreManager) {
+            this.coreManager.destroyViewer();
+        }
+        
+        // Nullify other managers (they don't need explicit cleanup)
+        this.geoDataManager = null;
+        this.graphicManager = null;
+        
+        console.log('CesiumGlobeManager: All managers destroyed and cleaned up');
     }
 
-    // --- Delegate methods to respective consolidated managers ---
+    // --- Direct access methods for specialized functionality ---
+    // These methods provide direct access to manager capabilities when needed
 
-    // Core Management (Viewer, Camera, Scene Info) - Delegate to CesiumCoreManager
+    // Core Manager Methods
+    getViewer() {
+        return this.coreManager.getViewer();
+    }
+
     addCameraChangeListener(callback) {
-        this.coreManager.addCameraChangeListener(callback);
+        return this.coreManager.addCameraChangeListener(callback);
     }
 
     removeCameraChangeListener(callback) {
-        this.coreManager.removeCameraChangeListener(callback);
+        return this.coreManager.removeCameraChangeListener(callback);
     }
 
     zoomIn() {
-        this.coreManager.zoomIn();
+        return this.coreManager.zoomIn();
     }
 
     zoomOut() {
-        this.coreManager.zoomOut();
+        return this.coreManager.zoomOut();
     }
 
     zoomToCoordinates(coordinates) {
-        this.coreManager.zoomToCoordinates(coordinates);
+        return this.coreManager.zoomToCoordinates(coordinates);
     }
 
     orientToNorth() {
-        this.coreManager.orientToNorth();
+        return this.coreManager.orientToNorth();
     }
 
     getSceneInformation() {
         return this.coreManager.getSceneInformation();
     }
 
-    /**
-     * Sets visualization mode - now delegates to CesiumCoreManager which handles all logic.
-     * @param {string} mode - The visualization mode ('2D', '3D').
-     */
-    setGlobeVisualizationMode(mode) {
-        this.coreManager.setGlobeVisualizationMode(mode);
-    }
-
-    /**
-     * Sets globe clock time - now delegates to CesiumCoreManager which handles all logic.
-     * @param {object} time - An object containing hour, minute, and ampm properties.
-     */
-    setGlobeClockTime(time) {
-        this.coreManager.setGlobeClockTime(time);
-    }
-
-    /**
-     * Gets current visualization mode.
-     * @returns {string} Current visualization mode.
-     */
-    getCurrentVisualizationMode() {
-        return this.coreManager.getCurrentVisualizationMode();
-    }
-
-    /**
-     * Gets current globe clock time.
-     * @returns {object} Current time {hour, minute, ampm}.
-     */
-    getCurrentGlobeClockTime() {
-        return this.coreManager.getCurrentGlobeClockTime();
-    }
-
-    // --- Camera Control Methods (delegated to CesiumCoreManager) ---
-
-    /**
-     * Sets camera position and orientation
-     * @param {object} viewOptions - Camera view options
-     */
+    // Advanced Camera Control
     setCameraView(viewOptions) {
         return this.coreManager.setCameraView(viewOptions);
     }
 
-    /**
-     * Gets current camera state
-     * @returns {object} Current camera state
-     */
     getCameraState() {
         return this.coreManager.getCameraState();
     }
 
-    /**
-     * Moves camera by a given movement vector
-     * @param {Cesium.Cartesian3} movement - Movement vector
-     */
     moveCamera(movement) {
-        this.coreManager.moveCamera(movement);
+        return this.coreManager.moveCamera(movement);
     }
 
-    /**
-     * Rotates camera look direction
-     * @param {string} direction - Direction to look
-     * @param {number} angle - Angle in radians
-     */
     rotateCamera(direction, angle) {
-        this.coreManager.rotateCamera(direction, angle);
+        return this.coreManager.rotateCamera(direction, angle);
     }
 
-    /**
-     * Enables or disables default camera controls
-     * @param {boolean} enabled - Whether to enable default controls
-     */
     setDefaultCameraControlsEnabled(enabled) {
-        this.coreManager.setDefaultCameraControlsEnabled(enabled);
+        return this.coreManager.setDefaultCameraControlsEnabled(enabled);
     }
 
-    /**
-     * Cancels current camera flight
-     */
     cancelCameraFlight() {
-        this.coreManager.cancelCameraFlight();
+        return this.coreManager.cancelCameraFlight();
     }
 
-    // --- Flight Animation Methods (delegated to CesiumCoreManager) ---
-
-    /**
-     * Creates a smooth flight animation between points
-     * @param {Array<Cesium.Cartesian3>} pathPositions - Array of positions
-     * @param {object} config - Flight configuration
-     * @param {Function} onProgress - Progress callback
-     * @param {Function} onComplete - Completion callback
-     * @returns {string} Animation ID
-     */
+    // Flight Animation Methods
     createFlightAnimation(pathPositions, config, onProgress, onComplete) {
         return this.coreManager.createFlightAnimation(pathPositions, config, onProgress, onComplete);
     }
 
-    /**
-     * Creates a marker-based flight animation
-     * @param {Array<object>} markers - Array of marker objects
-     * @param {object} config - Flight configuration
-     * @param {Function} onProgress - Progress callback
-     * @param {Function} onComplete - Completion callback
-     * @returns {string} Animation ID
-     */
     createMarkerFlightAnimation(markers, config, onProgress, onComplete) {
         return this.coreManager.createMarkerFlightAnimation(markers, config, onProgress, onComplete);
     }
 
-    /**
-     * Cancels a specific flight animation
-     * @param {string} animationId - Animation ID to cancel
-     */
     cancelFlightAnimation(animationId) {
-        this.coreManager.cancelFlightAnimation(animationId);
+        return this.coreManager.cancelFlightAnimation(animationId);
     }
 
-    /**
-     * Cancels all active flight animations
-     */
     cancelAllFlightAnimations() {
-        this.coreManager.cancelAllFlightAnimations();
+        return this.coreManager.cancelAllFlightAnimations();
     }
 
-    /**
-     * Gets active flight animations
-     * @returns {Array<string>} Array of active animation IDs
-     */
     getActiveFlightAnimations() {
         return this.coreManager.getActiveFlightAnimations();
     }
 
-    /**
-     * Samples terrain heights for given positions
-     * @param {Array<Cesium.Cartesian3>} positions - Positions to sample
-     * @param {number} heightOffset - Height offset above terrain
-     * @returns {Promise<Array<Cesium.Cartesian3>>} Terrain-adjusted positions
-     */
+    // Terrain Sampling
     async sampleTerrainHeights(positions, heightOffset) {
         return this.coreManager.sampleTerrainHeights(positions, heightOffset);
     }
 
-    // --- Geo Data Management (delegated to CesiumGeoDataManager) ---
+    // Visualization and Time Control
+    setGlobeVisualizationMode(mode) {
+        return this.coreManager.setGlobeVisualizationMode(mode);
+    }
+
+    getCurrentVisualizationMode() {
+        return this.coreManager.getCurrentVisualizationMode();
+    }
+
+    setGlobeClockTime(time) {
+        return this.coreManager.setGlobeClockTime(time);
+    }
+
+    getCurrentGlobeClockTime() {
+        return this.coreManager.getCurrentGlobeClockTime();
+    }
+
+    // GeoData Manager Methods (for direct layer operations if needed)
     async addCesiumLayer(layerEntry, imageryIndex) {
-        return this.geoDataManager.addLayer(layerEntry, imageryIndex);
+        if (this.geoDataManager) {
+            return this.geoDataManager.addLayer(layerEntry, imageryIndex);
+        }
+        return null;
     }
 
     removeCesiumLayer(layerId) {
-        this.geoDataManager.removeLayer(layerId);
+        if (this.geoDataManager) {
+            this.geoDataManager.removeLayer(layerId);
+        }
     }
 
     toggleCesiumLayerVisibility(layerId, isVisible) {
-        this.geoDataManager.toggleLayerVisibility(layerId, isVisible);
+        if (this.geoDataManager) {
+            this.geoDataManager.toggleLayerVisibility(layerId, isVisible);
+        }
     }
 
     async reconcileGlobeLayers(layersToReconcile) {
-        await this.geoDataManager.reconcileLayers(layersToReconcile);
+        if (this.geoDataManager) {
+            return this.geoDataManager.reconcileLayers(layersToReconcile);
+        }
     }
 
-    async zoomToLayer(layerEntry) {
-        await this.geoDataManager.zoomToLayer(layerEntry);
+    zoomToLayer(layerEntry) {
+        if (this.geoDataManager) {
+            this.geoDataManager.zoomToLayer(layerEntry);
+        }
     }
 
+    // Graphic Manager Methods
     renderGraphic(graphic) {
-        this.geoDataManager.renderGraphic(graphic);
+        if (this.graphicManager) {
+            this.graphicManager.renderGraphic(graphic);
+        }
     }
 
     removeGraphic(graphicIdentifier) {
-        this.geoDataManager.removeGraphic(graphicIdentifier);
+        if (this.graphicManager) {
+            this.graphicManager.removeGraphic(graphicIdentifier);
+        }
     }
 
     displayLocationMarker(location) {
-        this.geoDataManager.displayLocationMarker(location);
+        if (this.graphicManager) {
+            this.graphicManager.displayLocationMarker(location);
+        }
     }
 
-    /**
-     * Destroys the Cesium Viewer and cleans up all managers and subscriptions.
-     */
-    destroy() {
-        // Unsubscribe from all RxJS subscriptions
-        this.subscriptions.forEach(sub => sub.unsubscribe());
-        this.subscriptions = [];
-
-        // Clear global reference
-        if (window.cesiumCoreManager === this.coreManager) {
-            window.cesiumCoreManager = null;
+    // Layer Manager Access (for direct layer data access if needed)
+    getLayerData(layerId) {
+        if (this.layerManager) {
+            return this.layerManager.getLayerData(layerId);
         }
+        return null;
+    }
 
-        // Destroy the core manager which handles viewer destruction
-        this.coreManager.destroyViewer();
-        this.viewer = null; // Clear viewer reference
-        this.geoDataManager = null; // Clear geo data manager reference
-        console.log('CesiumGlobeManager: All managers destroyed.');
+    getAllLayerData() {
+        if (this.layerManager) {
+            return this.layerManager.getAllLayerData();
+        }
+        return new Map();
     }
 }
 
