@@ -79,14 +79,15 @@ export default {
   data() {
     // Get the initial time from MapService
     const initialTime = MapService.getCurrentGlobeClockTime();
+    const initialMode = MapService.getCurrentVisualizationMode(); // FIXED: Get initial mode
 
     return {
-      selectedMode: '3D', 
+      selectedMode: initialMode, // FIXED: Use the current mode from MapService
       modeSubscription: null,
-      selectedHour: initialTime.hour, // Use persisted time
-      selectedMinute: initialTime.minute, // Use persisted time
-      selectedAmPm: initialTime.ampm, // Use persisted time
-      timeSubscription: null, // NEW: Subscription for time updates from MapService
+      selectedHour: initialTime.hour,
+      selectedMinute: initialTime.minute,
+      selectedAmPm: initialTime.ampm,
+      timeSubscription: null,
     };
   },
   emits: ['close-all-sidebars', 'back-to-main-menu', 'update-visualization-mode', 'update-clock-time'],
@@ -103,13 +104,15 @@ export default {
   },
 
   mounted() {
-    this.modeSubscription = MapService.visualizationModeChanged$.subscribe(mode => {
+    // FIXED: Subscribe to the correct observable for visualization mode changes
+    this.modeSubscription = MapService.currentVisualizationMode$.subscribe(mode => {
       if (this.selectedMode !== mode) {
         this.selectedMode = mode;
+        console.log('VisualizationSidebar: Mode updated to:', mode);
       }
     });
 
-    // NEW: Subscribe to MapService's currentGlobeClockTime$ to keep UI in sync
+    // Subscribe to MapService's currentGlobeClockTime$ to keep UI in sync
     this.timeSubscription = MapService.currentGlobeClockTime$.subscribe(time => {
         if (this.selectedHour !== time.hour || 
             this.selectedMinute !== time.minute || 
@@ -117,14 +120,20 @@ export default {
             this.selectedHour = time.hour;
             this.selectedMinute = time.minute;
             this.selectedAmPm = time.ampm;
+            console.log('VisualizationSidebar: Time updated to:', time);
         }
     });
 
     // Ensure the initial visualization mode is set on the globe
+    console.log('VisualizationSidebar: Setting initial mode:', this.selectedMode);
     MapService.setVisualizationMode(this.selectedMode); 
     
-    // Set the initial time on the globe when mounted.
-    // This will use the time retrieved from MapService in data(), ensuring consistency.
+    // Set the initial time on the globe when mounted
+    console.log('VisualizationSidebar: Setting initial time:', {
+      hour: this.selectedHour,
+      minute: this.selectedMinute,
+      ampm: this.selectedAmPm
+    });
     MapService.setGlobeClockTime({ 
       hour: this.selectedHour,
       minute: this.selectedMinute,
@@ -136,34 +145,35 @@ export default {
     if (this.modeSubscription) {
       this.modeSubscription.unsubscribe();
     }
-    if (this.timeSubscription) { // NEW: Unsubscribe from time updates
+    if (this.timeSubscription) {
         this.timeSubscription.unsubscribe();
     }
   },
 
   methods: {
     emitModeChange() {
+      console.log('VisualizationSidebar: Emitting mode change:', this.selectedMode);
       MapService.setVisualizationMode(this.selectedMode);
       this.$emit('update-visualization-mode', this.selectedMode); 
     },
     emitTimeChange() {
+      const timeObj = { 
+        hour: this.selectedHour,
+        minute: this.selectedMinute,
+        ampm: this.selectedAmPm
+      };
+      console.log('VisualizationSidebar: Emitting time change:', timeObj);
+      
       // Dispatch time change to MapService
-      MapService.setGlobeClockTime({ 
-        hour: this.selectedHour,
-        minute: this.selectedMinute,
-        ampm: this.selectedAmPm
-      });
-      // Also emit to parent if parent needs to react, but MapService already handles globe update
-      this.$emit('update-clock-time', {
-        hour: this.selectedHour,
-        minute: this.selectedMinute,
-        ampm: this.selectedAmPm
-      });
-      console.log('Clock Time changed to:', this.selectedHour, this.selectedMinute, this.selectedAmPm);
+      MapService.setGlobeClockTime(timeObj);
+      
+      // Also emit to parent if parent needs to react
+      this.$emit('update-clock-time', timeObj);
     }
   }
 };
 </script>
+
 <style scoped>
 /* Your existing styles remain unchanged */
 .sub-sidebar-panel {
@@ -221,7 +231,7 @@ export default {
   padding: 20px;
   overflow-y: auto;
   color: white;
-  padding-bottom: 50px; /* Added/adjusted padding to ensure space below dropdowns */
+  padding-bottom: 50px;
 }
 
 .form-label {
@@ -252,9 +262,9 @@ export default {
 /* Styles for dropdowns */
 .select-wrapper {
   position: relative;
-  display: flex; /* Use flex to align icon */
+  display: flex;
   align-items: center;
-  flex: 1; /* Allow dropdowns to take equal space */
+  flex: 1;
 }
 
 .form-select {
@@ -262,7 +272,7 @@ export default {
   -moz-appearance: none;
   appearance: none;
   background-image: none;
-  padding-right: 2.5rem; /* Make space for the icon */
+  padding-right: 2.5rem;
 }
 
 .dropdown-icon {
@@ -279,8 +289,8 @@ export default {
   background-color: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
   color: #fff;
-  padding: 0.375rem 0.75rem; /* Adjust padding for better look in small dropdowns */
-  height: calc(1.5em + 0.75rem + 2px); /* Standard form control height */
+  padding: 0.375rem 0.75rem;
+  height: calc(1.5em + 0.75rem + 2px);
 }
 
 .time-select option {

@@ -11,14 +11,16 @@ import {
 } from '../tool-helpers/tools-helpers.js';
 import { PopupService } from '../../../../../services/PopupService.js';
 import { ToolManagementService } from '../../../../../services/ToolManagementService.js';
+import { MapService } from '../../../../../services/MapService.js';
+import { ScreenRecordingService } from '../../../../../services/ScreenRecordingService.js';
 
 // Default configuration values
 const DEFAULT_CONFIG = {
     cameraHeight: 20,           // meters above ground
-    cameraSpeed: 10,           // meters per second
-    cameraTilt: 45,            // degrees (0=straight down, 90=horizontal)
-    showProgressUpdates: true, // show progress during animation
-    pauseBetweenPoints: 200    // milliseconds pause between flight segments
+    cameraSpeed: 10,            // meters per second
+    cameraTilt: 45,             // degrees (0=straight down, 90=horizontal)
+    showProgressUpdates: true,  // show progress during animation
+    pauseBetweenPoints: 200     // milliseconds pause between flight segments
 };
 
 /**
@@ -28,12 +30,26 @@ const DEFAULT_CONFIG = {
 export function setupFlyThroughTool(viewer) {
     console.log("FlyThroughTool: Setting up enhanced tool with configuration options");
 
-    // Get CesiumCoreManager instance from viewer
+    // Get CesiumCoreManager instance from viewer with comprehensive fallback
     const coreManager = getCoreManagerFromViewer(viewer);
     if (!coreManager) {
         console.error("FlyThroughTool: Cannot access CesiumCoreManager");
+        PopupService.showToolInstruction(
+            "FlyThrough tool requires CesiumCoreManager but it's not available.\n\n" +
+            "Please ensure the application is properly initialized.\n\n" +
+            "Debug Info:\n" +
+            `• Viewer available: ${!!viewer}\n` +
+            `• Viewer._coreManager: ${!!viewer?._coreManager}\n` +
+            `• window.cesiumCoreManager: ${!!window.cesiumCoreManager}\n` +
+            `• MapService.getCoreManager(): ${!!MapService.getCoreManager()}`,
+            "Tool Error",
+            true
+        );
+        ToolManagementService.deactivateCurrentTool();
         return;
     }
+
+    console.log("FlyThroughTool: CesiumCoreManager successfully obtained");
 
     setToolState({
         viewer: viewer,
@@ -45,7 +61,10 @@ export function setupFlyThroughTool(viewer) {
         animationId: null,
         mousePosition: null,
         config: { ...DEFAULT_CONFIG },
-        lastPopupTime: 0
+        lastPopupTime: 0,
+        isRecordingActive: false,
+        recordedBlob: null,
+        recordedInfo: null,
     });
 
     const { handler } = getToolState();
@@ -70,7 +89,6 @@ export function setupFlyThroughTool(viewer) {
         if (Cesium.defined(cartesian)) {
             if (isNaN(cartesian.x) || isNaN(cartesian.y) || isNaN(cartesian.z)) {
                 console.error("FlyThroughTool: Invalid position:", cartesian);
-                // Only show error popup if it's been more than 3 seconds since last popup
                 if (currentTime - lastPopupTime > 3000) {
                     PopupService.showToolInstruction(
                         "Invalid position. Please click on the globe.",
@@ -112,10 +130,10 @@ export function setupFlyThroughTool(viewer) {
 
             // Show popup only for significant milestones or after time intervals
             const shouldShowPopup = (
-                drawingPoints.length === 1 ||   // First point
-                drawingPoints.length === 2 ||   // Second point (minimum for flythrough)
-                drawingPoints.length % 5 === 0 || // Every 5th point
-                (currentTime - lastPopupTime > 10000) // Every 10 seconds
+                drawingPoints.length === 1 ||
+                drawingPoints.length === 2 ||
+                drawingPoints.length % 5 === 0 ||
+                (currentTime - lastPopupTime > 10000)
             );
 
             if (shouldShowPopup) {
@@ -134,7 +152,6 @@ export function setupFlyThroughTool(viewer) {
             }
         } else {
             console.warn("FlyThroughTool: Could not pick valid position");
-            // Throttled error message
             if (currentTime - lastPopupTime > 5000) {
                 PopupService.showToolInstruction(
                     "Please click directly on the globe surface.",
@@ -174,7 +191,7 @@ export function setupFlyThroughTool(viewer) {
         console.log("FlyThroughTool: Right-click detected, showing configuration");
 
         const { drawingPoints, activeShape, config } = getToolState();
-        PopupService.hide(); // Hide any current instruction popup
+        PopupService.hide();
 
         if (drawingPoints.length < 2) {
             console.warn("FlyThroughTool: Not enough points for flythrough");
@@ -233,10 +250,45 @@ export function setupFlyThroughTool(viewer) {
 }
 
 /**
- * Helper function to get CesiumCoreManager from viewer
+ * Helper function to get CesiumCoreManager from viewer with comprehensive fallback methods
  */
 function getCoreManagerFromViewer(viewer) {
-    return window.cesiumCoreManager || null;
+    console.log('FlyThroughTool: Looking for CesiumCoreManager...');
+    
+    // Method 1: Check MapService first (most reliable)
+    try {
+        const coreManagerFromMapService = MapService.getCoreManager();
+        if (coreManagerFromMapService) {
+            console.log('FlyThroughTool: ✅ Found CesiumCoreManager in MapService');
+            return coreManagerFromMapService;
+        }
+    } catch (error) {
+        console.warn('FlyThroughTool: Could not get core manager from MapService:', error);
+    }
+    
+    // Method 2: Check if attached to viewer
+    if (viewer && viewer._coreManager) {
+        console.log('FlyThroughTool: ✅ Found CesiumCoreManager attached to viewer');
+        return viewer._coreManager;
+    }
+    
+    // Method 3: Check global reference
+    if (window.cesiumCoreManager) {
+        console.log('FlyThroughTool: ✅ Found CesiumCoreManager in global window');
+        return window.cesiumCoreManager;
+    }
+    
+    console.warn('FlyThroughTool: CesiumCoreManager not immediately available, checking initialization status...');
+    
+    // Log detailed debug information
+    console.error('FlyThroughTool: ❌ CesiumCoreManager not found in any expected location');
+    console.error('FlyThroughTool: Debug information:');
+    console.error(`  • viewer exists: ${!!viewer}`);
+    console.error(`  • viewer._coreManager exists: ${!!viewer?._coreManager}`);
+    console.error(`  • window.cesiumCoreManager exists: ${!!window.cesiumCoreManager}`);
+    console.error(`  • MapService.getCoreManager() exists: ${!!MapService.getCoreManager()}`);
+    
+    return null;
 }
 
 /**
@@ -246,12 +298,67 @@ async function startConfiguredFlyThrough(drawingPoints, config) {
     const { coreManager } = getToolState();
     
     PopupService.showToolInstruction(
-        'Preparing flythrough path...',
+        'Preparing flythrough path and recording options...',
         'Processing FlyThrough',
         false
     );
 
     try {
+        // Step 1: Test Electron API availability
+        if (window.electron && window.electron.testElectronAPI) {
+            const testResult = window.electron.testElectronAPI();
+            console.log('FlyThroughTool: Electron API test result:', testResult);
+        } else {
+            console.warn('FlyThroughTool: Electron API not available, will use browser fallbacks');
+        }
+
+        // Step 2: Initialize audio devices if not already done
+        console.log('FlyThroughTool: Initializing audio devices...');
+        await ScreenRecordingService.initializeAudioDevices();
+        
+        // Step 3: Prompt user for audio device selection
+        const audioDevices = ScreenRecordingService.availableAudioDevices$.getValue();
+        console.log('FlyThroughTool: Available audio devices:', audioDevices);
+        
+        let selectedAudioDeviceId = 'none'; // Default to no audio
+
+        await new Promise((resolve, reject) => {
+            PopupService.showSelectAudioDeviceForm({
+                audioDevices: audioDevices,
+                onSelect: (deviceId) => {
+                    console.log("FlyThroughTool: Audio device selected:", deviceId);
+                    selectedAudioDeviceId = deviceId;
+                    resolve();
+                },
+                onCancel: () => {
+                    console.log("FlyThroughTool: Audio device selection cancelled");
+                    reject(new Error("Audio device selection cancelled. Flythrough will not start."));
+                }
+            });
+        });
+
+        // Update ScreenRecordingService config with the selected audio device
+        ScreenRecordingService.updateConfig({ audioSource: selectedAudioDeviceId });
+
+        // Step 4: Start screen recording with better error handling
+        console.log("FlyThroughTool: Starting screen recording...");
+        
+        PopupService.showToolInstruction(
+            'Starting screen recording... This may take a few seconds.',
+            'Initializing Recording',
+            false
+        );
+
+        const recordingStarted = await ScreenRecordingService.startRecording();
+        
+        if (!recordingStarted) {
+            throw new Error("Screen recording failed to start. Check console for detailed errors.");
+        }
+        
+        console.log("FlyThroughTool: Screen recording started successfully");
+        setToolState({ isRecordingActive: true });
+
+        // Step 5: Continue with terrain sampling and flythrough
         console.log("FlyThroughTool: Starting terrain sampling with config:", config);
         
         // Use CesiumCoreManager for terrain sampling
@@ -264,6 +371,11 @@ async function startConfiguredFlyThrough(drawingPoints, config) {
                 true
             );
             ToolManagementService.deactivateCurrentTool();
+            // Stop recording if path is invalid
+            if (getToolState().isRecordingActive) {
+                await ScreenRecordingService.stopRecording();
+                setToolState({ isRecordingActive: false });
+            }
             return;
         }
 
@@ -279,13 +391,11 @@ async function startConfiguredFlyThrough(drawingPoints, config) {
         });
         setToolState({ flythroughPath: flythroughPath });
 
-        if (config.showProgressUpdates) {
-            PopupService.showToolInstruction(
-                `Starting flythrough: ${config.cameraHeight}m height, ${config.cameraSpeed}m/s speed, ${config.cameraTilt}° tilt (0°=down, 90°=horizontal)`,
-                'FlyThrough Active',
-                false
-            );
-        }
+        PopupService.showToolInstruction(
+            `Starting flythrough: ${config.cameraHeight}m height, ${config.cameraSpeed}m/s speed, ${config.cameraTilt}° tilt. Recording in progress!`,
+            'FlyThrough Active',
+            false
+        );
 
         // Store start time in config for completion message
         config._startTime = Date.now();
@@ -306,21 +416,79 @@ async function startConfiguredFlyThrough(drawingPoints, config) {
                 if (config.showProgressUpdates && (progress.currentIndex % 3 === 0 || progress.currentIndex < 5)) {
                     const progressPercent = Math.round(progress.progress * 100);
                     PopupService.showToolInstruction(
-                        `Flying: ${progressPercent}% complete (${progress.elapsedTime.toFixed(0)}s elapsed) - Point ${progress.currentIndex + 1}/${progress.totalPoints}`,
+                        `Flying: ${progressPercent}% complete (${progress.elapsedTime.toFixed(0)}s elapsed) - Point ${progress.currentIndex + 1}/${progress.totalPoints}. Recording active.`,
                         'FlyThrough Progress',
                         false
                     );
                 }
             },
             // Completion callback
-            () => {
-                const totalTime = ((Date.now() - config._startTime) / 1000).toFixed(1);
-                PopupService.showToolInstruction(
-                    `Flythrough completed! Total time: ${totalTime}s`,
-                    "Success",
-                    true
-                );
-                ToolManagementService.deactivateCurrentTool();
+            async () => {
+                console.log("FlyThroughTool: Flythrough animation completed.");
+                const { isRecordingActive } = getToolState();
+
+                if (isRecordingActive) {
+                    PopupService.showToolInstruction(
+                        'Flythrough completed. Stopping recording...',
+                        'Finishing Up',
+                        false
+                    );
+                    try {
+                        console.log("FlyThroughTool: Stopping recording...");
+                        const recordingResult = await ScreenRecordingService.stopRecording();
+                        
+                        if (!recordingResult) {
+                            throw new Error("Recording stop returned null result");
+                        }
+
+                        const { blob, info } = recordingResult;
+                        
+                        if (!blob || blob.size === 0) {
+                            throw new Error("Recording blob is empty or null");
+                        }
+
+                        setToolState({ isRecordingActive: false, recordedBlob: blob, recordedInfo: info });
+                        
+                        console.log("FlyThroughTool: Recording stopped successfully, blob size:", blob.size);
+                        
+                        // Offer download after recording stops
+                        PopupService.showDownloadRecordingForm({
+                            recordingInfo: info,
+                            onDownload: async (downloadOptions) => {
+                                console.log("FlyThroughTool: Download requested with options:", downloadOptions);
+                                try {
+                                    const filename = `flythrough-recording-${info.timestamp.replace(/[:.]/g, '-').split('.')[0]}.${info.format}`;
+                                    await ScreenRecordingService.downloadRecording(blob, filename);
+                                } catch (downloadError) {
+                                    console.error("FlyThroughTool: Download failed:", downloadError);
+                                    PopupService.showNotification(`Download failed: ${downloadError.message}`, true);
+                                }
+                            },
+                            onCancel: () => {
+                                console.log("FlyThroughTool: Download cancelled by user.");
+                                ToolManagementService.deactivateCurrentTool();
+                            }
+                        });
+
+                    } catch (recordingError) {
+                        console.error('FlyThroughTool: Error stopping recording:', recordingError);
+                        PopupService.showToolInstruction(
+                            `Flythrough completed, but recording failed: ${recordingError.message}`,
+                            'Recording Error',
+                            true
+                        );
+                        setToolState({ isRecordingActive: false });
+                        ToolManagementService.deactivateCurrentTool();
+                    }
+                } else {
+                    const totalTime = ((Date.now() - config._startTime) / 1000).toFixed(1);
+                    PopupService.showToolInstruction(
+                        `Flythrough completed! Total time: ${totalTime}s`,
+                        "Success",
+                        true
+                    );
+                    ToolManagementService.deactivateCurrentTool();
+                }
             }
         );
 
@@ -328,9 +496,23 @@ async function startConfiguredFlyThrough(drawingPoints, config) {
         setToolState({ animationId: animationId });
 
     } catch (error) {
-        console.error("FlyThroughTool: Error during flythrough:", error);
+        console.error("FlyThroughTool: Error during flythrough setup or recording start:", error);
+        console.error("FlyThroughTool: Error stack:", error.stack);
+        
+        // Ensure recording is stopped if an error occurs
+        const { isRecordingActive } = getToolState();
+        if (isRecordingActive) {
+            try {
+                await ScreenRecordingService.stopRecording();
+                setToolState({ isRecordingActive: false });
+                console.log("FlyThroughTool: Recording stopped due to error");
+            } catch (stopError) {
+                console.error("FlyThroughTool: Error stopping recording after failure:", stopError);
+            }
+        }
+        
         PopupService.showToolInstruction(
-            `Flythrough failed: ${error.message || 'Unknown error'}`,
+            `Flythrough failed: ${error.message || 'Unknown error occurred. Check console for details.'}`,
             `FlyThrough Error`,
             true
         );
@@ -338,7 +520,7 @@ async function startConfiguredFlyThrough(drawingPoints, config) {
     }
 
     const { viewer } = getToolState();
-    if (viewer.scene.requestRenderMode) {
+    if (viewer && viewer.scene.requestRenderMode) {
         viewer.scene.requestRender();
     }
 }
@@ -346,17 +528,55 @@ async function startConfiguredFlyThrough(drawingPoints, config) {
 /**
  * Stops the current flythrough animation and cleans up.
  */
-export function stopFlyThrough() {
+export async function stopFlyThrough() {
     console.log("FlyThroughTool: Stopping and cleaning up");
 
-    const { animationId, viewer, flythroughPath, coreManager } = getToolState();
+    const { animationId, viewer, flythroughPath, coreManager, isRecordingActive } = getToolState();
 
     // Cancel flight animation using CesiumCoreManager
     if (animationId && coreManager) {
-        coreManager.cancelFlightAnimation(animationId);
+        try {
+            coreManager.cancelFlightAnimation(animationId);
+            console.log("FlyThroughTool: Flight animation cancelled successfully");
+        } catch (error) {
+            console.warn("FlyThroughTool: Error cancelling flight animation:", error);
+        }
     }
 
-    if (Cesium.defined(flythroughPath)) {
+    // Stop recording if active and triggered by manual stop
+    if (isRecordingActive) {
+        PopupService.showToolInstruction(
+            'Flythrough manually stopped. Stopping recording...',
+            'Finishing Up',
+            false
+        );
+        try {
+            const { blob, info } = await ScreenRecordingService.stopRecording();
+            setToolState({ isRecordingActive: false, recordedBlob: blob, recordedInfo: info });
+
+            // Offer download after recording stops due to manual intervention
+            PopupService.showDownloadRecordingForm({
+                recordingInfo: info,
+                onDownload: (downloadOptions) => {
+                    console.log("FlyThroughTool: Download requested after manual stop:", downloadOptions);
+                    ScreenRecordingService.downloadRecording(blob, info.timestamp);
+                },
+                onCancel: () => {
+                    console.log("FlyThroughTool: Download cancelled by user after manual stop.");
+                }
+            });
+
+        } catch (recordingError) {
+            console.error('FlyThroughTool: Error stopping recording on manual stop:', recordingError);
+            PopupService.showToolInstruction(
+                `Recording failed to stop or save on manual stop: ${recordingError.message}`,
+                'Recording Error',
+                true
+            );
+        }
+    }
+
+    if (Cesium.defined(flythroughPath) && viewer) {
         viewer.entities.remove(flythroughPath);
         setToolState({ flythroughPath: null });
     }
@@ -364,6 +584,7 @@ export function stopFlyThrough() {
     clearDrawing();
     removeEventHandlers();
 
+    // Reset all tool state variables
     setToolState({
         drawingPoints: [],
         activeShape: null,
@@ -371,7 +592,10 @@ export function stopFlyThrough() {
         mousePosition: null,
         config: { ...DEFAULT_CONFIG },
         lastPopupTime: 0,
-        coreManager: null
+        coreManager: null,
+        isRecordingActive: false,
+        recordedBlob: null,
+        recordedInfo: null,
     });
 
     PopupService.hide();

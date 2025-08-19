@@ -150,6 +150,9 @@ class CesiumGlobeManager {
             this.geoDataManager = new CesiumGeoDataManager(viewer);
             this.graphicManager = new CesiumGraphicManager(viewer);
             
+            // ADDED: Register the core manager with MapService for tool access
+            MapService.setCoreManager(this.coreManager);
+            
             console.log('CesiumGlobeManager: All managers initialized successfully');
         }
         
@@ -160,6 +163,9 @@ class CesiumGlobeManager {
      * Destroys all managers and cleans up resources
      */
     destroy() {
+        // ADDED: Clear core manager reference from MapService
+        MapService.setCoreManager(null);
+        
         // Clean up layer manager
         if (this.layerManager) {
             this.layerManager.destroy();
@@ -184,6 +190,11 @@ class CesiumGlobeManager {
     // Core Manager Methods
     getViewer() {
         return this.coreManager.getViewer();
+    }
+
+    // ADDED: Direct access to the core manager for tools that need it
+    getCoreManager() {
+        return this.coreManager;
     }
 
     addCameraChangeListener(callback) {

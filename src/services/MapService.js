@@ -28,11 +28,12 @@ class MapServiceClass {
     removeGraphic$ = new Subject();
     displayLocationMarker$ = new Subject();
     
-    // Visualization mode (pure communication - no logic)
-    visualizationModeChanged$ = new BehaviorSubject('3D');
+    // Visualization mode - FIXED: Use the correct observable names that CesiumGlobeManager expects
+    setGlobeVisualizationMode$ = new Subject();
+    currentVisualizationMode$ = new BehaviorSubject('3D');
     
-    // Time management (pure communication - no logic)
-    globeClockTimeChanged$ = new Subject();
+    // Time management - FIXED: Use the correct observable names that CesiumGlobeManager expects
+    setGlobeClockTime$ = new Subject();
     currentGlobeClockTime$ = new BehaviorSubject(this._getInitialTime());
     
     // Layer management communication
@@ -40,7 +41,10 @@ class MapServiceClass {
     removeLayerFromGlobe$ = new Subject();
     toggleLayerVisibilityOnGlobe$ = new Subject();
     reconcileGlobeLayers$ = new Subject();
-    zoomToLayerOnGlobe$ = new Subject();
+    zoomToLayer$ = new Subject(); // FIXED: was zoomToLayerOnGlobe$
+
+    // ADDED: Core manager reference for tools that need direct access
+    coreManager = null;
 
     // --- Pure Communication Methods (No Logic) ---
     
@@ -92,24 +96,55 @@ class MapServiceClass {
     getGlobeViewer() {
         return this.viewer;
     }
+
+    /**
+     * ADDED: Sets the CesiumCoreManager instance for tools that need direct access
+     * @param {CesiumCoreManager} coreManagerInstance - The core manager instance
+     */
+    setCoreManager(coreManagerInstance) {
+        this.coreManager = coreManagerInstance;
+        console.log('MapService: CesiumCoreManager reference set');
+    }
+
+    /**
+     * ADDED: Gets the CesiumCoreManager instance for tools that need direct access
+     * @returns {CesiumCoreManager|null} The core manager instance
+     */
+    getCoreManager() {
+        if (!this.coreManager) {
+            console.warn('MapService: CesiumCoreManager not available - ensure it has been set via setCoreManager()');
+        }
+        return this.coreManager;
+    }
     
     /**
      * Dispatches visualization mode change (no processing logic).
+     * FIXED: Now dispatches to the correct observable that CesiumGlobeManager listens to
      * @param {string} mode - The visualization mode ('2D', '3D').
      */
     setVisualizationMode(mode) {
         console.log("MapService: Broadcasting visualization mode change to", mode);
-        this.visualizationModeChanged$.next(mode);
+        this.setGlobeVisualizationMode$.next(mode); // FIXED: Use correct observable
+        this.currentVisualizationMode$.next(mode); // Keep track of current mode
+    }
+    
+    /**
+     * Gets the current visualization mode.
+     * @returns {string} The current visualization mode.
+     */
+    getCurrentVisualizationMode() {
+        return this.currentVisualizationMode$.getValue();
     }
     
     /**
      * Dispatches globe clock time change (no processing logic).
+     * FIXED: Now dispatches to the correct observable that CesiumGlobeManager listens to
      * @param {object} time - An object containing hour, minute, and ampm.
      */
     setGlobeClockTime(time) {
-        this.globeClockTimeChanged$.next(time);
-        this.currentGlobeClockTime$.next(time);
         console.log("MapService: Broadcasting globe clock time change:", time);
+        this.setGlobeClockTime$.next(time); // FIXED: Use correct observable
+        this.currentGlobeClockTime$.next(time); // Keep track of current time
     }
     
     /**
@@ -147,7 +182,7 @@ class MapServiceClass {
      * @param {object} layerEntry - The layer entry object.
      */
     zoomToLayer(layerEntry) {
-        this.zoomToLayerOnGlobe$.next(layerEntry);
+        this.zoomToLayer$.next(layerEntry); // FIXED: Use correct observable name
     }
 
     // --- Private Helper Methods ---

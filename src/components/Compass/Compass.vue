@@ -14,8 +14,8 @@ export default {
   props: {
     viewer: { // Keeping for App.vue's v-if, but not relying on it directly.
       type: Object,
-      required: false, // <--- CHANGED: No longer required
-      default: null    // <--- ADDED: Default value
+      required: false,
+      default: null
     },
     // Controls the visibility of the compass component, typically bound to App.vue's `globeIsReady`.
     isVisible: {
@@ -29,8 +29,8 @@ export default {
       angle: 0.0, // Current rotation angle of the compass arrow in degrees.
       mapViewSubscription: null, // Holds the subscription to MapService.updateView$ for cleanup.
       postRenderListener: null,  // Holds the Cesium event listener for cleanup.
-      globeViewerSubscription: null, // <--- NEW: Subscription to get the Cesium viewer instance
-      internalViewer: null,      // <--- NEW: To store the Cesium viewer instance received from the service
+      globeViewerSubscription: null, // Subscription to get the Cesium viewer instance
+      internalViewer: null,      // To store the Cesium viewer instance received from the service
     };
   },
   /**
@@ -38,14 +38,12 @@ export default {
    * Subscribes to MapService observables to get the Cesium viewer and view updates.
    */
   mounted() {
-    // NEW: Subscribe to MapService to get the Cesium viewer instance
-    // This is the primary way Compass.vue gets access to the viewer.
+    // Subscribe to MapService to get the Cesium viewer instance
     this.globeViewerSubscription = MapService.globeViewer$.subscribe(viewer => {
       this.internalViewer = viewer; // Store the viewer instance
 
       if (this.internalViewer) {
         // If viewer is available, attach the postRender listener
-        // Ensure to remove any old listener if viewer instance changes (though unlikely for a singleton)
         if (this.postRenderListener) {
             this.internalViewer.scene.postRender.removeEventListener(this.postRenderListener);
         }
@@ -57,13 +55,14 @@ export default {
         this.angle = -Cesium.Math.toDegrees(this.internalViewer.camera.heading); // Set initial angle
       } else if (this.postRenderListener) {
         // If viewer becomes null (e.g., globe destroyed), remove listener
-        this.internalViewer.scene.postRender.removeEventListener(this.postRenderListener);
+        if (this.internalViewer) {
+          this.internalViewer.scene.postRender.removeEventListener(this.postRenderListener);
+        }
         this.postRenderListener = null;
       }
     });
 
-    // Subscribe to MapService for general view updates (this might be redundant if postRender handles all cases,
-    // but useful if `updateView` sends specific data not captured by camera.changed).
+    // Subscribe to MapService for general view updates
     this.mapViewSubscription = MapService.updateView$.subscribe(this.onGlobeViewUpdate);
   },
   /**
@@ -75,11 +74,9 @@ export default {
     if (this.mapViewSubscription) {
       this.mapViewSubscription.unsubscribe();
     }
-    // NEW: Unsubscribe from the globeViewerSubject
     if (this.globeViewerSubscription) {
       this.globeViewerSubscription.unsubscribe();
     }
-    // Use internalViewer for cleanup
     if (this.internalViewer && this.postRenderListener) {
       this.internalViewer.scene.postRender.removeEventListener(this.postRenderListener);
     }
@@ -88,10 +85,36 @@ export default {
     /**
      * @method onClick
      * Triggered when the compass component is clicked.
-     * Emits an event via MapService to orient the globe to North.
+     * UPDATED: Now directly implements the orientToNorth functionality
      */
     onClick() {
+      console.log('Compass: Orient to North clicked');
+      
+      // Send signal via MapService (in case other components need to know)
       MapService.orientToNorth();
+      
+      // Direct implementation for immediate functionality
+      if (this.internalViewer) {
+        const currentCameraPosition = this.internalViewer.camera.positionCartographic;
+        const longitude = Cesium.Math.toDegrees(currentCameraPosition.longitude);
+        const latitude = Cesium.Math.toDegrees(currentCameraPosition.latitude);
+        const height = currentCameraPosition.height;
+        const currentPitch = this.internalViewer.camera.pitch;
+        const currentRoll = this.internalViewer.camera.roll;
+
+        console.log('Compass: Orienting camera to North');
+        this.internalViewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(longitude, latitude, height),
+          orientation: {
+            heading: Cesium.Math.toRadians(0.0), // North is 0 degrees
+            pitch: currentPitch,
+            roll: currentRoll
+          },
+          duration: 1.5
+        });
+      } else {
+        console.warn('Compass: No viewer available for orient to North operation');
+      }
     },
     /**
      * @method onGlobeViewUpdate
@@ -100,8 +123,6 @@ export default {
      * @param {Object} viewData - Contains `angle` property (in degrees) representing camera heading.
      */
     onGlobeViewUpdate(viewData) {
-      // This part might be less critical if postRenderListener is doing the job,
-      // but keeps a fallback/alternative update path from the service.
       if (viewData && typeof viewData.angle === 'number') {
         this.angle = -viewData.angle; // Negate for CSS rotation.
       }

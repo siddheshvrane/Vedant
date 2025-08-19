@@ -227,9 +227,14 @@ class PopupServiceClass {
     this.isVisible$.next(true);
   }
 
-  showServiceAdded(params) {
-    this._showInternalTypeBasedPopup("serviceAdded", params);
-  }
+
+    /**
+     * Convenience method to show the 'serviceAdded' popup.
+     * @param {object} params - { layerName: string, srs: string, extent: string }
+     */
+    showServiceAdded(params) {
+        this._showInternalTypeBasedPopup("serviceAdded", params);
+    }
 
   showToolInstruction(
     message,
@@ -255,12 +260,15 @@ class PopupServiceClass {
     this._showInternalTypeBasedPopup("threeDModelForm", params);
   }
 
-  showFlyThroughForm(params) {
-    console.warn(
-      "PopupService.showFlyThroughForm is deprecated. Use PopupService.show({ component: FlyThroughModePopup, ... }) directly."
-    );
-    this._showInternalTypeBasedPopup("flyThroughForm", params);
-  }
+    /**
+     *
+     * @deprecated Use `PopupService.show({ component: FlyThroughModePopup, ... })` directly.
+     * @param {object} params - { height?: number, tilt?: number, speed?: number, duration?: number, loop?: boolean, onStart: Function, onCancel: Function }
+     */
+    showFlyThroughForm(params) {
+        console.warn("PopupService.showFlyThroughForm is deprecated. Use PopupService.show({ component: FlyThroughModePopup, ... }) directly.");
+        this._showInternalTypeBasedPopup("flyThroughForm", params);
+    }
 
   showMarkerSequenceForm(params) {
     import("../components/Popup/popups/MarkerSequencePopup.vue")

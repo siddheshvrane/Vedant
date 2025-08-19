@@ -118,6 +118,16 @@
           :onClose="hidePopup" />
       </template>
 
+      <template v-else-if="currentPopupType === 'recordingConfig'">
+        <RecordingConfigPopup
+          :audioDevices="popupData.audioDevices"
+          :currentConfig="popupData.currentConfig"
+          :onStart="popupData.onStart"
+          :onCancel="popupData.onCancel"
+          :onClose="hidePopup"
+        />
+      </template>
+
       <template v-else>
         <div class="popup-content">
           <p>No specific popup content defined for this type.</p>
@@ -140,6 +150,9 @@ import ToolInstructionPopup from "./popups/ToolInstructionPopup.vue";
 import ThreeDModelFormPopup from "./popups/ThreeDModelFormPopup.vue";
 import FlyThroughModePopup from "./popups/FlyThroughModePopup.vue";
 import FlyThroughFormPopup from "./popups/FlyThroughFormPopup.vue";
+import RecordingConfigPopup from "./popups/RecordingConfigPopup.vue";
+import AudioDeviceSelectionPopup from './popups/AudioDeviceSelectionPopup.vue';
+import DownloadRecordingPopup from './popups/DownloadRecordingPopup.vue';
 
 export default {
   name: "AppPopup",
@@ -152,6 +165,9 @@ export default {
     ThreeDModelFormPopup,
     FlyThroughModePopup,
     FlyThroughFormPopup,
+    RecordingConfigPopup,
+    AudioDeviceSelectionPopup,
+    DownloadRecordingPopup,
   },
   data() {
     return {
@@ -235,6 +251,8 @@ export default {
           return "Select Fly-Through Mode";
         case "flyThroughForm":
           return "Fly-Through Configuration";
+        case "recordingConfig":
+          return "Configure Screen Recording";
         default:
           return "Information";
       }
@@ -533,5 +551,63 @@ export default {
 
 .unified-popup::-webkit-scrollbar-thumb:hover {
   background-color: rgba(0, 123, 255, 0.7);
+}
+
+.popup-notification {
+  padding: 0;
+}
+
+.notification-content {
+  display: flex;
+  align-items: flex-start;
+  padding: 16px;
+  background: rgba(0, 123, 255, 0.2);
+  border: 1px solid rgba(0, 123, 255, 0.4);
+  border-radius: 8px;
+  color: white;
+}
+
+.notification-content.error {
+  background: rgba(220, 53, 69, 0.2);
+  border-color: rgba(220, 53, 69, 0.4);
+}
+
+.notification-icon {
+  font-size: 20px;
+  margin-right: 12px;
+  margin-top: 2px;
+}
+
+.notification-content .notification-icon {
+  color: #007bff;
+}
+
+.notification-content.error .notification-icon {
+  color: #dc3545;
+}
+
+.notification-message {
+  flex: 1;
+}
+
+.notification-message p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.notification-close {
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
+  padding: 4px;
+  margin-left: 12px;
+  border-radius: 4px;
+  transition: background 0.3s ease;
+}
+
+.notification-close:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 </style>

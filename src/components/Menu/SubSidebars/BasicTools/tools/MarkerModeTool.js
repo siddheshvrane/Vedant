@@ -1,5 +1,3 @@
-// src/components/Menu/SubSidebars/BasicTools/tools/MarkerModeTool.js
-
 import * as Cesium from 'cesium';
 import {
     clearDrawing,
@@ -10,15 +8,17 @@ import {
 } from '../tool-helpers/tools-helpers.js';
 import { PopupService } from '../../../../../services/PopupService.js';
 import { ToolManagementService } from '../../../../../services/ToolManagementService.js';
+import { MapService } from '../../../../../services/MapService.js';
+import { ScreenRecordingService } from '../../../../../services/ScreenRecordingService.js'; // Import the recording service
 
 // Default configuration for marker mode
 const DEFAULT_MARKER_CONFIG = {
-    defaultWaitTime: 3.0,           // seconds to wait at each marker
-    showMarkerLabels: true,         // show numbered labels on markers
-    markerSize: 8,                  // size of marker points
-    previewDuration: 2.0,           // seconds to preview each camera position
-    enableCameraSmoothing: true,    // smooth camera transitions
-    showElevationInfo: true         // show elevation info in markers
+    defaultWaitTime: 3.0,          // seconds to wait at each marker
+    showMarkerLabels: true,        // show numbered labels on markers
+    markerSize: 8,                 // size of marker points
+    previewDuration: 2.0,          // seconds to preview each camera position
+    enableCameraSmoothing: true,   // smooth camera transitions
+    showElevationInfo: true        // show elevation info in markers
 };
 
 // Marker colors for visual distinction
@@ -40,12 +40,26 @@ const MARKER_COLORS = [
 export function setupMarkerModeTool(viewer) {
     console.log("MarkerModeTool: Setting up marker-based flythrough tool");
 
-    // Get CesiumCoreManager instance from viewer
+    // Get CesiumCoreManager instance from viewer with comprehensive fallback
     const coreManager = getCoreManagerFromViewer(viewer);
     if (!coreManager) {
         console.error("MarkerModeTool: Cannot access CesiumCoreManager");
+        PopupService.showToolInstruction(
+            "Marker Mode requires CesiumCoreManager but it's not available.\n\n" +
+            "Please ensure the application is properly initialized.\n\n" +
+            "Debug Info:\n" +
+            `• Viewer available: ${!!viewer}\n` +
+            `• Viewer._coreManager: ${!!viewer?._coreManager}\n` +
+            `• window.cesiumCoreManager: ${!!window.cesiumCoreManager}\n` +
+            `• MapService.getCoreManager(): ${!!MapService.getCoreManager()}`,
+            "Tool Error",
+            true
+        );
+        ToolManagementService.deactivateCurrentTool();
         return;
     }
+
+    console.log("MarkerModeTool: CesiumCoreManager successfully obtained");
 
     // Clear any existing handlers first
     removeEventHandlers();
@@ -55,13 +69,15 @@ export function setupMarkerModeTool(viewer) {
         viewer: viewer,
         coreManager: coreManager,
         handler: viewer ? new Cesium.ScreenSpaceEventHandler(viewer.canvas) : null,
-        markerPoints: [],               // Fresh array for marker data objects
-        markerEntities: [],             // Fresh array for visual marker entities
+        markerPoints: [],              // Fresh array for marker data objects
+        markerEntities: [],            // Fresh array for visual marker entities
         activeMarkerMode: true,
         markerConfig: { ...DEFAULT_MARKER_CONFIG },
         nextMarkerId: 1,
         lastMarkerTime: 0,
-        isRecording: true,
+        isRecordingMarkers: true,
+        isFlythroughActive: false,
+        isScreenRecording: false, // New state for screen recording status
         animationId: null
     });
 
@@ -75,18 +91,18 @@ export function setupMarkerModeTool(viewer) {
 
     // Show detailed initial instructions
     PopupService.showToolInstruction(
-        `MARKER MODE INSTRUCTIONS:\n\n` +
-        `CONTROLS:\n` +
-        `• LEFT-CLICK to ADD waypoint markers\n` +
-        `• RIGHT-CLICK to FINISH and configure flythrough\n\n` +
-        `WHAT GETS RECORDED:\n` +
+        `**MARKER MODE INSTRUCTIONS:**\n\n` +
+        `**CONTROLS:**\n` +
+        `• **LEFT-CLICK** to ADD waypoint markers\n` +
+        `• **RIGHT-CLICK** to FINISH and configure flythrough\n\n` +
+        `**WHAT GETS RECORDED:**\n` +
         `• Location coordinates & elevation\n` +
         `• Camera position & viewing angle\n` +
         `• Zoom level & orientation\n` +
         `• Marker order for flythrough sequence\n\n` +
         `Each marker captures your current camera view!\n` +
         `Position your camera as desired, then left-click to mark.\n\n` +
-        `TIP: Create multiple markers for zoom in/out effects!`,
+        `**TIP:** Create multiple markers for zoom in/out effects!`,
         "Marker Mode Setup",
         true // Show dismiss button
     );
@@ -94,9 +110,9 @@ export function setupMarkerModeTool(viewer) {
     // LEFT_CLICK Handler - Add marker point
     handler.setInputAction((click) => {
         console.log("MarkerModeTool: Left click detected");
-        const { isRecording } = getToolState();
-        
-        if (isRecording) {
+        const { isRecordingMarkers } = getToolState();
+
+        if (isRecordingMarkers) {
             addMarkerPoint(viewer, click, toolName);
         }
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
@@ -104,19 +120,51 @@ export function setupMarkerModeTool(viewer) {
     // RIGHT_CLICK Handler - Finish recording and show configuration
     handler.setInputAction((click) => {
         console.log("MarkerModeTool: Right click detected");
-        const { isRecording } = getToolState();
-        
-        if (isRecording) {
+        const { isRecordingMarkers } = getToolState();
+
+        if (isRecordingMarkers) {
             finishMarkerRecording(viewer, toolName);
         }
     }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
 }
 
 /**
- * Helper function to get CesiumCoreManager from viewer
+ * Gets CesiumCoreManager instance from viewer with comprehensive fallback methods
  */
 function getCoreManagerFromViewer(viewer) {
-    return window.cesiumCoreManager || null;
+    console.log('MarkerModeTool: Looking for CesiumCoreManager...');
+
+    // Method 1: Check if attached to viewer
+    if (viewer && viewer._coreManager) {
+        console.log('MarkerModeTool: ✅ Found CesiumCoreManager attached to viewer');
+        return viewer._coreManager;
+    }
+
+    // Method 2: Check MapService first (most reliable)
+    try {
+        const coreManagerFromMapService = MapService.getCoreManager();
+        if (coreManagerFromMapService) {
+            console.log('MarkerModeTool: ✅ Found CesiumCoreManager in MapService');
+            return coreManagerFromMapService;
+        }
+    } catch (error) {
+        console.warn('MarkerModeTool: Could not get core manager from MapService:', error);
+    }
+
+    // Method 3: Check global reference
+    if (window.cesiumCoreManager) {
+        console.log('MarkerModeTool: ✅ Found CesiumCoreManager in global window');
+        return window.cesiumCoreManager;
+    }
+
+    console.error('MarkerModeTool: ❌ CesiumCoreManager not found in any expected location');
+    console.error('MarkerModeTool: Debug information:');
+    console.error(`  • viewer exists: ${!!viewer}`);
+    console.error(`  • viewer._coreManager exists: ${!!viewer?._coreManager}`);
+    console.error(`  • window.cesiumCoreManager exists: ${!!window.cesiumCoreManager}`);
+    console.error(`  • MapService.getCoreManager() exists: ${!!MapService.getCoreManager()}`);
+
+    return null;
 }
 
 /**
@@ -288,8 +336,8 @@ function finishMarkerRecording(viewer, toolName) {
         return;
     }
 
-    // Stop recording mode
-    setToolState({ isRecording: false });
+    // Stop recording mode for markers
+    setToolState({ isRecordingMarkers: false });
 
     // Remove event handlers for marker placement
     removeEventHandlers();
@@ -346,7 +394,7 @@ function showMarkerConfigurationForm(markerPoints, toolName) {
                 true
             );
             // Re-enable recording mode
-            setToolState({ isRecording: true });
+            setToolState({ isRecordingMarkers: true });
             setupMarkerModeTool(viewer); // Re-setup handlers
         }
     });
@@ -358,7 +406,7 @@ function showMarkerConfigurationForm(markerPoints, toolName) {
 function previewMarkerPosition(markerId) {
     const { markerPoints, coreManager } = getToolState();
     const marker = markerPoints.find(m => m.id === markerId);
-    
+
     if (!marker) {
         console.warn("MarkerModeTool: Marker not found for preview:", markerId);
         return;
@@ -387,13 +435,13 @@ function previewMarkerPosition(markerId) {
 }
 
 /**
- * Starts the marker-based flythrough sequence using CesiumCoreManager
+ * Starts the marker-based flythrough sequence using CesiumCoreManager and records it
  */
 async function startMarkerBasedFlythrough(configData) {
-    const { markerPoints, coreManager } = getToolState();
-    
+    const { markerPoints, coreManager, viewer } = getToolState();
+
     console.log("MarkerModeTool: Starting flythrough with", markerPoints.length, "markers");
-    
+
     // Remove event handlers and visual markers
     removeEventHandlers();
     clearMarkerVisuals();
@@ -424,6 +472,23 @@ async function startMarkerBasedFlythrough(configData) {
         false
     );
 
+    // --- SCREEN RECORDING INTEGRATION ---
+    try {
+        const recordingStarted = await ScreenRecordingService.startRecording(viewer.canvas);
+        if (recordingStarted) {
+            console.log("MarkerModeTool: Screen recording started successfully.");
+            setToolState({ isScreenRecording: true });
+        } else {
+            console.warn("MarkerModeTool: Screen recording could not be started.");
+        }
+    } catch (error) {
+        console.error("MarkerModeTool: Error starting screen recording:", error);
+        // Continue with flythrough even if recording fails
+    }
+    // --- END SCREEN RECORDING INTEGRATION ---
+
+    setToolState({ isFlythroughActive: true });
+
     // Create marker flight animation using CesiumCoreManager
     const animationId = coreManager.createMarkerFlightAnimation(
         orderedMarkers,
@@ -435,7 +500,7 @@ async function startMarkerBasedFlythrough(configData) {
         (progress) => {
             const marker = progress.marker;
             const isLastMarker = progress.currentIndex === progress.totalMarkers - 1;
-            
+
             PopupService.showToolInstruction(
                 `Waypoint ${marker.id} (${progress.currentIndex + 1}/${progress.totalMarkers})\n\n` +
                 `${marker.coordinates.latitude.toFixed(4)}°, ${marker.coordinates.longitude.toFixed(4)}°\n` +
@@ -447,8 +512,34 @@ async function startMarkerBasedFlythrough(configData) {
             );
         },
         // Completion callback
-        () => {
-            const totalTime = (Date.now() - Date.now()) / 1000; // This would need actual start time
+        async () => {
+            const totalFlythroughTime = (Date.now() - Date.now()) / 1000; // This would need an actual start time
+            const { isScreenRecording } = getToolState();
+
+            // --- SCREEN RECORDING INTEGRATION: Stop recording on completion ---
+            if (isScreenRecording) {
+                PopupService.showToolInstruction(
+                    'Flythrough finished. Stopping recording...',
+                    'Finishing Up',
+                    false
+                );
+                try {
+                    const { blob, info } = await ScreenRecordingService.stopRecording();
+                    PopupService.showDownloadRecordingForm({
+                        recordingInfo: info,
+                        onDownload: () => {
+                            ScreenRecordingService.downloadRecording(blob, info.timestamp);
+                        },
+                        onCancel: () => {
+                            console.log("MarkerModeTool: Download cancelled by user.");
+                        }
+                    });
+                } catch (recordingError) {
+                    console.error('MarkerModeTool: Error stopping recording:', recordingError);
+                }
+            }
+            // --- END SCREEN RECORDING INTEGRATION ---
+
             PopupService.showToolInstruction(
                 `Marker flythrough completed!\n\n` +
                 `Statistics:\n` +
@@ -471,7 +562,7 @@ async function startMarkerBasedFlythrough(configData) {
  */
 function clearMarkerVisuals() {
     const { viewer, markerEntities } = getToolState();
-    
+
     if (markerEntities && markerEntities.length > 0) {
         console.log(`MarkerModeTool: Clearing ${markerEntities.length} marker visuals`);
         markerEntities.forEach(entity => {
@@ -487,23 +578,48 @@ function clearMarkerVisuals() {
 /**
  * Stops the marker mode tool and cleans up resources
  */
-export function stopMarkerModeTool() {
+export async function stopMarkerModeTool() {
     console.log("MarkerModeTool: Cleaning up marker mode tool");
-    
-    const { animationId, coreManager } = getToolState();
-    
+
+    const { animationId, coreManager, isScreenRecording, isFlythroughActive } = getToolState();
+
     // Cancel flight animation using CesiumCoreManager
     if (animationId && coreManager) {
-        coreManager.cancelFlightAnimation(animationId);
+        try {
+            coreManager.cancelFlightAnimation(animationId);
+            console.log("MarkerModeTool: Flight animation cancelled successfully");
+        } catch (error) {
+            console.warn("MarkerModeTool: Error cancelling flight animation:", error);
+        }
     }
-    
+
+    // --- SCREEN RECORDING INTEGRATION: Stop recording on unexpected cleanup ---
+    if (isScreenRecording) {
+        PopupService.showToolInstruction(
+            'Tool deactivated. Stopping recording...',
+            'Finishing Up',
+            false
+        );
+        try {
+            const { blob, info } = await ScreenRecordingService.stopRecording();
+            PopupService.showDownloadRecordingForm({
+                recordingInfo: info,
+                onDownload: () => ScreenRecordingService.downloadRecording(blob, info.timestamp),
+                onCancel: () => console.log("MarkerModeTool: Download cancelled during cleanup."),
+            });
+        } catch (error) {
+            console.error('MarkerModeTool: Error during unexpected recording stop:', error);
+        }
+    }
+    // --- END SCREEN RECORDING INTEGRATION ---
+
     // Clear visual markers
     clearMarkerVisuals();
-    
+
     // Clear drawing and remove event handlers
     clearDrawing();
     removeEventHandlers();
-    
+
     // Reset tool state with fresh empty arrays
     setToolState({
         markerPoints: [],
@@ -512,13 +628,15 @@ export function stopMarkerModeTool() {
         markerConfig: { ...DEFAULT_MARKER_CONFIG },
         nextMarkerId: 1,
         lastMarkerTime: 0,
-        isRecording: false,
+        isRecordingMarkers: false,
+        isFlythroughActive: false,
+        isScreenRecording: false,
         animationId: null,
         coreManager: null
     });
-    
+
     // Hide any active popups
     PopupService.hide();
-    
+
     console.log("MarkerModeTool: Cleanup completed");
 }

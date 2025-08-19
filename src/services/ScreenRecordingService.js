@@ -1,487 +1,568 @@
 // src/services/ScreenRecordingService.js
 
+import { BehaviorSubject } from 'rxjs';
 import { PopupService } from './PopupService.js';
 
-/**
- * Screen Recording Service for Flythrough Tools
- * Handles screen recording with optional microphone audio
- */
-export class ScreenRecordingService {
+class ScreenRecordingServiceClass {
     constructor() {
+        // Recording state observables
+        this.isRecording$ = new BehaviorSubject(false);
+        this.recordingProgress$ = new BehaviorSubject({ duration: 0, size: 0 });
+        this.availableAudioDevices$ = new BehaviorSubject([]);
+        
+        // Recording configuration - Updated with realistic settings
+        this.recordingConfig = {
+            audioSource: 'none', // 'none', 'default', or a deviceId
+            videoFormat: 'webm',
+            // Realistic quality settings
+            frameRate: 60,       
+            videoWidth: 1920,     
+            videoHeight: 1080,   
+        };
+
+        // Recording state
         this.mediaRecorder = null;
         this.recordedChunks = [];
-        this.isRecording = false;
-        this.stream = null;
-        this.startTime = null;
-        this.recordingConfig = {
-            video: {
-                mediaSource: 'screen',
-                width: { ideal: 1920, max: 1920 },
-                height: { ideal: 1080, max: 1080 },
-                frameRate: { ideal: 30, max: 60 }
-            },
-            audio: false // Will be set based on user preference
+        this.recordingStartTime = null;
+        this.progressInterval = null;
+        this.currentStream = null;
+        this.audioDevices = [];
+        
+        // Debug logging
+        this.debugRecordingSetup();
+        
+        // Initialize audio devices detection
+        this.initializeAudioDevices();
+    }
+
+    // --- Debug Methods ---
+    
+    /**
+     * Debug the recording setup to identify issues
+     */
+    debugRecordingSetup() {
+        console.log('ScreenRecording: Debug - Checking recording capabilities...');
+        console.log('ScreenRecording: Electron API available:', !!window.electron);
+        console.log('ScreenRecording: MediaRecorder available:', !!window.MediaRecorder);
+        
+        if (window.MediaRecorder) {
+            console.log('ScreenRecording: WebM support:', MediaRecorder.isTypeSupported('video/webm'));
+            console.log('ScreenRecording: WebM+VP9 support:', MediaRecorder.isTypeSupported('video/webm; codecs=vp9'));
+            console.log('ScreenRecording: WebM+VP8 support:', MediaRecorder.isTypeSupported('video/webm; codecs=vp8'));
+        }
+        
+        if (navigator.mediaDevices) {
+            console.log('ScreenRecording: getUserMedia available:', !!navigator.mediaDevices.getUserMedia);
+            console.log('ScreenRecording: getDisplayMedia available:', !!navigator.mediaDevices.getDisplayMedia);
+        }
+    }
+
+    // --- Public API ---
+
+    /**
+     * Initializes and detects all available audio input devices.
+     */
+    async initializeAudioDevices() {
+        try {
+            console.log('ScreenRecording: Initializing audio devices...');
+            
+            // Check if we're in Electron environment
+            if (window.electron && window.electron.getAudioDevices) {
+                console.log('ScreenRecording: Using Electron audio device detection');
+                const electronDevices = await window.electron.getAudioDevices();
+                this.audioDevices = electronDevices;
+                this.availableAudioDevices$.next(electronDevices);
+                console.log('ScreenRecording: Electron audio devices detected:', electronDevices);
+                return;
+            }
+
+            // Fallback to browser audio device detection
+            console.log('ScreenRecording: Using browser audio device detection');
+            
+            // Request permissions first
+            const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            tempStream.getTracks().forEach(track => track.stop()); // Stop the temp stream
+            
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const audioInputs = devices.filter(device => device.kind === 'audioinput');
+            
+            const audioDevicesList = [
+                { id: 'none', label: 'No Audio', type: 'none' },
+                { id: 'default', label: 'Default Microphone', type: 'default' }
+            ];
+
+            audioInputs.forEach(device => {
+                if (device.deviceId !== 'default' && device.label) {
+                    const label = device.label.toLowerCase();
+                    let deviceType = 'microphone';
+                    
+                    if (label.includes('bluetooth')) deviceType = 'bluetooth';
+                    else if (label.includes('headset') || label.includes('headphones')) deviceType = 'headset';
+                    
+                    audioDevicesList.push({
+                        id: device.deviceId,
+                        label: device.label,
+                        type: deviceType
+                    });
+                }
+            });
+            
+            this.audioDevices = audioDevicesList;
+            this.availableAudioDevices$.next(audioDevicesList);
+            console.log('ScreenRecording: Browser audio devices detected:', audioDevicesList);
+            
+        } catch (error) {
+            console.error('ScreenRecording: Failed to initialize audio devices:', error);
+            const fallbackDevices = [{ id: 'none', label: 'No Audio', type: 'none' }];
+            this.audioDevices = fallbackDevices;
+            this.availableAudioDevices$.next(fallbackDevices);
+        }
+    }
+
+    /**
+     * Updates the recording configuration.
+     */
+    updateConfig(newConfig) {
+        this.recordingConfig = { ...this.recordingConfig, ...newConfig };
+        console.log('ScreenRecording: Configuration updated:', this.recordingConfig);
+    }
+    
+    /**
+     * Starts the screen recording.
+     */
+    async startRecording() {
+        if (this.isRecording$.value) {
+            console.warn('ScreenRecording: Recording already in progress');
+            return false;
+        }
+
+        console.log('ScreenRecording: Starting recording with config:', this.recordingConfig);
+
+        try {
+            // Get screen capture stream
+            const screenStream = await this.getScreenStream();
+            if (!screenStream) {
+                throw new Error('Failed to capture screen stream');
+            }
+            console.log('ScreenRecording: Screen stream obtained successfully');
+
+            // Get audio stream based on configuration
+            let audioStream = null;
+            if (this.recordingConfig.audioSource !== 'none') {
+                audioStream = await this.getAudioStream();
+                if (audioStream) {
+                    console.log('ScreenRecording: Audio stream obtained successfully');
+                } else {
+                    console.log('ScreenRecording: Audio stream failed, continuing with video only');
+                }
+            }
+            
+            // Combine streams
+            const combinedStream = this.combineStreams(screenStream, audioStream);
+            console.log('ScreenRecording: Streams combined successfully');
+            
+            // Set up MediaRecorder
+            await this.setupMediaRecorder(combinedStream);
+            
+            // Start recording
+            this.mediaRecorder.start(1000); // Collect data every second
+            this.recordingStartTime = Date.now();
+            this.isRecording$.next(true);
+            this.currentStream = combinedStream;
+            
+            // Start progress tracking
+            this.startProgressTracking();
+            
+            console.log('ScreenRecording: Recording started successfully');
+            PopupService.showNotification('Recording started successfully!');
+            return true;
+            
+        } catch (error) {
+            console.error('ScreenRecording: Failed to start recording:', error);
+            this.cleanup();
+            PopupService.showNotification(`Failed to start recording: ${error.message}`, true);
+            return false;
+        }
+    }
+
+    /**
+     * Stops the screen recording and processes the result.
+     */
+    async stopRecording() {
+        return new Promise((resolve, reject) => {
+            if (!this.isRecording$.value || !this.mediaRecorder) {
+                console.warn('ScreenRecording: No active recording to stop');
+                resolve(null);
+                return;
+            }
+
+            console.log('ScreenRecording: Stopping recording...');
+            
+            // Set up the stop handler before stopping
+            this.mediaRecorder.onstop = async () => {
+                try {
+                    console.log('ScreenRecording: MediaRecorder stopped, processing chunks...');
+                    console.log('ScreenRecording: Recorded chunks count:', this.recordedChunks.length);
+                    
+                    if (this.recordedChunks.length === 0) {
+                        throw new Error('No recording data available');
+                    }
+                    
+                    const recordingBlob = new Blob(this.recordedChunks, { 
+                        type: this.getOutputMimeType() 
+                    });
+                    console.log('ScreenRecording: Blob created, size:', recordingBlob.size);
+                    
+                    const recordingInfo = this.getRecordingInfo(recordingBlob);
+                    
+                    this.cleanup();
+                    PopupService.showNotification('Recording completed successfully!');
+                    console.log('ScreenRecording: Recording stopped and processed successfully');
+
+                    resolve({ blob: recordingBlob, info: recordingInfo });
+                } catch (error) {
+                    console.error('ScreenRecording: Error processing recording:', error);
+                    this.cleanup();
+                    reject(error);
+                }
+            };
+            
+            this.mediaRecorder.onerror = (event) => {
+                console.error('ScreenRecording: MediaRecorder error on stop:', event.error);
+                this.cleanup();
+                reject(event.error);
+            };
+
+            this.mediaRecorder.stop();
+        });
+    }
+
+    /**
+     * Download the recorded video.
+     */
+    async downloadRecording(blob, filename = null) {
+        try {
+            if (!blob) {
+                throw new Error('No recording data to download.');
+            }
+
+            if (!filename) {
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
+                filename = `flythrough-recording-${timestamp}.${this.recordingConfig.videoFormat}`;
+            }
+
+            console.log('ScreenRecording: Starting download process...');
+
+            // Try Electron first
+            if (window.electron && window.electron.saveRecording) {
+                console.log('ScreenRecording: Using Electron save dialog');
+                const arrayBuffer = await blob.arrayBuffer();
+                const result = await window.electron.saveRecording(arrayBuffer, filename, this.getOutputMimeType());
+                
+                if (result.success) {
+                    console.log(`ScreenRecording: File saved successfully to: ${result.filePath}`);
+                    PopupService.showNotification(`Recording saved: ${result.filePath}`);
+                } else {
+                    throw new Error(result.error || 'Unknown save error');
+                }
+            } else {
+                // Fallback for web environment
+                console.log('ScreenRecording: Using browser download fallback');
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                console.log(`ScreenRecording: Browser download initiated for ${filename}`);
+                PopupService.showNotification(`Download started: ${filename}`);
+            }
+
+        } catch (error) {
+            console.error('ScreenRecording: Download failed:', error);
+            PopupService.showNotification(`Download failed: ${error.message}`, true);
+            throw error;
+        }
+    }
+
+    // --- Internal/Private Methods ---
+
+    /**
+     * Get screen capture stream - supports both Electron and browser environments.
+     */
+    async getScreenStream() {
+        try {
+            console.log('ScreenRecording: Attempting to get screen stream...');
+            
+            // Try Electron desktop capturer first
+            if (window.electron && window.electron.getDesktopSources) {
+                console.log('ScreenRecording: Using Electron desktop capturer');
+                const sources = await window.electron.getDesktopSources({ types: ['screen'] });
+                
+                if (sources.length === 0) {
+                    throw new Error('No screen sources available from Electron');
+                }
+
+                const primaryScreen = sources[0];
+                console.log('ScreenRecording: Using screen source:', primaryScreen.name);
+
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: {
+                        mandatory: {
+                            chromeMediaSource: 'desktop',
+                            chromeMediaSourceId: primaryScreen.id,
+                            minWidth: this.recordingConfig.videoWidth,
+                            maxWidth: this.recordingConfig.videoWidth,
+                            minHeight: this.recordingConfig.videoHeight,
+                            maxHeight: this.recordingConfig.videoHeight,
+                            minFrameRate: this.recordingConfig.frameRate,
+                            maxFrameRate: this.recordingConfig.frameRate
+                        }
+                    }
+                });
+                
+                console.log('ScreenRecording: Electron screen stream created successfully');
+                return stream;
+            }
+            
+            // Fallback to browser screen capture
+            console.log('ScreenRecording: Using browser getDisplayMedia fallback');
+            const stream = await navigator.mediaDevices.getDisplayMedia({
+                video: {
+                    width: { ideal: this.recordingConfig.videoWidth },
+                    height: { ideal: this.recordingConfig.videoHeight },
+                    frameRate: { ideal: this.recordingConfig.frameRate }
+                },
+                audio: false
+            });
+            
+            console.log('ScreenRecording: Browser screen stream created successfully');
+            return stream;
+
+        } catch (error) {
+            console.error('ScreenRecording: Screen capture failed:', error);
+            throw new Error(`Screen capture failed: ${error.message}`);
+        }
+    }
+
+    /**
+     * Get audio stream based on the selected configuration.
+     */
+    async getAudioStream() {
+        const audioSourceId = this.recordingConfig.audioSource;
+        if (audioSourceId === 'none') {
+            return null;
+        }
+
+        try {
+            console.log('ScreenRecording: Getting audio stream for source:', audioSourceId);
+            
+            const constraints = {
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                    sampleRate: { ideal: 48000 },
+                    channelCount: { ideal: 2 }
+                }
+            };
+
+            // Add device ID constraint if not default
+            if (audioSourceId !== 'default') {
+                const audioDevice = this.audioDevices.find(d => d.id === audioSourceId);
+                if (audioDevice && audioDevice.id !== 'none') {
+                    constraints.audio.deviceId = { exact: audioDevice.id };
+                }
+            }
+
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            console.log('ScreenRecording: Audio stream created successfully');
+            return stream;
+            
+        } catch (error) {
+            console.error('ScreenRecording: Audio capture failed:', error);
+            PopupService.showNotification(
+                `Audio capture failed: ${error.message}. Continuing with video-only recording.`,
+                true
+            );
+            return null;
+        }
+    }
+
+    /**
+     * Combine video and audio streams into a single stream.
+     */
+    combineStreams(videoStream, audioStream) {
+        if (!audioStream) {
+            console.log('ScreenRecording: Using video-only stream');
+            return videoStream;
+        }
+
+        console.log('ScreenRecording: Combining video and audio streams');
+        const combinedStream = new MediaStream();
+        
+        // Add video tracks
+        videoStream.getVideoTracks().forEach(track => {
+            combinedStream.addTrack(track);
+            console.log('ScreenRecording: Added video track:', track.label);
+        });
+        
+        // Add audio tracks
+        audioStream.getAudioTracks().forEach(track => {
+            combinedStream.addTrack(track);
+            console.log('ScreenRecording: Added audio track:', track.label);
+        });
+        
+        return combinedStream;
+    }
+
+    /**
+     * Set up MediaRecorder with optimal settings.
+     */
+    async setupMediaRecorder(stream) {
+        console.log('ScreenRecording: Setting up MediaRecorder...');
+        
+        // Try different codec options in order of preference
+        const codecOptions = [
+            { mimeType: 'video/webm; codecs=vp9,opus', videoBitsPerSecond: 8000000 },
+            { mimeType: 'video/webm; codecs=vp8,opus', videoBitsPerSecond: 6000000 },
+            { mimeType: 'video/webm; codecs=vp9', videoBitsPerSecond: 8000000 },
+            { mimeType: 'video/webm; codecs=vp8', videoBitsPerSecond: 6000000 },
+            { mimeType: 'video/webm', videoBitsPerSecond: 4000000 }
+        ];
+
+        let selectedOptions = null;
+        for (const options of codecOptions) {
+            if (MediaRecorder.isTypeSupported(options.mimeType)) {
+                selectedOptions = options;
+                console.log('ScreenRecording: Selected codec:', options.mimeType);
+                break;
+            }
+        }
+
+        if (!selectedOptions) {
+            console.warn('ScreenRecording: No preferred codecs supported, using default');
+            selectedOptions = { videoBitsPerSecond: 4000000 };
+        }
+
+        try {
+            this.mediaRecorder = new MediaRecorder(stream, selectedOptions);
+            console.log('ScreenRecording: MediaRecorder created with options:', selectedOptions);
+        } catch (error) {
+            console.warn('ScreenRecording: Failed to create MediaRecorder with options, using defaults:', error);
+            this.mediaRecorder = new MediaRecorder(stream);
+        }
+
+        this.recordedChunks = [];
+        
+        this.mediaRecorder.ondataavailable = (event) => {
+            if (event.data && event.data.size > 0) {
+                this.recordedChunks.push(event.data);
+                console.log(`ScreenRecording: Data chunk received, size: ${event.data.size} bytes`);
+            }
+        };
+
+        this.mediaRecorder.onerror = (event) => {
+            console.error('ScreenRecording: MediaRecorder error:', event.error);
+        };
+
+        console.log('ScreenRecording: MediaRecorder setup completed');
+    }
+    
+    /**
+     * Start tracking recording progress.
+     */
+    startProgressTracking() {
+        console.log('ScreenRecording: Starting progress tracking');
+        this.progressInterval = setInterval(() => {
+            const duration = (Date.now() - this.recordingStartTime) / 1000;
+            const estimatedSize = this.recordedChunks.reduce((total, chunk) => total + chunk.size, 0);
+            
+            this.recordingProgress$.next({
+                duration: duration,
+                size: estimatedSize,
+                formattedDuration: this.formatDuration(duration),
+                formattedSize: this.formatFileSize(estimatedSize)
+            });
+        }, 1000);
+    }
+
+    /**
+     * Get recording information.
+     */
+    getRecordingInfo(blob) {
+        const duration = this.recordingStartTime ? (Date.now() - this.recordingStartTime) / 1000 : 0;
+        
+        return {
+            duration: duration,
+            durationFormatted: this.formatDuration(duration),
+            size: blob.size,
+            sizeFormatted: this.formatFileSize(blob.size),
+            format: this.recordingConfig.videoFormat,
+            mimeType: blob.type,
+            hasAudio: this.recordingConfig.audioSource !== 'none',
+            audioSource: this.getAudioSourceLabel(),
+            timestamp: new Date().toISOString()
         };
     }
 
     /**
-     * Shows recording permission dialog and starts recording if approved
-     * @param {Object} options - Recording options
-     * @param {boolean} options.includeAudio - Whether to include microphone audio
-     * @param {string} options.toolName - Name of the tool requesting recording
-     * @param {Function} options.onStart - Callback when recording starts
-     * @param {Function} options.onStop - Callback when recording stops
-     * @param {Function} options.onError - Callback for errors
-     * @returns {Promise<boolean>} True if recording started successfully
+     * Cleanup recording resources.
      */
-    async requestRecordingPermission(options = {}) {
-        const { 
-            includeAudio = false, 
-            toolName = 'Flythrough Tool',
-            onStart = null,
-            onStop = null,
-            onError = null 
-        } = options;
-
-        try {
-            console.log('ScreenRecordingService: Requesting recording permission for', toolName);
-
-            // Show permission dialog
-            const userConsent = await this.showRecordingPermissionDialog(includeAudio, toolName);
-            
-            if (!userConsent.approved) {
-                console.log('ScreenRecordingService: User declined recording');
-                return false;
-            }
-
-            // Start recording with user's preferences
-            const success = await this.startRecording({
-                includeAudio: userConsent.includeAudio,
-                audioDeviceId: userConsent.audioDeviceId,
-                onStart,
-                onStop,
-                onError
-            });
-
-            return success;
-
-        } catch (error) {
-            console.error('ScreenRecordingService: Error requesting permission:', error);
-            if (options.onError) {
-                options.onError(error);
-            }
-            return false;
-        }
-    }
-
-    /**
-     * Shows recording permission dialog using PopupService
-     */
-    async showRecordingPermissionDialog(includeAudio, toolName) {
-        return new Promise(async (resolve) => {
-            try {
-                // Get available audio devices
-                const audioDevices = includeAudio ? await this.getAudioDevices() : [];
-                
-                // Show permission dialog
-                PopupService.showRecordingPermissionDialog({
-                    toolName: toolName,
-                    includeAudio: includeAudio,
-                    audioDevices: audioDevices,
-                    onApprove: (config) => {
-                        console.log('ScreenRecordingService: Recording approved with config:', config);
-                        resolve({
-                            approved: true,
-                            includeAudio: config.includeAudio,
-                            audioDeviceId: config.audioDeviceId
-                        });
-                    },
-                    onDecline: () => {
-                        console.log('ScreenRecordingService: Recording declined');
-                        resolve({ approved: false });
-                    }
-                });
-
-            } catch (error) {
-                console.error('ScreenRecordingService: Error showing dialog:', error);
-                resolve({ approved: false });
-            }
-        });
-    }
-
-    /**
-     * Gets available audio input devices
-     */
-    async getAudioDevices() {
-        try {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const audioDevices = devices
-                .filter(device => device.kind === 'audioinput')
-                .map(device => ({
-                    deviceId: device.deviceId,
-                    label: device.label || `Microphone ${device.deviceId.substr(0, 8)}...`,
-                    isDefault: device.deviceId === 'default'
-                }));
-
-            console.log('ScreenRecordingService: Found audio devices:', audioDevices);
-            return audioDevices;
-
-        } catch (error) {
-            console.error('ScreenRecordingService: Error getting audio devices:', error);
-            return [];
-        }
-    }
-
-    /**
-     * Starts screen recording with optional audio
-     */
-    async startRecording(options = {}) {
-        const { 
-            includeAudio = false, 
-            audioDeviceId = null,
-            onStart = null,
-            onStop = null,
-            onError = null 
-        } = options;
-
-        if (this.isRecording) {
-            console.warn('ScreenRecordingService: Recording already in progress');
-            return false;
-        }
-
-        try {
-            console.log('ScreenRecordingService: Starting recording with options:', { includeAudio, audioDeviceId });
-
-            // Reset recorded chunks
-            this.recordedChunks = [];
-
-            // Get screen capture stream
-            const screenStream = await navigator.mediaDevices.getDisplayMedia({
-                video: this.recordingConfig.video,
-                audio: false // We'll handle audio separately for better control
-            });
-
-            let finalStream = screenStream;
-
-            // If audio is requested, get microphone stream and combine
-            if (includeAudio) {
-                try {
-                    const audioConstraints = {
-                        audio: audioDeviceId ? 
-                            { deviceId: { exact: audioDeviceId } } : 
-                            true
-                    };
-
-                    const audioStream = await navigator.mediaDevices.getUserMedia(audioConstraints);
-                    
-                    // Combine video and audio streams
-                    const combinedStream = new MediaStream([
-                        ...screenStream.getVideoTracks(),
-                        ...audioStream.getAudioTracks()
-                    ]);
-
-                    finalStream = combinedStream;
-                    console.log('ScreenRecordingService: Combined screen and audio streams');
-
-                } catch (audioError) {
-                    console.warn('ScreenRecordingService: Audio capture failed, continuing with video only:', audioError);
-                    PopupService.showToolInstruction(
-                        'Microphone access denied. Recording video only.',
-                        'Recording Notice',
-                        false
-                    );
-                }
-            }
-
-            this.stream = finalStream;
-
-            // Create MediaRecorder
-            const options = {
-                mimeType: this.getSupportedMimeType(),
-                videoBitsPerSecond: 8000000, // 8 Mbps for good quality
-                audioBitsPerSecond: 128000   // 128 kbps for audio
-            };
-
-            this.mediaRecorder = new MediaRecorder(finalStream, options);
-
-            // Set up event handlers
-            this.mediaRecorder.ondataavailable = (event) => {
-                if (event.data && event.data.size > 0) {
-                    this.recordedChunks.push(event.data);
-                }
-            };
-
-            this.mediaRecorder.onstop = () => {
-                console.log('ScreenRecordingService: Recording stopped');
-                this.handleRecordingStop(onStop);
-            };
-
-            this.mediaRecorder.onerror = (error) => {
-                console.error('ScreenRecordingService: MediaRecorder error:', error);
-                if (onError) {
-                    onError(error);
-                }
-            };
-
-            // Handle stream ending (user stops screen share)
-            finalStream.getVideoTracks()[0].addEventListener('ended', () => {
-                console.log('ScreenRecordingService: Screen sharing ended by user');
-                this.stopRecording();
-            });
-
-            // Start recording
-            this.mediaRecorder.start(1000); // Capture data every second
-            this.isRecording = true;
-            this.startTime = Date.now();
-
-            console.log('ScreenRecordingService: Recording started successfully');
-
-            if (onStart) {
-                onStart();
-            }
-
-            return true;
-
-        } catch (error) {
-            console.error('ScreenRecordingService: Error starting recording:', error);
-            
-            // Show user-friendly error message
-            let errorMessage = 'Failed to start screen recording. ';
-            if (error.name === 'NotAllowedError') {
-                errorMessage += 'Permission denied. Please allow screen recording.';
-            } else if (error.name === 'NotSupportedError') {
-                errorMessage += 'Screen recording is not supported in this browser.';
-            } else {
-                errorMessage += 'Please try again or use a different browser.';
-            }
-
-            PopupService.showToolInstruction(errorMessage, 'Recording Error', true);
-
-            if (onError) {
-                onError(error);
-            }
-
-            return false;
-        }
-    }
-
-    /**
-     * Stops the current recording
-     */
-    stopRecording() {
-        if (!this.isRecording || !this.mediaRecorder) {
-            console.warn('ScreenRecordingService: No active recording to stop');
-            return false;
-        }
-
-        try {
-            console.log('ScreenRecordingService: Stopping recording');
-
-            this.mediaRecorder.stop();
-            
-            // Stop all tracks
-            if (this.stream) {
-                this.stream.getTracks().forEach(track => {
-                    track.stop();
-                });
-            }
-
-            this.isRecording = false;
-            return true;
-
-        } catch (error) {
-            console.error('ScreenRecordingService: Error stopping recording:', error);
-            return false;
-        }
-    }
-
-    /**
-     * Handles recording stop and prepares download
-     */
-    handleRecordingStop(onStopCallback) {
-        if (this.recordedChunks.length === 0) {
-            console.warn('ScreenRecordingService: No recorded data available');
-            PopupService.showToolInstruction(
-                'No recording data available. The recording may have failed.',
-                'Recording Error',
-                true
-            );
-            return;
-        }
-
-        const recordingDuration = this.startTime ? (Date.now() - this.startTime) / 1000 : 0;
-        const recordingSize = this.recordedChunks.reduce((total, chunk) => total + chunk.size, 0);
-
-        console.log(`ScreenRecordingService: Recording completed - Duration: ${recordingDuration.toFixed(1)}s, Size: ${(recordingSize / 1024 / 1024).toFixed(2)}MB`);
-
-        // Create download blob
-        const mimeType = this.getSupportedMimeType();
-        const blob = new Blob(this.recordedChunks, { type: mimeType });
+    cleanup() {
+        console.log('ScreenRecording: Cleaning up resources...');
         
-        // Generate filename with timestamp
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const filename = `flythrough-recording-${timestamp}.${this.getFileExtension(mimeType)}`;
-
-        // Show download ready dialog
-        this.showDownloadDialog(blob, filename, recordingDuration, recordingSize);
-
-        // Call callback if provided
-        if (onStopCallback) {
-            onStopCallback({
-                blob: blob,
-                filename: filename,
-                duration: recordingDuration,
-                size: recordingSize
-            });
+        if (this.progressInterval) {
+            clearInterval(this.progressInterval);
+            this.progressInterval = null;
         }
-
-        // Clean up
-        this.cleanup();
-    }
-
-    /**
-     * Shows download dialog for the recorded video
-     */
-    showDownloadDialog(blob, filename, duration, size) {
-        const downloadUrl = URL.createObjectURL(blob);
         
-        PopupService.showRecordingDownloadDialog({
-            filename: filename,
-            duration: duration.toFixed(1),
-            size: (size / 1024 / 1024).toFixed(2),
-            downloadUrl: downloadUrl,
-            onDownload: () => {
-                this.downloadRecording(blob, filename);
-                URL.revokeObjectURL(downloadUrl); // Clean up URL
-            },
-            onPreview: () => {
-                this.previewRecording(downloadUrl);
-            },
-            onDiscard: () => {
-                URL.revokeObjectURL(downloadUrl); // Clean up URL
-                console.log('ScreenRecordingService: Recording discarded by user');
-            }
-        });
+        if (this.currentStream) {
+            this.currentStream.getTracks().forEach(track => {
+                track.stop();
+                console.log('ScreenRecording: Stopped track:', track.kind);
+            });
+            this.currentStream = null;
+        }
+        
+        this.mediaRecorder = null;
+        this.recordedChunks = [];
+        this.recordingStartTime = null;
+        this.isRecording$.next(false);
+        this.recordingProgress$.next({ duration: 0, size: 0 });
+        
+        console.log('ScreenRecording: Cleanup completed');
     }
 
-    /**
-     * Downloads the recording file
-     */
-    downloadRecording(blob, filename) {
-        try {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            a.style.display = 'none';
-            
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            
-            // Clean up URL after a delay
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-            
-            console.log('ScreenRecordingService: Download initiated for', filename);
+    // --- Utility Methods ---
 
-            PopupService.showToolInstruction(
-                `Recording downloaded: ${filename}`,
-                'Download Complete',
-                true
-            );
-
-        } catch (error) {
-            console.error('ScreenRecordingService: Error downloading recording:', error);
-            PopupService.showToolInstruction(
-                'Error downloading recording. Please try again.',
-                'Download Error',
-                true
-            );
-        }
-    }
-
-    /**
-     * Opens recording in new tab for preview
-     */
-    previewRecording(url) {
-        try {
-            const previewWindow = window.open(url, '_blank');
-            if (!previewWindow) {
-                PopupService.showToolInstruction(
-                    'Popup blocked. Please allow popups to preview recording.',
-                    'Preview Blocked',
-                    true
-                );
-            }
-        } catch (error) {
-            console.error('ScreenRecordingService: Error previewing recording:', error);
-        }
-    }
-
-    /**
-     * Gets the best supported MIME type for recording
-     */
-    getSupportedMimeType() {
-        const types = [
-            'video/webm;codecs=vp9,opus',
-            'video/webm;codecs=vp8,opus',
-            'video/webm;codecs=h264,opus',
-            'video/webm',
-            'video/mp4'
-        ];
-
-        for (const type of types) {
-            if (MediaRecorder.isTypeSupported(type)) {
-                console.log('ScreenRecordingService: Using MIME type:', type);
-                return type;
-            }
-        }
-
-        console.warn('ScreenRecordingService: No preferred MIME type supported, using default');
+    getOutputMimeType() {
         return 'video/webm';
     }
 
-    /**
-     * Gets file extension based on MIME type
-     */
-    getFileExtension(mimeType) {
-        if (mimeType.includes('mp4')) return 'mp4';
-        if (mimeType.includes('webm')) return 'webm';
-        return 'webm'; // default
+    getAudioSourceLabel() {
+        const device = this.audioDevices.find(d => d.id === this.recordingConfig.audioSource);
+        return device ? device.label : 'No Audio';
     }
 
-    /**
-     * Cleans up resources
-     */
-    cleanup() {
-        this.mediaRecorder = null;
-        this.stream = null;
-        this.recordedChunks = [];
-        this.isRecording = false;
-        this.startTime = null;
-        console.log('ScreenRecordingService: Cleanup completed');
+    formatDuration(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
 
-    /**
-     * Gets current recording status
-     */
-    getStatus() {
-        return {
-            isRecording: this.isRecording,
-            duration: this.startTime ? (Date.now() - this.startTime) / 1000 : 0,
-            chunksCount: this.recordedChunks.length
-        };
-    }
-
-    /**
-     * Checks if screen recording is supported
-     */
-    static isSupported() {
-        return !!(navigator.mediaDevices && 
-                 navigator.mediaDevices.getDisplayMedia && 
-                 window.MediaRecorder);
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 }
 
-// Create singleton instance
-export const screenRecordingService = new ScreenRecordingService();
+export const ScreenRecordingService = new ScreenRecordingServiceClass();
