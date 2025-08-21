@@ -13,6 +13,8 @@ import { PopupService } from '../../../../../services/PopupService.js';
 import { ToolManagementService } from '../../../../../services/ToolManagementService.js';
 import { MapService } from '../../../../../services/MapService.js';
 import { ScreenRecordingService } from '../../../../../services/ScreenRecordingService.js';
+import { FlythroughPlaybackService } from '../../../../../services/FlythroughPlaybackService.js';
+import RecordingConfigPopup from '../../../../Popup/popups/RecordingConfigPopup.vue';
 
 // Default configuration values
 const DEFAULT_CONFIG = {
@@ -254,7 +256,7 @@ export function setupFlyThroughTool(viewer) {
  */
 function getCoreManagerFromViewer(viewer) {
     console.log('FlyThroughTool: Looking for CesiumCoreManager...');
-    
+
     // Method 1: Check MapService first (most reliable)
     try {
         const coreManagerFromMapService = MapService.getCoreManager();
@@ -265,21 +267,21 @@ function getCoreManagerFromViewer(viewer) {
     } catch (error) {
         console.warn('FlyThroughTool: Could not get core manager from MapService:', error);
     }
-    
+
     // Method 2: Check if attached to viewer
     if (viewer && viewer._coreManager) {
         console.log('FlyThroughTool: ✅ Found CesiumCoreManager attached to viewer');
         return viewer._coreManager;
     }
-    
+
     // Method 3: Check global reference
     if (window.cesiumCoreManager) {
         console.log('FlyThroughTool: ✅ Found CesiumCoreManager in global window');
         return window.cesiumCoreManager;
     }
-    
+
     console.warn('FlyThroughTool: CesiumCoreManager not immediately available, checking initialization status...');
-    
+
     // Log detailed debug information
     console.error('FlyThroughTool: ❌ CesiumCoreManager not found in any expected location');
     console.error('FlyThroughTool: Debug information:');
@@ -287,16 +289,14 @@ function getCoreManagerFromViewer(viewer) {
     console.error(`  • viewer._coreManager exists: ${!!viewer?._coreManager}`);
     console.error(`  • window.cesiumCoreManager exists: ${!!window.cesiumCoreManager}`);
     console.error(`  • MapService.getCoreManager() exists: ${!!MapService.getCoreManager()}`);
-    
+
     return null;
 }
 
-/**
- * Starts the flythrough with user-specified configuration using CesiumCoreManager
- */
+// Updated startConfiguredFlyThrough function with FlythroughPlaybackService integration
 async function startConfiguredFlyThrough(drawingPoints, config) {
     const { coreManager } = getToolState();
-    
+
     PopupService.showToolInstruction(
         'Preparing flythrough path and recording options...',
         'Processing FlyThrough',
@@ -315,52 +315,129 @@ async function startConfiguredFlyThrough(drawingPoints, config) {
         // Step 2: Initialize audio devices if not already done
         console.log('FlyThroughTool: Initializing audio devices...');
         await ScreenRecordingService.initializeAudioDevices();
-        
-        // Step 3: Prompt user for audio device selection
+
+        // Step 3: Get available audio devices and prompt user for selection
         const audioDevices = ScreenRecordingService.availableAudioDevices$.getValue();
         console.log('FlyThroughTool: Available audio devices:', audioDevices);
-        
+
+        // Handle audio device selection
         let selectedAudioDeviceId = 'none'; // Default to no audio
 
-        await new Promise((resolve, reject) => {
-            PopupService.showSelectAudioDeviceForm({
-                audioDevices: audioDevices,
-                onSelect: (deviceId) => {
-                    console.log("FlyThroughTool: Audio device selected:", deviceId);
-                    selectedAudioDeviceId = deviceId;
-                    resolve();
-                },
-                onCancel: () => {
-                    console.log("FlyThroughTool: Audio device selection cancelled");
-                    reject(new Error("Audio device selection cancelled. Flythrough will not start."));
-                }
+        try {
+            // Show audio device selection popup and wait for user choice
+            const selectedDevice = await new Promise((resolve, reject) => {
+                PopupService.show({
+                    component: RecordingConfigPopup,
+                    title: "Configure Screen Recording",
+                    props: {
+                        audioDevices: audioDevices,
+                        currentConfig: {
+                            audioSource: 'none'
+                        },
+                        onStart: (config) => {
+                            console.log('FlyThroughTool: User selected audio config:', config);
+                            resolve(config.audioSource);
+                        },
+                        onCancel: () => {
+                            console.log('FlyThroughTool: User cancelled audio selection');
+                            reject(new Error("Audio device selection canceled by user"));
+                        },
+                    },
+                    onSelect: (config) => {
+                        console.log('FlyThroughTool: Fallback onSelect called:', config);
+                        resolve(config?.audioSource || 'none');
+                    },
+                    onCancel: () => {
+                        console.log('FlyThroughTool: Fallback onCancel called');
+                        reject(new Error("Audio device selection canceled by user"));
+                    },
+                });
             });
-        });
 
-        // Update ScreenRecordingService config with the selected audio device
+            selectedAudioDeviceId = selectedDevice || 'none';
+            console.log('FlyThroughTool: Selected audio device:', selectedAudioDeviceId);
+
+        } catch (audioSelectionError) {
+            console.warn('FlyThroughTool: Audio device selection failed:', audioSelectionError);
+            
+            // If user cancels or there's an error, ask if they want to continue without recording
+            const continueWithoutRecording = await new Promise((resolve) => {
+                PopupService.showConfirmation({
+                    title: "Continue Without Recording?",
+                    message: `Audio device selection was cancelled. Would you like to continue the flythrough without screen recording?`,
+                    confirmText: "Continue",
+                    cancelText: "Cancel",
+                    onConfirm: () => resolve(true),
+                    onCancel: () => resolve(false)
+                });
+            });
+
+            if (!continueWithoutRecording) {
+                console.log('FlyThroughTool: User chose to cancel flythrough');
+                PopupService.showToolInstruction(
+                    'Flythrough cancelled by user.',
+                    'Cancelled',
+                    true
+                );
+                ToolManagementService.deactivateCurrentTool();
+                return;
+            }
+
+            // Continue without recording
+            selectedAudioDeviceId = 'none';
+            console.log('FlyThroughTool: Continuing without recording');
+        }
+
+        // Step 4: Update ScreenRecordingService config with the selected audio device
         ScreenRecordingService.updateConfig({ audioSource: selectedAudioDeviceId });
 
-        // Step 4: Start screen recording with better error handling
+        // Step 5: Start screen recording with enhanced error handling
         console.log("FlyThroughTool: Starting screen recording...");
-        
+
         PopupService.showToolInstruction(
             'Starting screen recording... This may take a few seconds.',
             'Initializing Recording',
             false
         );
 
-        const recordingStarted = await ScreenRecordingService.startRecording();
-        
-        if (!recordingStarted) {
-            throw new Error("Screen recording failed to start. Check console for detailed errors.");
-        }
-        
-        console.log("FlyThroughTool: Screen recording started successfully");
-        setToolState({ isRecordingActive: true });
+        let recordingStarted = false;
+        try {
+            recordingStarted = await ScreenRecordingService.startRecording();
+            console.log("FlyThroughTool: Screen recording start result:", recordingStarted);
+        } catch (recordingError) {
+            console.error("FlyThroughTool: Screen recording failed to start:", recordingError);
+            
+            // Ask user if they want to continue without recording
+            const continueWithoutRecording = await new Promise((resolve) => {
+                PopupService.showConfirmation({
+                    title: "Recording Failed - Continue?",
+                    message: `Screen recording failed to start: ${recordingError.message}\n\nWould you like to continue the flythrough without recording?`,
+                    confirmText: "Continue Without Recording",
+                    cancelText: "Cancel Flythrough",
+                    onConfirm: () => resolve(true),
+                    onCancel: () => resolve(false)
+                });
+            });
 
-        // Step 5: Continue with terrain sampling and flythrough
+            if (!continueWithoutRecording) {
+                throw new Error(`Screen recording failed and user chose to cancel: ${recordingError.message}`);
+            }
+
+            recordingStarted = false;
+            PopupService.showNotification("Continuing flythrough without recording", false);
+        }
+
+        if (recordingStarted) {
+            console.log("FlyThroughTool: Screen recording started successfully");
+            setToolState({ isRecordingActive: true });
+        } else {
+            console.log("FlyThroughTool: Continuing without screen recording");
+            setToolState({ isRecordingActive: false });
+        }
+
+        // Step 6: Continue with terrain sampling and flythrough
         console.log("FlyThroughTool: Starting terrain sampling with config:", config);
-        
+
         // Use CesiumCoreManager for terrain sampling
         const sampledPositions = await coreManager.sampleTerrainHeights(drawingPoints, config.cameraHeight);
 
@@ -371,10 +448,15 @@ async function startConfiguredFlyThrough(drawingPoints, config) {
                 true
             );
             ToolManagementService.deactivateCurrentTool();
-            // Stop recording if path is invalid
+            
+            // Stop recording if it was started
             if (getToolState().isRecordingActive) {
-                await ScreenRecordingService.stopRecording();
-                setToolState({ isRecordingActive: false });
+                try {
+                    await ScreenRecordingService.stopRecording();
+                    setToolState({ isRecordingActive: false });
+                } catch (stopError) {
+                    console.warn("FlyThroughTool: Error stopping recording after path failure:", stopError);
+                }
             }
             return;
         }
@@ -391,8 +473,21 @@ async function startConfiguredFlyThrough(drawingPoints, config) {
         });
         setToolState({ flythroughPath: flythroughPath });
 
+        // Calculate total duration for the flythrough - FIXED: Use instance method instead of static
+        const totalDuration = FlythroughPlaybackService.calculateFlythroughDuration(sampledPositions, config);
+        
+        // Register the flythrough with the playback service
+        const flythroughId = `flythrough_${Date.now()}`;
+        FlythroughPlaybackService.registerFlythrough(flythroughId, {
+            path: sampledPositions,
+            config: config,
+            totalDuration: totalDuration,
+            recordingBlob: null // Will be set later when recording completes
+        });
+
+        const recordingStatus = getToolState().isRecordingActive ? "Recording in progress!" : "No recording";
         PopupService.showToolInstruction(
-            `Starting flythrough: ${config.cameraHeight}m height, ${config.cameraSpeed}m/s speed, ${config.cameraTilt}° tilt. Recording in progress!`,
+            `Starting flythrough: ${config.cameraHeight}m height, ${config.cameraSpeed}m/s speed, ${config.cameraTilt}° tilt. ${recordingStatus}`,
             'FlyThrough Active',
             false
         );
@@ -415,8 +510,9 @@ async function startConfiguredFlyThrough(drawingPoints, config) {
             (progress) => {
                 if (config.showProgressUpdates && (progress.currentIndex % 3 === 0 || progress.currentIndex < 5)) {
                     const progressPercent = Math.round(progress.progress * 100);
+                    const recordingText = getToolState().isRecordingActive ? "Recording active" : "No recording";
                     PopupService.showToolInstruction(
-                        `Flying: ${progressPercent}% complete (${progress.elapsedTime.toFixed(0)}s elapsed) - Point ${progress.currentIndex + 1}/${progress.totalPoints}. Recording active.`,
+                        `Flying: ${progressPercent}% complete (${progress.elapsedTime.toFixed(0)}s elapsed) - Point ${progress.currentIndex + 1}/${progress.totalPoints}. ${recordingText}.`,
                         'FlyThrough Progress',
                         false
                     );
@@ -427,6 +523,9 @@ async function startConfiguredFlyThrough(drawingPoints, config) {
                 console.log("FlyThroughTool: Flythrough animation completed.");
                 const { isRecordingActive } = getToolState();
 
+                let recordingBlob = null;
+                let recordingInfo = null;
+
                 if (isRecordingActive) {
                     PopupService.showToolInstruction(
                         'Flythrough completed. Stopping recording...',
@@ -436,39 +535,22 @@ async function startConfiguredFlyThrough(drawingPoints, config) {
                     try {
                         console.log("FlyThroughTool: Stopping recording...");
                         const recordingResult = await ScreenRecordingService.stopRecording();
-                        
+
                         if (!recordingResult) {
                             throw new Error("Recording stop returned null result");
                         }
 
                         const { blob, info } = recordingResult;
-                        
+
                         if (!blob || blob.size === 0) {
                             throw new Error("Recording blob is empty or null");
                         }
 
+                        recordingBlob = blob;
+                        recordingInfo = info;
                         setToolState({ isRecordingActive: false, recordedBlob: blob, recordedInfo: info });
-                        
+
                         console.log("FlyThroughTool: Recording stopped successfully, blob size:", blob.size);
-                        
-                        // Offer download after recording stops
-                        PopupService.showDownloadRecordingForm({
-                            recordingInfo: info,
-                            onDownload: async (downloadOptions) => {
-                                console.log("FlyThroughTool: Download requested with options:", downloadOptions);
-                                try {
-                                    const filename = `flythrough-recording-${info.timestamp.replace(/[:.]/g, '-').split('.')[0]}.${info.format}`;
-                                    await ScreenRecordingService.downloadRecording(blob, filename);
-                                } catch (downloadError) {
-                                    console.error("FlyThroughTool: Download failed:", downloadError);
-                                    PopupService.showNotification(`Download failed: ${downloadError.message}`, true);
-                                }
-                            },
-                            onCancel: () => {
-                                console.log("FlyThroughTool: Download cancelled by user.");
-                                ToolManagementService.deactivateCurrentTool();
-                            }
-                        });
 
                     } catch (recordingError) {
                         console.error('FlyThroughTool: Error stopping recording:', recordingError);
@@ -478,14 +560,62 @@ async function startConfiguredFlyThrough(drawingPoints, config) {
                             true
                         );
                         setToolState({ isRecordingActive: false });
-                        ToolManagementService.deactivateCurrentTool();
                     }
                 } else {
                     const totalTime = ((Date.now() - config._startTime) / 1000).toFixed(1);
+                    console.log("FlyThroughTool: Flythrough completed without recording, total time:", totalTime);
+                }
+
+                // Add to measurement history with enhanced flythrough data
+                const flythroughValue = `${sampledPositions.length} points, ${totalDuration.toFixed(1)}s duration${recordingBlob ? ' (Recorded)' : ''}`;
+                
+                ToolManagementService.addMeasurement(
+                    'Flythrough Tool',
+                    flythroughValue,
+                    {
+                        // Pass the existing entities directly since they're already created
+                        flythroughPath: flythroughPath,
+                        // Store additional flythrough-specific data
+                        flythroughId: flythroughId,
+                        recordingBlob: recordingBlob,
+                        recordingInfo: recordingInfo,
+                        totalDuration: totalDuration,
+                        sampledPositions: sampledPositions,
+                        config: config
+                    }
+                );
+
+                // Update the registered flythrough with recording data
+                const flythroughInstance = FlythroughPlaybackService.activeFlythroughs.get(flythroughId);
+                if (flythroughInstance && recordingBlob) {
+                    flythroughInstance.recordingBlob = recordingBlob;
+                }
+
+                // Show completion message
+                if (recordingBlob && recordingInfo) {
+                    PopupService.showDownloadRecordingForm({
+                        recordingInfo: recordingInfo,
+                        onDownload: async (downloadOptions) => {
+                            console.log("FlyThroughTool: Download requested with options:", downloadOptions);
+                            try {
+                                const filename = `flythrough-recording-${recordingInfo.timestamp.replace(/[:.]/g, '-').split('.')[0]}.${recordingInfo.format}`;
+                                await ScreenRecordingService.downloadRecording(recordingBlob, filename);
+                            } catch (downloadError) {
+                                console.error("FlyThroughTool: Download failed:", downloadError);
+                                PopupService.showNotification(`Download failed: ${downloadError.message}`, true);
+                            }
+                        },
+                        onCancel: () => {
+                            console.log("FlyThroughTool: Download cancelled by user.");
+                            ToolManagementService.deactivateCurrentTool();
+                        }
+                    });
+                } else {
+                    const totalTime = ((Date.now() - config._startTime) / 1000).toFixed(1);
                     PopupService.showToolInstruction(
-                        `Flythrough completed! Total time: ${totalTime}s`,
+                        `Flythrough completed! Total time: ${totalTime}s ${!recordingBlob ? '(No recording was made)' : ''}`,
                         "Success",
-                        true
+                        false
                     );
                     ToolManagementService.deactivateCurrentTool();
                 }
@@ -498,7 +628,7 @@ async function startConfiguredFlyThrough(drawingPoints, config) {
     } catch (error) {
         console.error("FlyThroughTool: Error during flythrough setup or recording start:", error);
         console.error("FlyThroughTool: Error stack:", error.stack);
-        
+
         // Ensure recording is stopped if an error occurs
         const { isRecordingActive } = getToolState();
         if (isRecordingActive) {
@@ -510,12 +640,15 @@ async function startConfiguredFlyThrough(drawingPoints, config) {
                 console.error("FlyThroughTool: Error stopping recording after failure:", stopError);
             }
         }
+
+        // Provide user-friendly error message
+        let userMessage = `Flythrough failed: ${error.message || 'Unknown error occurred'}`;
         
-        PopupService.showToolInstruction(
-            `Flythrough failed: ${error.message || 'Unknown error occurred. Check console for details.'}`,
-            `FlyThrough Error`,
-            true
-        );
+        if (error.message && error.message.includes('canceled')) {
+            userMessage = 'Flythrough setup was cancelled by user.';
+        }
+
+        PopupService.showToolInstruction(userMessage, `FlyThrough Error`, true);
         ToolManagementService.deactivateCurrentTool();
     }
 
@@ -573,6 +706,7 @@ export async function stopFlyThrough() {
                 'Recording Error',
                 true
             );
+            setToolState({ isRecordingActive: false });
         }
     }
 

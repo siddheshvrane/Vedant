@@ -4,6 +4,7 @@ import { Subject, BehaviorSubject } from "rxjs";
 import * as Cesium from "cesium";
 import { MapService } from "./MapService.js";
 import { PopupService } from "./PopupService.js";
+import { FlythroughPlaybackService } from "./FlythroughPlaybackService.js";
 
 // Import individual tool setup functions
 import { setupLineMeasureTool } from "../components/Menu/SubSidebars/BasicTools/tools/LineMeasureTool.js";
@@ -91,6 +92,11 @@ class ToolManagementServiceClass {
                             viewer.entities.remove(entityOrArray);
                         }
                     }
+                }
+                
+                // Clean up flythrough playback service entries
+                if (measurement.toolName === 'Flythrough Tool' && measurement.cesiumEntities?.flythroughId) {
+                    FlythroughPlaybackService.unregisterFlythrough(measurement.cesiumEntities.flythroughId);
                 }
             });
             this.measurementHistory$.next([]);
@@ -249,11 +255,11 @@ class ToolManagementServiceClass {
         // Use requestAnimationFrame to ensure Cesium entities are added safely
         requestAnimationFrame(() => {
             // Special handling for tools that return pre-existing Cesium Entities
-            // (e.g., Viewshield Analysis, Terrain Profile, and potentially FlyThrough if it works that way)
+            // (e.g., Viewshield Analysis, Terrain Profile, and Flythrough Tool)
             if (
                 toolName === "Viewshield Analysis" ||
                 toolName === "Terrain Profile" ||
-                toolName === "Flythrough Tool" // Add Flythrough Tool here if it passes pre-created entities
+                toolName === "Flythrough Tool"
             ) {
                 // For these tools, entityDefs might directly contain Cesium Entities or arrays of them
                 // We'll store them directly without re-adding them via addPersistentEntity
@@ -261,7 +267,7 @@ class ToolManagementServiceClass {
                     if (!entities) return;
                     createdCesiumEntities[key] = Array.isArray(entities)
                         ? entities
-                        : [entities]; // Always store as an array for consistency
+                        : entities; // Store as-is for flythrough (single entity or other data)
                 });
             } else {
                 // Generic handling for tools that provide entity definitions to be created
@@ -294,6 +300,15 @@ class ToolManagementServiceClass {
                 value, // The measurement value (e.g., "100 km", "5 sq km")
                 cesiumEntities: createdCesiumEntities, // References to the actual Cesium entities
                 isEnabled: true, // For toggling visibility
+                // Store additional flythrough-specific data for enhanced UI
+                ...(toolName === 'Flythrough Tool' && {
+                    flythroughId: entityDefs.flythroughId,
+                    recordingBlob: entityDefs.recordingBlob,
+                    recordingInfo: entityDefs.recordingInfo,
+                    totalDuration: entityDefs.totalDuration,
+                    sampledPositions: entityDefs.sampledPositions,
+                    config: entityDefs.config
+                })
             };
 
             const updatedHistory = [
@@ -318,19 +333,29 @@ class ToolManagementServiceClass {
             this.measurementHistory$.next(currentHistory.filter((m) => m.id !== id));
             console.log(`[TMS]: Measurement with ID ${id} removed from history.`);
 
+            // Clean up flythrough playback service if it's a flythrough measurement
+            if (measurementToRemove.toolName === 'Flythrough Tool' && measurementToRemove.flythroughId) {
+                FlythroughPlaybackService.unregisterFlythrough(measurementToRemove.flythroughId);
+                console.log(`[TMS]: Flythrough ${measurementToRemove.flythroughId} unregistered from playback service.`);
+            }
+
             // Then remove associated Cesium entities
             requestAnimationFrame(() => {
                 if (viewer && measurementToRemove.cesiumEntities) {
                     for (const key in measurementToRemove.cesiumEntities) {
                         const entityOrArray = measurementToRemove.cesiumEntities[key];
-                        const entities = Array.isArray(entityOrArray)
-                            ? entityOrArray
-                            : [entityOrArray]; // Ensure it's always an array for iteration
-
-                        entities.forEach((entity) => {
-                            if (entity instanceof Cesium.Entity)
-                                viewer.entities.remove(entity);
-                        });
+                        
+                        // Handle different entity storage formats
+                        if (Array.isArray(entityOrArray)) {
+                            entityOrArray.forEach((entity) => {
+                                if (entity instanceof Cesium.Entity)
+                                    viewer.entities.remove(entity);
+                            });
+                        } else if (entityOrArray instanceof Cesium.Entity) {
+                            viewer.entities.remove(entityOrArray);
+                        }
+                        // For flythrough, some properties might not be entities (like flythroughId, config, etc.)
+                        // so we just skip non-entity properties
                     }
                 }
                 if (viewer.scene.requestRenderMode) viewer.scene.requestRender();
@@ -354,17 +379,17 @@ class ToolManagementServiceClass {
                     if (viewer && m.cesiumEntities) {
                         for (const key in m.cesiumEntities) {
                             const entityOrArray = m.cesiumEntities[key];
-                            const entities = Array.isArray(entityOrArray)
-                                ? entityOrArray
-                                : [entityOrArray]; // Ensure it's always an array for iteration
-
-                            entities.forEach((entity) => {
-                                if (
-                                    entity instanceof Cesium.Entity &&
-                                    entity.show !== undefined
-                                )
-                                    entity.show = newState; // Toggle show property
-                            });
+                            
+                            // Handle different entity storage formats
+                            if (Array.isArray(entityOrArray)) {
+                                entityOrArray.forEach((entity) => {
+                                    if (entity instanceof Cesium.Entity && entity.show !== undefined) {
+                                        entity.show = newState;
+                                    }
+                                });
+                            } else if (entityOrArray instanceof Cesium.Entity && entityOrArray.show !== undefined) {
+                                entityOrArray.show = newState;
+                            }
                         }
                     }
                     if (viewer.scene.requestRenderMode) viewer.scene.requestRender();

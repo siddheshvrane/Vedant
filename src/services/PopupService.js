@@ -206,6 +206,28 @@ class PopupServiceClass {
     }
   }
 
+  /**
+   * NEW: Show notification messages (fixes the missing method error)
+   */
+  showNotification(message, isError = false, duration = 5000) {
+    console.log(`${isError ? 'ERROR' : 'INFO'}: ${message}`);
+    
+    // Show as a popup notification
+    this._showInternalTypeBasedPopup('notification', {
+      message: typeof message === 'string' ? message : JSON.stringify(message),
+      isError: isError,
+      duration: duration,
+      title: isError ? 'Error' : 'Notification'
+    });
+    
+    // Auto-hide after duration
+    if (duration > 0) {
+      setTimeout(() => {
+        this.hide();
+      }, duration);
+    }
+  }
+
   // --- existing type-based helpers untouched ---
 
   _showInternalTypeBasedPopup(type, data) {
@@ -227,14 +249,13 @@ class PopupServiceClass {
     this.isVisible$.next(true);
   }
 
-
-    /**
-     * Convenience method to show the 'serviceAdded' popup.
-     * @param {object} params - { layerName: string, srs: string, extent: string }
-     */
-    showServiceAdded(params) {
-        this._showInternalTypeBasedPopup("serviceAdded", params);
-    }
+  /**
+   * Convenience method to show the 'serviceAdded' popup.
+   * @param {object} params - { layerName: string, srs: string, extent: string }
+   */
+  showServiceAdded(params) {
+    this._showInternalTypeBasedPopup("serviceAdded", params);
+  }
 
   showToolInstruction(
     message,
@@ -260,15 +281,14 @@ class PopupServiceClass {
     this._showInternalTypeBasedPopup("threeDModelForm", params);
   }
 
-    /**
-     *
-     * @deprecated Use `PopupService.show({ component: FlyThroughModePopup, ... })` directly.
-     * @param {object} params - { height?: number, tilt?: number, speed?: number, duration?: number, loop?: boolean, onStart: Function, onCancel: Function }
-     */
-    showFlyThroughForm(params) {
-        console.warn("PopupService.showFlyThroughForm is deprecated. Use PopupService.show({ component: FlyThroughModePopup, ... }) directly.");
-        this._showInternalTypeBasedPopup("flyThroughForm", params);
-    }
+  /**
+   * @deprecated Use `PopupService.show({ component: FlyThroughModePopup, ... })` directly.
+   * @param {object} params - { height?: number, tilt?: number, speed?: number, duration?: number, loop?: boolean, onStart: Function, onCancel: Function }
+   */
+  showFlyThroughForm(params) {
+    console.warn("PopupService.showFlyThroughForm is deprecated. Use PopupService.show({ component: FlyThroughModePopup, ... }) directly.");
+    this._showInternalTypeBasedPopup("flyThroughForm", params);
+  }
 
   showMarkerSequenceForm(params) {
     import("../components/Popup/popups/MarkerSequencePopup.vue")
@@ -302,12 +322,30 @@ class PopupServiceClass {
       });
   }
 
-  showConfirmation(
-    message,
-    title = "Confirm Action",
-    confirmText = "Confirm",
-    cancelText = "Cancel"
-  ) {
+  showConfirmation(options) {
+    // Handle both string message and object with message property
+    let message, title, confirmText, cancelText, onConfirm, onCancel;
+    
+    if (typeof options === 'string') {
+      // Legacy support for string-only message
+      message = options;
+      title = arguments[1] || "Confirm Action";
+      confirmText = arguments[2] || "Confirm";
+      cancelText = arguments[3] || "Cancel";
+    } else if (typeof options === 'object') {
+      // Handle object parameter
+      message = options.message || options;
+      if (typeof message === 'object') {
+        // If message is still an object, extract or stringify it
+        message = message.message || message.title || JSON.stringify(message);
+      }
+      title = options.title || "Confirm Action";
+      confirmText = options.confirmText || "Confirm";
+      cancelText = options.cancelText || "Cancel";
+      onConfirm = options.onConfirm;
+      onCancel = options.onCancel;
+    }
+
     if (this._confirmationRejecter) {
       this._confirmationRejecter(
         new Error(
@@ -315,16 +353,18 @@ class PopupServiceClass {
         )
       );
     }
+
     return new Promise((resolve, reject) => {
       this._confirmationResolver = resolve;
       this._confirmationRejecter = reject;
+      
       this._showInternalTypeBasedPopup("confirmation", {
-        message,
-        title,
-        confirmText,
-        cancelText,
-        onConfirm: () => this.resolveConfirmation(true),
-        onCancel: () => this.resolveConfirmation(false),
+        message: message,
+        title: title,
+        confirmText: confirmText,
+        cancelText: cancelText,
+        onConfirm: onConfirm || (() => this.resolveConfirmation(true)),
+        onCancel: onCancel || (() => this.resolveConfirmation(false)),
       });
     });
   }
