@@ -33,20 +33,36 @@
               {{ measurement.toolName }} #{{ measurement.operationNumber }}
             </span>
             <div class="flythrough-controls d-flex align-items-center">
+              <!-- Recording indicator -->
+              <span v-if="hasRecording(measurement)" class="recording-indicator me-2" title="Has Recording">
+                <i class="fas fa-video text-success"></i>
+              </span>
+              
               <button
                 @click="toggleFlythroughPlayback(measurement)"
                 class="btn btn-sm flythrough-control-btn me-2"
-                :title="getFlythroughState(measurement.id) === 'playing' ? 'Pause Flythrough' : 'Play Flythrough'"
+                :title="getFlythroughState(measurement) === 'playing' ? 'Pause Flythrough' : 'Play Flythrough'"
+                :disabled="!hasValidFlythroughData(measurement)"
               >
-                <i :class="getFlythroughState(measurement.id) === 'playing' ? 'fas fa-pause' : 'fas fa-play'"></i>
+                <i :class="getFlythroughState(measurement) === 'playing' ? 'fas fa-pause' : 'fas fa-play'"></i>
               </button>
+              
+              <button
+                @click="stopFlythrough(measurement)"
+                class="btn btn-sm flythrough-control-btn me-2"
+                :title="'Stop Flythrough'"
+                :disabled="getFlythroughState(measurement) === 'stopped'"
+              >
+                <i class="fas fa-stop"></i>
+              </button>
+              
               <button
                 @click="downloadFlythrough(measurement)"
                 class="btn btn-sm flythrough-control-btn me-2"
                 title="Download Recording"
-                :disabled="!measurement.recordingBlob"
+                :disabled="!hasRecording(measurement)"
               >
-                <i class="fas fa-download" :class="{ 'disabled-icon': !measurement.recordingBlob }"></i>
+                <i class="fas fa-download" :class="{ 'disabled-icon': !hasRecording(measurement) }"></i>
               </button>
             </div>
           </div>
@@ -57,25 +73,43 @@
               <div class="timeline-track" @click="seekFlythrough($event, measurement)">
                 <div 
                   class="timeline-progress"
-                  :style="{ width: getFlythroughProgress(measurement.id) + '%' }"
+                  :style="{ width: getFlythroughProgress(measurement) + '%' }"
                 ></div>
                 <div 
                   class="timeline-handle"
-                  :style="{ left: getFlythroughProgress(measurement.id) + '%' }"
+                  :style="{ left: getFlythroughProgress(measurement) + '%' }"
                   @mousedown="startDragging($event, measurement)"
                 ></div>
               </div>
             </div>
             <div class="timeline-info d-flex justify-content-between mt-1">
-              <span class="timeline-time">{{ formatTime(getCurrentTime(measurement.id)) }}</span>
-              <span class="timeline-duration">{{ formatTime(getTotalDuration(measurement.id)) }}</span>
+              <span class="timeline-time">{{ formatTime(getCurrentTime(measurement)) }}</span>
+              <span class="timeline-duration">{{ formatTime(getTotalDuration(measurement)) }}</span>
             </div>
           </div>
 
           <!-- Flythrough Details -->
           <div class="flythrough-details">
-            <small class="text-muted">{{ measurement.value }}</small>
+            <small class="text-muted">
+              {{ measurement.value }}
+              <span v-if="hasRecording(measurement)" class="recording-info ms-2">
+                • <i class="fas fa-video"></i> Recording Available
+              </span>
+            </small>
           </div>
+
+          <!-- Video element (hidden) -->
+          <video
+            v-if="hasRecording(measurement) && getVideoUrl(measurement)"
+            :ref="`video-${measurement.id}`"
+            :src="getVideoUrl(measurement)"
+            style="display: none"
+            preload="metadata"
+            @loadedmetadata="onVideoLoaded(measurement)"
+            @timeupdate="onVideoTimeUpdate(measurement)"
+            @ended="onVideoEnded(measurement)"
+            @error="onVideoError(measurement)"
+          ></video>
         </div>
 
         <!-- Action buttons for non-flythrough items -->
@@ -131,28 +165,70 @@ export default {
     return {
       measurements: [],
       historySubscription: null,
-      playbackStates: new Map(), // Track playback states for each flythrough
+      playbackStates: new Map(),
+      playbackSubscription: null,
+      videoUrls: new Map(),
       isDragging: false,
       currentDragMeasurement: null,
     };
   },
   mounted() {
+    console.log('MeasurementHistory: Component mounted');
+    
+    // Subscribe to measurement history changes
     this.historySubscription = ToolManagementService.measurementHistory$.subscribe(history => {
+      console.log('MeasurementHistory: Received updated history:', history.length, 'measurements');
       this.measurements = history;
+      
+      // Register flythroughs that aren't already registered
+      history.forEach(measurement => {
+        if (measurement.toolName === 'Flythrough Tool') {
+          console.log('MeasurementHistory: Processing flythrough measurement:', measurement.id);
+          this.ensureFlythroughRegistered(measurement);
+        }
+      });
+    });
+
+    // Subscribe to playback state changes
+    this.playbackSubscription = FlythroughPlaybackService.playbackStates$.subscribe(states => {
+      console.log('MeasurementHistory: Playback states updated:', states.size, 'flythroughs');
+      this.playbackStates = new Map(states);
+      this.$forceUpdate();
     });
 
     // Add mouse event listeners for dragging
     document.addEventListener('mousemove', this.handleMouseMove);
     document.addEventListener('mouseup', this.handleMouseUp);
+
+    // Process any existing measurements on mount
+    const existingMeasurements = ToolManagementService.measurementHistory$.getValue();
+    if (existingMeasurements.length > 0) {
+      console.log('MeasurementHistory: Processing', existingMeasurements.length, 'existing measurements on mount');
+      existingMeasurements.forEach(measurement => {
+        if (measurement.toolName === 'Flythrough Tool') {
+          this.ensureFlythroughRegistered(measurement);
+        }
+      });
+    }
   },
   beforeUnmount() {
     if (this.historySubscription) {
       this.historySubscription.unsubscribe();
     }
     
+    if (this.playbackSubscription) {
+      this.playbackSubscription.unsubscribe();
+    }
+    
     // Remove event listeners
     document.removeEventListener('mousemove', this.handleMouseMove);
     document.removeEventListener('mouseup', this.handleMouseUp);
+    
+    // Clean up video URLs
+    this.videoUrls.forEach(url => {
+      URL.revokeObjectURL(url);
+    });
+    this.videoUrls.clear();
   },
   methods: {
     toggleEnabled(id) {
@@ -169,11 +245,25 @@ export default {
         );
 
         if (confirmed) {
-          // Stop flythrough if it's currently playing
           const measurement = this.measurements.find(m => m.id === id);
+          
           if (measurement && measurement.toolName === 'Flythrough Tool') {
             this.stopFlythrough(measurement);
+            
+            // Use the flythrough ID for cleanup - try multiple approaches
+            const flythroughId = this.getFlythroughId(measurement);
+            if (flythroughId) {
+              FlythroughPlaybackService.unregisterFlythrough(flythroughId);
+              console.log('MeasurementHistory: Unregistered flythrough:', flythroughId);
+            }
           }
+          
+          // Clean up video URL
+          if (this.videoUrls.has(id)) {
+            URL.revokeObjectURL(this.videoUrls.get(id));
+            this.videoUrls.delete(id);
+          }
+          
           ToolManagementService.removeMeasurement(id);
         }
       } catch (error) {
@@ -181,9 +271,126 @@ export default {
       }
     },
 
-    // Flythrough-specific methods
+    // Helper to get flythrough ID from measurement - handles both structures
+    getFlythroughId(measurement) {
+      // Try entities first (new structure)
+      if (measurement.entities && measurement.entities.flythroughId) {
+        return measurement.entities.flythroughId;
+      }
+      
+      // Try cesiumEntities (old structure)
+      if (measurement.cesiumEntities && measurement.cesiumEntities.flythroughId) {
+        return measurement.cesiumEntities.flythroughId;
+      }
+      
+      // Fall back to measurement ID
+      return measurement.id;
+    },
+
+    // Get entities from measurement - handles both structures
+    getEntities(measurement) {
+      return measurement.entities || measurement.cesiumEntities || {};
+    },
+
+    // Flythrough registration
+    ensureFlythroughRegistered(measurement) {
+      const flythroughId = this.getFlythroughId(measurement);
+      const entities = this.getEntities(measurement);
+      
+      console.log('MeasurementHistory: Ensuring flythrough registered:', {
+        measurementId: measurement.id,
+        flythroughId: flythroughId,
+        hasEntities: !!entities,
+        hasSampledPositions: !!entities.sampledPositions
+      });
+
+      if (!entities.sampledPositions || !Array.isArray(entities.sampledPositions)) {
+        console.warn('MeasurementHistory: Invalid or missing sampledPositions for flythrough:', measurement.id);
+        return;
+      }
+
+      // Check if already registered
+      if (FlythroughPlaybackService.activeFlythroughs.has(flythroughId)) {
+        console.log('MeasurementHistory: Flythrough already registered:', flythroughId);
+        
+        // Update with recording blob if it wasn't there before
+        if (entities.recordingBlob && !FlythroughPlaybackService.hasRecording(flythroughId)) {
+          FlythroughPlaybackService.updateFlythroughRecording(
+            flythroughId,
+            entities.recordingBlob,
+            entities.recordingInfo
+          );
+        }
+        return;
+      }
+
+      // Register the flythrough
+      console.log('MeasurementHistory: Registering new flythrough:', flythroughId);
+      try {
+        const registrationData = {
+          path: entities.sampledPositions || [],
+          config: entities.config || {},
+          totalDuration: entities.totalDuration || 0,
+          recordingBlob: entities.recordingBlob || null,
+          recordingInfo: entities.recordingInfo || null
+        };
+        
+        FlythroughPlaybackService.registerFlythrough(flythroughId, registrationData);
+
+        // Create video URL if recording exists
+        if (entities.recordingBlob) {
+          this.createVideoUrl(measurement);
+        }
+        
+        console.log('MeasurementHistory: Successfully registered flythrough:', flythroughId);
+      } catch (error) {
+        console.error('MeasurementHistory: Failed to register flythrough:', flythroughId, error);
+      }
+    },
+
+    createVideoUrl(measurement) {
+      const entities = this.getEntities(measurement);
+      if (entities.recordingBlob && !this.videoUrls.has(measurement.id)) {
+        try {
+          const url = URL.createObjectURL(entities.recordingBlob);
+          this.videoUrls.set(measurement.id, url);
+          console.log('MeasurementHistory: Created video URL for measurement:', measurement.id);
+        } catch (error) {
+          console.error('MeasurementHistory: Error creating video URL:', error);
+        }
+      }
+    },
+
+    getVideoUrl(measurement) {
+      return this.videoUrls.get(measurement.id) || null;
+    },
+
+    hasRecording(measurement) {
+      if (measurement.toolName !== 'Flythrough Tool') return false;
+      
+      const entities = this.getEntities(measurement);
+      const hasBlob = !!entities.recordingBlob;
+      const flythroughId = this.getFlythroughId(measurement);
+      const hasPlaybackRecording = FlythroughPlaybackService.hasRecording(flythroughId);
+      
+      return hasBlob || hasPlaybackRecording;
+    },
+
+    hasValidFlythroughData(measurement) {
+      if (measurement.toolName !== 'Flythrough Tool') return false;
+      
+      const entities = this.getEntities(measurement);
+      return !!(entities.sampledPositions && entities.sampledPositions.length >= 2);
+    },
+
+    formatTime(seconds) {
+      const mins = Math.floor(seconds / 60);
+      const secs = Math.floor(seconds % 60);
+      return `${mins}:${secs.toString().padStart(2, '0')}`;
+    },
+
     toggleFlythroughPlayback(measurement) {
-      const currentState = this.getFlythroughState(measurement.id);
+      const currentState = this.getFlythroughState(measurement);
       
       if (currentState === 'playing') {
         this.pauseFlythrough(measurement);
@@ -193,54 +400,75 @@ export default {
     },
 
     playFlythrough(measurement) {
-      console.log('Playing flythrough:', measurement.id);
-      this.playbackStates.set(measurement.id, 'playing');
+      console.log('MeasurementHistory: playFlythrough called for measurement:', measurement.id);
       
-      // Call FlythroughPlaybackService to resume or start playback
-      FlythroughPlaybackService.playFlythrough(measurement.id, this.getCurrentTime(measurement.id));
+      const flythroughId = this.getFlythroughId(measurement);
       
-      this.$forceUpdate();
+      // Ensure flythrough is registered before playing
+      if (!FlythroughPlaybackService.activeFlythroughs.has(flythroughId)) {
+        console.log('MeasurementHistory: Flythrough not registered, ensuring registration...');
+        this.ensureFlythroughRegistered(measurement);
+      }
+
+      // Check again after registration attempt
+      if (!FlythroughPlaybackService.activeFlythroughs.has(flythroughId)) {
+        console.error('MeasurementHistory: Failed to register flythrough for playback');
+        PopupService.showNotification('Cannot play flythrough: Registration failed', true);
+        return;
+      }
+
+      const currentTime = this.getCurrentTime(measurement);
+      const success = FlythroughPlaybackService.playFlythrough(flythroughId, currentTime);
+      
+      if (!success) {
+        PopupService.showNotification('Failed to start flythrough playback', true);
+      } else {
+        PopupService.showNotification('Flythrough playback started', false);
+      }
     },
 
     pauseFlythrough(measurement) {
-      console.log('Pausing flythrough:', measurement.id);
-      this.playbackStates.set(measurement.id, 'paused');
-      
-      // Call FlythroughPlaybackService to pause playback
-      FlythroughPlaybackService.pauseFlythrough(measurement.id);
-      
-      this.$forceUpdate();
+      const flythroughId = this.getFlythroughId(measurement);
+      FlythroughPlaybackService.pauseFlythrough(flythroughId);
     },
 
     stopFlythrough(measurement) {
-      console.log('Stopping flythrough:', measurement.id);
-      this.playbackStates.set(measurement.id, 'stopped');
-      
-      // Call FlythroughPlaybackService to stop playback
-      FlythroughPlaybackService.stopFlythrough(measurement.id);
-      
-      this.$forceUpdate();
+      const flythroughId = this.getFlythroughId(measurement);
+      FlythroughPlaybackService.stopFlythrough(flythroughId);
     },
 
     downloadFlythrough(measurement) {
-      if (!measurement.recordingBlob) {
+      if (!this.hasRecording(measurement)) {
         PopupService.showNotification('No recording available for this flythrough', true);
         return;
       }
 
-      console.log('Downloading flythrough recording:', measurement.id);
-      
-      // Create download link
-      const url = URL.createObjectURL(measurement.recordingBlob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `flythrough-${measurement.operationNumber}-${Date.now()}.webm`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      try {
+        const entities = this.getEntities(measurement);
+        const recordingBlob = entities.recordingBlob;
+        if (!recordingBlob) {
+          throw new Error('Recording blob not found');
+        }
 
-      PopupService.showNotification('Flythrough recording downloaded', false);
+        console.log('MeasurementHistory: Downloading flythrough recording:', measurement.id);
+        
+        const url = URL.createObjectURL(recordingBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        
+        const timestamp = new Date().toISOString().split('T')[0];
+        link.download = `flythrough-${measurement.operationNumber}-${timestamp}.webm`;
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        PopupService.showNotification('Flythrough recording downloaded', false);
+      } catch (error) {
+        console.error('MeasurementHistory: Download failed:', error);
+        PopupService.showNotification(`Download failed: ${error.message}`, true);
+      }
     },
 
     seekFlythrough(event, measurement) {
@@ -248,12 +476,9 @@ export default {
       const percentage = ((event.clientX - rect.left) / rect.width) * 100;
       const clampedPercentage = Math.max(0, Math.min(100, percentage));
       
-      console.log('Seeking flythrough to:', clampedPercentage + '%');
-      
-      // Call FlythroughPlaybackService to seek to specific position
-      FlythroughPlaybackService.seekFlythrough(measurement.id, clampedPercentage);
-      
-      this.$forceUpdate();
+      const flythroughId = this.getFlythroughId(measurement);
+      console.log('MeasurementHistory: Seeking flythrough to:', clampedPercentage + '%');
+      FlythroughPlaybackService.seekFlythrough(flythroughId, clampedPercentage);
     },
 
     startDragging(event, measurement) {
@@ -272,10 +497,8 @@ export default {
       const percentage = ((event.clientX - rect.left) / rect.width) * 100;
       const clampedPercentage = Math.max(0, Math.min(100, percentage));
       
-      // Update playback position during drag
-      FlythroughPlaybackService.seekFlythrough(this.currentDragMeasurement.id, clampedPercentage);
-      
-      this.$forceUpdate();
+      const flythroughId = this.getFlythroughId(this.currentDragMeasurement);
+      FlythroughPlaybackService.seekFlythrough(flythroughId, clampedPercentage);
     },
 
     handleMouseUp() {
@@ -283,30 +506,43 @@ export default {
       this.currentDragMeasurement = null;
     },
 
+    // Video event handlers
+    onVideoLoaded(measurement) {
+      console.log('MeasurementHistory: Video loaded for measurement:', measurement.id);
+    },
+
+    onVideoTimeUpdate(measurement) {
+      // Video time updates are handled by FlythroughPlaybackService
+    },
+
+    onVideoEnded(measurement) {
+      console.log('MeasurementHistory: Video ended for measurement:', measurement.id);
+    },
+
+    onVideoError(measurement, error) {
+      console.error('MeasurementHistory: Video error for measurement:', measurement.id, error);
+      PopupService.showNotification('Video playback error occurred', true);
+    },
+
     // Helper methods for flythrough state
-    getFlythroughState(id) {
-      return this.playbackStates.get(id) || 'stopped';
+    getFlythroughState(measurement) {
+      const flythroughId = this.getFlythroughId(measurement);
+      return FlythroughPlaybackService.getState(flythroughId);
     },
 
-    getFlythroughProgress(id) {
-      // Get progress from FlythroughPlaybackService
-      return FlythroughPlaybackService.getProgress(id) || 0;
+    getFlythroughProgress(measurement) {
+      const flythroughId = this.getFlythroughId(measurement);
+      return FlythroughPlaybackService.getProgress(flythroughId);
     },
 
-    getCurrentTime(id) {
-      // Get current time from FlythroughPlaybackService
-      return FlythroughPlaybackService.getCurrentTime(id) || 0;
+    getCurrentTime(measurement) {
+      const flythroughId = this.getFlythroughId(measurement);
+      return FlythroughPlaybackService.getCurrentTime(flythroughId);
     },
 
-    getTotalDuration(id) {
-      // Get total duration from FlythroughPlaybackService
-      return FlythroughPlaybackService.getTotalDuration(id) || 0;
-    },
-
-    formatTime(seconds) {
-      const mins = Math.floor(seconds / 60);
-      const secs = Math.floor(seconds % 60);
-      return `${mins}:${secs.toString().padStart(2, '0')}`;
+    getTotalDuration(measurement) {
+      const flythroughId = this.getFlythroughId(measurement);
+      return FlythroughPlaybackService.getTotalDuration(flythroughId);
     },
   },
 };

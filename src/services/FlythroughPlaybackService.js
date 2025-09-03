@@ -8,13 +8,11 @@ class FlythroughPlaybackServiceClass {
     constructor() {
         this.activeFlythroughs = new Map(); // Store active flythrough instances
         this.playbackStates$ = new BehaviorSubject(new Map()); // Observable for playback states
+        console.log('FlythroughPlaybackService: Initialized');
     }
 
     /**
      * Calculate total duration for a flythrough path
-     * @param {Array} path - Array of Cartesian3 positions
-     * @param {Object} config - Flythrough configuration
-     * @returns {number} Duration in seconds
      */
     calculateFlythroughDuration(path, config) {
         if (!path || path.length < 2) return 0;
@@ -34,16 +32,21 @@ class FlythroughPlaybackServiceClass {
     }
 
     /**
-     * Register a new flythrough with its path data
-     * @param {string} id - Unique identifier for the flythrough
-     * @param {Object} flythroughData - Data containing path, config, and other info
+     * Register a new flythrough with its path data and recording blob
      */
     registerFlythrough(id, flythroughData) {
+        console.log('FlythroughPlaybackService: Registering flythrough:', id, 'with data:', {
+            hasPath: !!(flythroughData.path && flythroughData.path.length),
+            pathLength: flythroughData.path?.length || 0,
+            hasRecording: !!flythroughData.recordingBlob,
+            totalDuration: flythroughData.totalDuration
+        });
+
         const flythroughInstance = {
             id: id,
             path: flythroughData.path || [],
             config: flythroughData.config || {},
-            totalDuration: flythroughData.totalDuration || 0,
+            totalDuration: flythroughData.totalDuration || this.calculateFlythroughDuration(flythroughData.path, flythroughData.config),
             currentTime: 0,
             progress: 0,
             state: 'stopped', // 'playing', 'paused', 'stopped'
@@ -51,39 +54,101 @@ class FlythroughPlaybackServiceClass {
             startTime: null,
             pausedTime: 0,
             recordingBlob: flythroughData.recordingBlob || null,
+            recordingUrl: null,
+            videoElement: null,
             coreManager: null,
         };
+
+        // Create video element if recording blob exists
+        if (flythroughInstance.recordingBlob) {
+            this._createVideoElement(flythroughInstance);
+        }
 
         this.activeFlythroughs.set(id, flythroughInstance);
         this._updatePlaybackStates();
         
-        console.log('FlythroughPlaybackService: Registered flythrough:', id);
+        console.log('FlythroughPlaybackService: Successfully registered flythrough:', id);
+        console.log('FlythroughPlaybackService: Active flythroughs:', Array.from(this.activeFlythroughs.keys()));
         return flythroughInstance;
     }
 
     /**
-     * Play a flythrough from a specific time position
-     * @param {string} id - Flythrough ID
-     * @param {number} fromTime - Time in seconds to start from
+     * Create video element for recorded flythrough
+     */
+    _createVideoElement(flythroughInstance) {
+        try {
+            if (flythroughInstance.recordingBlob) {
+                // Create blob URL
+                flythroughInstance.recordingUrl = URL.createObjectURL(flythroughInstance.recordingBlob);
+                
+                // Create video element
+                const video = document.createElement('video');
+                video.src = flythroughInstance.recordingUrl;
+                video.style.display = 'none';
+                video.preload = 'metadata';
+                video.muted = true; // Prevent autoplay issues
+
+                // Add event listeners
+                video.addEventListener('loadedmetadata', () => {
+                    console.log('FlythroughPlaybackService: Video metadata loaded for', flythroughInstance.id);
+                    // Update duration from actual video if different
+                    if (video.duration && Math.abs(video.duration - flythroughInstance.totalDuration) > 1) {
+                        flythroughInstance.totalDuration = video.duration;
+                        this._updatePlaybackStates();
+                    }
+                });
+
+                video.addEventListener('timeupdate', () => {
+                    if (flythroughInstance.state === 'playing') {
+                        flythroughInstance.currentTime = video.currentTime;
+                        flythroughInstance.progress = flythroughInstance.totalDuration > 0 
+                            ? (video.currentTime / flythroughInstance.totalDuration) * 100 
+                            : 0;
+                        this._updatePlaybackStates();
+                    }
+                });
+
+                video.addEventListener('ended', () => {
+                    flythroughInstance.state = 'stopped';
+                    flythroughInstance.currentTime = flythroughInstance.totalDuration;
+                    flythroughInstance.progress = 100;
+                    this._updatePlaybackStates();
+                    console.log('FlythroughPlaybackService: Video ended for', flythroughInstance.id);
+                });
+
+                video.addEventListener('error', (e) => {
+                    console.error('FlythroughPlaybackService: Video error for', flythroughInstance.id, e);
+                    flythroughInstance.state = 'stopped';
+                    this._updatePlaybackStates();
+                });
+
+                flythroughInstance.videoElement = video;
+                document.body.appendChild(video);
+
+                console.log('FlythroughPlaybackService: Video element created for', flythroughInstance.id);
+            }
+        } catch (error) {
+            console.error('FlythroughPlaybackService: Error creating video element:', error);
+        }
+    }
+
+    /**
+     * Play a flythrough (video + camera animation if available)
      */
     async playFlythrough(id, fromTime = 0) {
         const flythrough = this.activeFlythroughs.get(id);
         if (!flythrough) {
-            console.warn('FlythroughPlaybackService: Flythrough not found:', id);
+            console.error('FlythroughPlaybackService: Flythrough not found for ID:', id);
+            console.error('FlythroughPlaybackService: Available IDs:', Array.from(this.activeFlythroughs.keys()));
             return false;
         }
+
+        console.log('FlythroughPlaybackService: Starting playback for:', id, 'from time:', fromTime);
 
         try {
             // Stop any currently playing flythrough
             this._stopAllFlythroughs();
 
-            // Get CesiumCoreManager
-            const coreManager = MapService.getCoreManager();
-            if (!coreManager) {
-                throw new Error('CesiumCoreManager not available');
-            }
-
-            flythrough.coreManager = coreManager;
             flythrough.state = 'playing';
             flythrough.currentTime = fromTime;
             flythrough.startTime = Date.now() - (fromTime * 1000);
@@ -94,53 +159,76 @@ class FlythroughPlaybackServiceClass {
                 ? (fromTime / flythrough.totalDuration) * 100 
                 : 0;
 
-            // Calculate starting position in path based on time
-            const startIndex = this._calculatePathIndexFromTime(flythrough, fromTime);
-            const pathSegment = flythrough.path.slice(startIndex);
+            let videoPlaybackSuccess = false;
 
-            if (pathSegment.length < 2) {
-                console.warn('FlythroughPlaybackService: Not enough path points to continue from this position');
-                flythrough.state = 'stopped';
-                this._updatePlaybackStates();
-                return false;
+            // Play video if available
+            if (flythrough.videoElement && flythrough.recordingBlob) {
+                try {
+                    flythrough.videoElement.currentTime = fromTime;
+                    const playPromise = flythrough.videoElement.play();
+                    
+                    if (playPromise !== undefined) {
+                        await playPromise;
+                        videoPlaybackSuccess = true;
+                        console.log('FlythroughPlaybackService: Video playback started for', id);
+                    }
+                } catch (videoError) {
+                    console.warn('FlythroughPlaybackService: Video playback failed:', videoError);
+                }
             }
 
-            // Create flight animation from the calculated position
-            flythrough.animationId = coreManager.createFlightAnimation(
-                pathSegment,
-                {
-                    speed: flythrough.config.cameraSpeed || 10,
-                    height: flythrough.config.cameraHeight || 20,
-                    tilt: flythrough.config.cameraTilt || 45,
-                    pauseBetweenPoints: flythrough.config.pauseBetweenPoints || 200,
-                    enableSmoothing: true
-                },
-                // Progress callback
-                (progress) => {
-                    if (flythrough.state === 'playing') {
-                        const elapsedTime = (Date.now() - flythrough.startTime) / 1000;
-                        flythrough.currentTime = fromTime + progress.elapsedTime;
-                        flythrough.progress = flythrough.totalDuration > 0 
-                            ? (flythrough.currentTime / flythrough.totalDuration) * 100 
-                            : 0;
-                        
-                        this._updatePlaybackStates();
+            // Also play camera animation if available
+            const coreManager = MapService.getCoreManager();
+            if (coreManager && flythrough.path && flythrough.path.length >= 2) {
+                try {
+                    // Calculate starting position in path based on time
+                    const startIndex = this._calculatePathIndexFromTime(flythrough, fromTime);
+                    const pathSegment = flythrough.path.slice(startIndex);
+
+                    if (pathSegment.length >= 2) {
+                        flythrough.coreManager = coreManager;
+                        flythrough.animationId = coreManager.createFlightAnimation(
+                            pathSegment,
+                            {
+                                speed: flythrough.config.cameraSpeed || 10,
+                                height: flythrough.config.cameraHeight || 20,
+                                tilt: flythrough.config.cameraTilt || 45,
+                                pauseBetweenPoints: flythrough.config.pauseBetweenPoints || 200,
+                                enableSmoothing: true
+                            },
+                            // Progress callback - sync with video if available
+                            (progress) => {
+                                if (flythrough.state === 'playing') {
+                                    if (!flythrough.videoElement) {
+                                        // Update time based on animation if no video
+                                        flythrough.currentTime = fromTime + progress.elapsedTime;
+                                        flythrough.progress = flythrough.totalDuration > 0 
+                                            ? (flythrough.currentTime / flythrough.totalDuration) * 100 
+                                            : 0;
+                                        this._updatePlaybackStates();
+                                    }
+                                }
+                            },
+                            // Completion callback
+                            () => {
+                                if (!flythrough.videoElement) {
+                                    flythrough.state = 'stopped';
+                                    flythrough.currentTime = flythrough.totalDuration;
+                                    flythrough.progress = 100;
+                                    flythrough.animationId = null;
+                                    this._updatePlaybackStates();
+                                    console.log('FlythroughPlaybackService: Camera animation completed for:', id);
+                                }
+                            }
+                        );
                     }
-                },
-                // Completion callback
-                () => {
-                    flythrough.state = 'stopped';
-                    flythrough.currentTime = flythrough.totalDuration;
-                    flythrough.progress = 100;
-                    flythrough.animationId = null;
-                    this._updatePlaybackStates();
-                    
-                    console.log('FlythroughPlaybackService: Flythrough completed:', id);
+                } catch (animationError) {
+                    console.warn('FlythroughPlaybackService: Camera animation failed:', animationError);
                 }
-            );
+            }
 
             this._updatePlaybackStates();
-            console.log('FlythroughPlaybackService: Started playback for:', id, 'from time:', fromTime);
+            console.log('FlythroughPlaybackService: Started playback successfully for:', id);
             return true;
 
         } catch (error) {
@@ -153,12 +241,11 @@ class FlythroughPlaybackServiceClass {
 
     /**
      * Pause a flythrough
-     * @param {string} id - Flythrough ID
      */
     pauseFlythrough(id) {
         const flythrough = this.activeFlythroughs.get(id);
         if (!flythrough) {
-            console.warn('FlythroughPlaybackService: Flythrough not found:', id);
+            console.warn('FlythroughPlaybackService: Flythrough not found for pause:', id);
             return false;
         }
 
@@ -166,7 +253,12 @@ class FlythroughPlaybackServiceClass {
             flythrough.state = 'paused';
             flythrough.pausedTime = Date.now();
             
-            // Cancel the current animation
+            // Pause video
+            if (flythrough.videoElement) {
+                flythrough.videoElement.pause();
+            }
+
+            // Cancel the camera animation
             if (flythrough.animationId && flythrough.coreManager) {
                 flythrough.coreManager.cancelFlightAnimation(flythrough.animationId);
                 flythrough.animationId = null;
@@ -182,12 +274,11 @@ class FlythroughPlaybackServiceClass {
 
     /**
      * Stop a flythrough completely
-     * @param {string} id - Flythrough ID
      */
     stopFlythrough(id) {
         const flythrough = this.activeFlythroughs.get(id);
         if (!flythrough) {
-            console.warn('FlythroughPlaybackService: Flythrough not found:', id);
+            console.warn('FlythroughPlaybackService: Flythrough not found for stop:', id);
             return false;
         }
 
@@ -197,7 +288,13 @@ class FlythroughPlaybackServiceClass {
         flythrough.startTime = null;
         flythrough.pausedTime = 0;
 
-        // Cancel any active animation
+        // Stop and reset video
+        if (flythrough.videoElement) {
+            flythrough.videoElement.pause();
+            flythrough.videoElement.currentTime = 0;
+        }
+
+        // Cancel any active camera animation
         if (flythrough.animationId && flythrough.coreManager) {
             flythrough.coreManager.cancelFlightAnimation(flythrough.animationId);
             flythrough.animationId = null;
@@ -210,13 +307,11 @@ class FlythroughPlaybackServiceClass {
 
     /**
      * Seek to a specific position in the flythrough
-     * @param {string} id - Flythrough ID
-     * @param {number} percentage - Position as percentage (0-100)
      */
     seekFlythrough(id, percentage) {
         const flythrough = this.activeFlythroughs.get(id);
         if (!flythrough) {
-            console.warn('FlythroughPlaybackService: Flythrough not found:', id);
+            console.warn('FlythroughPlaybackService: Flythrough not found for seek:', id);
             return false;
         }
 
@@ -225,6 +320,11 @@ class FlythroughPlaybackServiceClass {
         
         flythrough.progress = clampedPercentage;
         flythrough.currentTime = seekTime;
+
+        // Seek video if available
+        if (flythrough.videoElement) {
+            flythrough.videoElement.currentTime = seekTime;
+        }
 
         // If currently playing, restart from the new position
         if (flythrough.state === 'playing') {
@@ -240,9 +340,27 @@ class FlythroughPlaybackServiceClass {
     }
 
     /**
+     * Update flythrough with recording data
+     */
+    updateFlythroughRecording(id, recordingBlob, recordingInfo) {
+        const flythrough = this.activeFlythroughs.get(id);
+        if (flythrough) {
+            flythrough.recordingBlob = recordingBlob;
+            flythrough.recordingInfo = recordingInfo;
+            
+            // Create video element for playback
+            this._createVideoElement(flythrough);
+            
+            this._updatePlaybackStates();
+            console.log('FlythroughPlaybackService: Updated recording for flythrough:', id);
+            return true;
+        }
+        console.warn('FlythroughPlaybackService: Could not update recording - flythrough not found:', id);
+        return false;
+    }
+
+    /**
      * Get current progress for a flythrough
-     * @param {string} id - Flythrough ID
-     * @returns {number} Progress as percentage (0-100)
      */
     getProgress(id) {
         const flythrough = this.activeFlythroughs.get(id);
@@ -251,8 +369,6 @@ class FlythroughPlaybackServiceClass {
 
     /**
      * Get current time for a flythrough
-     * @param {string} id - Flythrough ID
-     * @returns {number} Current time in seconds
      */
     getCurrentTime(id) {
         const flythrough = this.activeFlythroughs.get(id);
@@ -261,8 +377,6 @@ class FlythroughPlaybackServiceClass {
 
     /**
      * Get total duration for a flythrough
-     * @param {string} id - Flythrough ID
-     * @returns {number} Total duration in seconds
      */
     getTotalDuration(id) {
         const flythrough = this.activeFlythroughs.get(id);
@@ -271,8 +385,6 @@ class FlythroughPlaybackServiceClass {
 
     /**
      * Get current state for a flythrough
-     * @param {string} id - Flythrough ID
-     * @returns {string} State: 'playing', 'paused', or 'stopped'
      */
     getState(id) {
         const flythrough = this.activeFlythroughs.get(id);
@@ -280,14 +392,29 @@ class FlythroughPlaybackServiceClass {
     }
 
     /**
+     * Check if flythrough has recording
+     */
+    hasRecording(id) {
+        const flythrough = this.activeFlythroughs.get(id);
+        return flythrough ? !!flythrough.recordingBlob : false;
+    }
+
+    /**
      * Remove a flythrough from tracking
-     * @param {string} id - Flythrough ID
      */
     unregisterFlythrough(id) {
         const flythrough = this.activeFlythroughs.get(id);
         if (flythrough) {
             // Stop it first if playing
             this.stopFlythrough(id);
+            
+            // Clean up video element and blob URL
+            if (flythrough.videoElement) {
+                flythrough.videoElement.remove();
+            }
+            if (flythrough.recordingUrl) {
+                URL.revokeObjectURL(flythrough.recordingUrl);
+            }
             
             // Remove from tracking
             this.activeFlythroughs.delete(id);
@@ -302,7 +429,6 @@ class FlythroughPlaybackServiceClass {
 
     /**
      * Get all active flythrough states
-     * @returns {Map} Map of flythrough states
      */
     getPlaybackStates() {
         return this.playbackStates$.getValue();
@@ -321,7 +447,8 @@ class FlythroughPlaybackServiceClass {
                 state: flythrough.state,
                 progress: flythrough.progress,
                 currentTime: flythrough.currentTime,
-                totalDuration: flythrough.totalDuration
+                totalDuration: flythrough.totalDuration,
+                hasRecording: !!flythrough.recordingBlob
             });
         });
         this.playbackStates$.next(states);
@@ -340,9 +467,6 @@ class FlythroughPlaybackServiceClass {
 
     /**
      * Calculate path index based on time position
-     * @param {Object} flythrough - Flythrough instance
-     * @param {number} time - Time in seconds
-     * @returns {number} Path index
      */
     _calculatePathIndexFromTime(flythrough, time) {
         if (!flythrough.path || flythrough.path.length === 0) return 0;
