@@ -1,48 +1,65 @@
 <template>
   <div class="recording-config-content">
     <div class="config-sections">
-      <!-- Audio Configuration -->
+      <div v-if="!isRecordingSupported" class="config-section warning-section">
+        <div class="section-header">
+          <i class="fas fa-exclamation-triangle section-icon warning-icon"></i>
+          <h3>Recording Not Available</h3>
+        </div>
+        <div class="section-content">
+          <div class="warning-message">
+            <div class="warning-content">
+              <strong v-if="isHttpContext">HTTPS Required for Screen Recording</strong>
+              <strong v-else>Screen Recording Not Supported</strong>
+              <p v-if="isHttpContext">
+                Your application is running on HTTP. Modern browsers require HTTPS for screen recording security.
+              </p>
+              <p v-else>
+                Screen recording is not available in this browser or environment.
+              </p>
+              
+              <div v-if="isHttpContext" class="solution-list">
+                <p><strong>Solutions:</strong></p>
+                <ul>
+                  <li>Enable HTTPS on your server</li>
+                  <li>Access via localhost or 127.0.0.1</li>
+                  <li>Use the desktop application</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="config-section">
         <div class="section-header">
           <i class="fas fa-microphone section-icon"></i>
-          <h3>Audio Settings</h3>
+          <h3>Recording Settings</h3>
         </div>
         <div class="section-content">
           <div class="form-group">
-            <label>Audio Source:</label>
+            <label>Choose Recording Option:</label>
             <select v-model="config.audioSource" @change="onAudioSourceChange" class="form-select">
-              <option value="none">No Audio</option>
+              <option value="skip">Skip Recording (Flythrough Only)</option>
+              <option v-if="isRecordingSupported" value="none">Record Video Only (No Audio)</option>
               <option 
-                v-for="device in audioDevices" 
+                v-for="device in availableAudioDevices" 
                 :key="device.id" 
                 :value="device.id"
-                :disabled="device.id === 'system' && !systemAudioSupported"
+                :disabled="!isRecordingSupported || device.disabled"
               >
                 {{ device.label }}
-                {{ device.id === 'system' && !systemAudioSupported ? ' (Not Available)' : '' }}
+                {{ device.disabled ? ' (Not Available)' : '' }}
               </option>
             </select>
+            <small class="form-help">
+              {{ getHelpText() }}
+            </small>
           </div>
           
-          <div v-if="config.audioSource === 'system' && !systemAudioSupported" class="warning-message">
-            <i class="fas fa-exclamation-triangle warning-icon"></i>
-            <div class="warning-content">
-              <strong>System Audio Unavailable</strong>
-              <p v-if="platform === 'darwin'">
-                Install BlackHole virtual audio device to record system audio on macOS.
-              </p>
-              <p v-else-if="platform === 'linux'">
-                Make sure PulseAudio is installed and running to record system audio on Linux.
-              </p>
-              <p v-else>
-                System audio recording may not be available on your platform.
-              </p>
-            </div>
-          </div>
-
-          <div v-if="config.audioSource !== 'none'" class="audio-preview">
+          <div v-if="showAudioTest" class="audio-preview">
             <div class="audio-level-container">
-              <label>Audio Level:</label>
+              <label>Audio Level Test:</label>
               <div class="audio-level-meter">
                 <div 
                   class="audio-level-bar"
@@ -57,14 +74,18 @@
               <span class="audio-level-text">{{ audioLevel.toFixed(0) }}%</span>
             </div>
             <button @click="testAudio" class="test-button" :disabled="isTestingAudio">
-              <i class="fas fa-volume-up"></i>
+              <i :class="isTestingAudio ? 'fas fa-spinner fa-spin' : 'fas fa-volume-up'"></i>
               {{ isTestingAudio ? 'Testing...' : 'Test Audio' }}
             </button>
+          </div>
+
+          <div v-if="config.audioSource === 'skip'" class="info-message">
+            <i class="fas fa-info-circle"></i>
+            <span>Only flythrough animation will run. No screen recording will be performed.</span>
           </div>
         </div>
       </div>
 
-      <!-- Recording Preview -->
       <div class="config-section">
         <div class="section-header">
           <i class="fas fa-info-circle section-icon"></i>
@@ -74,19 +95,23 @@
           <div class="recording-info">
             <div class="info-row">
               <span class="info-label">Quality:</span>
-              <span class="info-value">1080p @ 30fps (Default)</span>
+              <span class="info-value">1080p @ 30fps</span>
             </div>
             <div class="info-row">
               <span class="info-label">Format:</span>
-              <span class="info-value">WebM</span>
+              <span class="info-value">WebM/MP4</span>
             </div>
             <div class="info-row">
               <span class="info-label">Audio:</span>
               <span class="info-value">{{ getAudioDescription() }}</span>
             </div>
             <div class="info-row">
-              <span class="info-label">Platform:</span>
-              <span class="info-value">{{ getPlatformName() }}</span>
+              <span class="info-label">Status:</span>
+              <span class="info-value" :class="getStatusClass()">{{ getStatusText() }}</span>
+            </div>
+            <div v-if="environmentInfo" class="info-row">
+              <span class="info-label">Context:</span>
+              <span class="info-value">{{ environmentInfo.protocol.toUpperCase() }} on {{ environmentInfo.hostname }}</span>
             </div>
           </div>
         </div>
@@ -98,15 +123,21 @@
         <i class="fas fa-times"></i>
         Cancel
       </button>
-      <button @click="startRecording" class="action-button start-button" :disabled="!canStartRecording">
-        <i class="fas fa-video"></i>
-        Start Recording
+      <button 
+        @click="startRecording" 
+        class="action-button start-button" 
+        :disabled="!canStartRecording"
+      >
+        <i class="fas fa-play"></i>
+        {{ getStartButtonText() }}
       </button>
     </div>
   </div>
 </template>
 
 <script>
+import { ScreenRecordingService } from '../../../services/ScreenRecordingService';
+
 export default {
   name: 'RecordingConfigPopup',
   props: {
@@ -130,29 +161,28 @@ export default {
   data() {
     return {
       config: {
-        audioSource: 'none',
-        videoFormat: 'webm',
-        videoQuality: 'medium', // Fixed default
-        frameRate: 30, // Fixed default
-        videoBitrate: 4000000, // Fixed default
-        audioBitrate: 128000 // Fixed default
+        audioSource: 'skip'
       },
       audioLevel: 0,
       isTestingAudio: false,
-      audioTestInterval: null,
-      systemAudioSupported: false,
-      platform: 'unknown'
+      audioTestStream: null,
+      audioContext: null,
+      isRecordingSupported: false,
+      environmentInfo: null
     };
   },
   async mounted() {
-    // Initialize configuration with props
+    // Initialize configuration
     this.config = { ...this.config, ...this.currentConfig };
     
-    // Get platform info
-    if (window.electron) {
-      this.platform = window.electron.platform || 'unknown';
-      const capabilities = await window.electron.getRecordingCapabilities();
-      this.systemAudioSupported = capabilities?.systemAudioSupported || false;
+    // Check recording support and get environment info
+    this.checkRecordingSupport();
+    
+    // Set appropriate default based on support
+    if (!this.isRecordingSupported) {
+      this.config.audioSource = 'skip';
+    } else if (!this.config.audioSource && this.audioDevices.length > 0) {
+      this.config.audioSource = 'none'; // Video only as safe default
     }
   },
   beforeUnmount() {
@@ -160,74 +190,215 @@ export default {
   },
   computed: {
     canStartRecording() {
-      return true; // Always can start with default settings
+      return true; // Always allow - we handle the logic in the tool
+    },
+
+    availableAudioDevices() {
+      // The original logic `device.id !== 'none'` and `device.type !== 'none'`
+      // was incorrect and prevented real devices from being listed.
+      // We now filter out options that are explicitly marked for disabling.
+      // This allows the select to show actual devices and the 'Video Only' option.
+      return this.audioDevices.filter(device => 
+        !device.disabled
+      );
+    },
+
+    showAudioTest() {
+      return this.isRecordingSupported && 
+            this.config.audioSource !== 'skip' && 
+            this.config.audioSource !== 'none' &&
+            this.config.audioSource;
+    },
+
+    isHttpContext() {
+      return this.environmentInfo && 
+            this.environmentInfo.protocol === 'http:' && 
+            this.environmentInfo.hostname !== 'localhost' && 
+            this.environmentInfo.hostname !== '127.0.0.1';
     }
   },
   methods: {
-    onAudioSourceChange() {
-      if (this.config.audioSource !== 'none') {
-        this.startAudioTest();
+    checkRecordingSupport() {
+      this.isRecordingSupported = ScreenRecordingService.constructor.isSupported();
+      this.environmentInfo = ScreenRecordingService.constructor.getEnvironmentInfo();
+      
+      console.log('RecordingConfigPopup: Support check:', {
+        supported: this.isRecordingSupported,
+        environment: this.environmentInfo
+      });
+    },
+
+    getHelpText() {
+      if (!this.isRecordingSupported) {
+        if (this.isHttpContext) {
+          return 'Screen recording requires HTTPS. Only flythrough animation is available.';
+        }
+        return 'Screen recording not supported in this browser. Only flythrough animation is available.';
+      }
+      
+      if (this.config.audioSource === 'skip') {
+        return 'No recording will be performed. Flythrough animation only.';
+      } else if (this.config.audioSource === 'none') {
+        return 'Video recording without audio (safest option).';
       } else {
-        this.stopAudioTest();
+        return 'Video recording with selected microphone audio.';
       }
     },
 
-    async startAudioTest() {
-      if (this.isTestingAudio || this.config.audioSource === 'none') return;
-      
+    onAudioSourceChange() {
+      this.stopAudioTest();
+      if (this.showAudioTest) {
+        // Auto-test audio after a brief delay
+        setTimeout(() => {
+          if (this.showAudioTest) {
+            this.testAudio();
+          }
+        }, 500);
+      }
+    },
+
+    async testAudio() {
+      if (this.isTestingAudio || !this.showAudioTest) return;
+
+      this.stopAudioTest();
+      this.isTestingAudio = true;
+
       try {
-        this.isTestingAudio = true;
+        const constraints = {
+          audio: {
+            deviceId: this.config.audioSource === 'default' 
+              ? undefined 
+              : { exact: this.config.audioSource },
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+          }
+        };
+
+        this.audioTestStream = await navigator.mediaDevices.getUserMedia(constraints);
+        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
         
-        // Simulate audio level for demonstration
-        this.audioTestInterval = setInterval(() => {
-          this.audioLevel = Math.random() * 60 + 20; // Random level between 20-80%
-        }, 100);
+        const source = this.audioContext.createMediaStreamSource(this.audioTestStream);
+        const analyser = this.audioContext.createAnalyser();
         
-        // Stop test after 3 seconds
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.8;
+        source.connect(analyser);
+        
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+
+        const updateLevel = () => {
+          if (!this.isTestingAudio) return;
+          
+          analyser.getByteFrequencyData(dataArray);
+          
+          let sum = 0;
+          for (let i = 0; i < bufferLength; i++) {
+            sum += dataArray[i] * dataArray[i];
+          }
+          const rms = Math.sqrt(sum / bufferLength);
+          this.audioLevel = Math.min(100, (rms / 255) * 100 * 2);
+          
+          requestAnimationFrame(updateLevel);
+        };
+
+        updateLevel();
+
+        // Auto-stop test after 5 seconds
         setTimeout(() => {
           this.stopAudioTest();
-        }, 3000);
-        
+        }, 5000);
+
       } catch (error) {
         console.error('Audio test failed:', error);
+        this.audioLevel = 0;
         this.isTestingAudio = false;
+        
+        let errorMessage = 'Audio test failed: ';
+        if (error.name === 'NotAllowedError') {
+          errorMessage += 'Microphone permission denied';
+        } else if (error.name === 'NotFoundError') {
+          errorMessage += 'Audio device not found';
+        } else {
+          errorMessage += 'Unknown error occurred';
+        }
+        
+        this.$emit('audio-test-error', errorMessage);
       }
     },
 
     stopAudioTest() {
-      if (this.audioTestInterval) {
-        clearInterval(this.audioTestInterval);
-        this.audioTestInterval = null;
-      }
       this.isTestingAudio = false;
       this.audioLevel = 0;
-    },
 
-    async testAudio() {
-      this.stopAudioTest();
-      await this.startAudioTest();
+      if (this.audioTestStream) {
+        this.audioTestStream.getTracks().forEach(track => {
+          track.stop();
+        });
+        this.audioTestStream = null;
+      }
+
+      if (this.audioContext && this.audioContext.state !== 'closed') {
+        this.audioContext.close().catch(err => {
+          console.warn('Error closing audio context:', err);
+        });
+        this.audioContext = null;
+      }
     },
 
     getAudioDescription() {
-      if (this.config.audioSource === 'none') return 'No audio recording';
+      if (this.config.audioSource === 'skip') {
+        return 'No recording (flythrough only)';
+      } else if (this.config.audioSource === 'none') {
+        return 'Video only (no audio)';
+      }
       
       const device = this.audioDevices.find(d => d.id === this.config.audioSource);
       const deviceName = device ? device.label : 'Unknown device';
       return `${deviceName} (128 kbps)`;
     },
 
-    getPlatformName() {
-      const platforms = {
-        win32: 'Windows',
-        darwin: 'macOS', 
-        linux: 'Linux'
-      };
-      return platforms[this.platform] || 'Unknown';
+    getStatusText() {
+      if (this.config.audioSource === 'skip') {
+        return 'Flythrough Only';
+      } else if (!this.isRecordingSupported) {
+        return 'Recording Not Available';
+      } else {
+        return 'Ready to Record';
+      }
+    },
+
+    getStatusClass() {
+      if (this.config.audioSource === 'skip') {
+        return 'status-disabled';
+      } else if (!this.isRecordingSupported) {
+        return 'status-error';
+      } else {
+        return 'status-ready';
+      }
+    },
+
+    getStartButtonText() {
+      if (this.config.audioSource === 'skip') {
+        return 'Start Flythrough Only';
+      } else if (!this.isRecordingSupported) {
+        return 'Start (Recording Not Available)';
+      } else {
+        return 'Start Recording & Flythrough';
+      }
     },
 
     startRecording() {
       this.stopAudioTest();
-      this.onStart(this.config);
+      
+      const finalConfig = {
+        audioSource: this.config.audioSource,
+        recordingEnabled: this.config.audioSource !== 'skip' && this.isRecordingSupported
+      };
+
+      console.log('RecordingConfigPopup: Starting with config:', finalConfig);
+      this.onStart(finalConfig);
     },
 
     cancel() {
@@ -241,7 +412,7 @@ export default {
 <style scoped>
 .recording-config-content {
   width: 100%;
-  max-width: 500px;
+  max-width: 520px;
   color: white;
 }
 
@@ -259,6 +430,11 @@ export default {
   backdrop-filter: blur(10px);
 }
 
+.warning-section {
+  background: rgba(255, 193, 7, 0.15);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
 .section-header {
   display: flex;
   align-items: center;
@@ -271,6 +447,10 @@ export default {
   font-size: 16px;
   margin-right: 8px;
   color: #007bff;
+}
+
+.warning-icon {
+  color: #ffc107;
 }
 
 .section-header h3 {
@@ -320,37 +500,58 @@ export default {
   color: white;
 }
 
-.warning-message {
+.form-help {
+  font-size: 11px;
+  opacity: 0.7;
+  font-style: italic;
+  line-height: 1.3;
+}
+
+.info-message {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
+  background: rgba(0, 123, 255, 0.2);
+  border: 1px solid rgba(0, 123, 255, 0.4);
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 12px;
+}
+
+.warning-message {
   background: rgba(255, 193, 7, 0.2);
   border: 1px solid rgba(255, 193, 7, 0.4);
   border-radius: 6px;
   padding: 12px;
-  margin-top: 8px;
-}
-
-.warning-icon {
-  font-size: 16px;
-  color: #ffc107;
-  margin-top: 2px;
-}
-
-.warning-content {
-  flex: 1;
 }
 
 .warning-content strong {
   display: block;
-  margin-bottom: 4px;
-  font-size: 12px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: #ffc107;
 }
 
 .warning-content p {
-  margin: 0;
-  font-size: 11px;
+  margin: 4px 0;
+  font-size: 12px;
   opacity: 0.9;
+  line-height: 1.4;
+}
+
+.solution-list {
+  margin-top: 8px;
+}
+
+.solution-list ul {
+  margin: 4px 0 0 16px;
+  padding: 0;
+}
+
+.solution-list li {
+  font-size: 11px;
+  margin-bottom: 2px;
+  opacity: 0.8;
 }
 
 .audio-preview {
@@ -370,7 +571,7 @@ export default {
 
 .audio-level-container label {
   font-size: 11px;
-  min-width: 70px;
+  min-width: 80px;
 }
 
 .audio-level-meter {
@@ -453,6 +654,18 @@ export default {
   font-size: 12px;
   font-weight: 600;
   text-align: right;
+}
+
+.status-ready {
+  color: #10b981;
+}
+
+.status-disabled {
+  color: #6b7280;
+}
+
+.status-error {
+  color: #ef4444;
 }
 
 .config-actions {

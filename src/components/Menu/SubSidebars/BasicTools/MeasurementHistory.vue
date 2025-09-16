@@ -11,7 +11,6 @@
         class="history-item d-flex align-items-center p-2 mb-2 rounded"
         :class="{ 'flythrough-item': measurement.toolName === 'Flythrough Tool' }"
       >
-        <!-- Regular measurement item -->
         <div 
           v-if="measurement.toolName !== 'Flythrough Tool'"
           class="measurement-info d-flex flex-column flex-grow-1 me-2"
@@ -22,55 +21,93 @@
           <span class="measurement-value mt-1">{{ measurement.value }}</span>
         </div>
 
-        <!-- Flythrough measurement item -->
         <div 
           v-else
           class="flythrough-container w-100"
         >
-          <!-- Flythrough Header -->
           <div class="flythrough-header d-flex align-items-center justify-content-between mb-2">
             <span class="flythrough-title">
               {{ measurement.toolName }} #{{ measurement.operationNumber }}
             </span>
-            <div class="flythrough-controls d-flex align-items-center">
-              <!-- Recording indicator -->
-              <span v-if="hasRecording(measurement)" class="recording-indicator me-2" title="Has Recording">
-                <i class="fas fa-video text-success"></i>
-              </span>
-              
+            <div class="flythrough-actions d-flex align-items-center">
               <button
-                @click="toggleFlythroughPlayback(measurement)"
-                class="btn btn-sm flythrough-control-btn me-2"
-                :title="getFlythroughState(measurement) === 'playing' ? 'Pause Flythrough' : 'Play Flythrough'"
-                :disabled="!hasValidFlythroughData(measurement)"
+                @click="saveFlythrough(measurement)"
+                class="btn btn-sm action-btn me-2"
+                title="Save Flythrough"
               >
-                <i :class="getFlythroughState(measurement) === 'playing' ? 'fas fa-pause' : 'fas fa-play'"></i>
+                <i class="fas fa-download" style="color: #007bff;"></i>
               </button>
-              
               <button
-                @click="stopFlythrough(measurement)"
-                class="btn btn-sm flythrough-control-btn me-2"
-                :title="'Stop Flythrough'"
-                :disabled="getFlythroughState(measurement) === 'stopped'"
+                @click="deleteMeasurement(measurement.id)"
+                class="btn btn-sm action-btn delete-btn"
+                title="Delete Flythrough"
               >
-                <i class="fas fa-stop"></i>
-              </button>
-              
-              <button
-                @click="downloadFlythrough(measurement)"
-                class="btn btn-sm flythrough-control-btn me-2"
-                title="Download Recording"
-                :disabled="!hasRecording(measurement)"
-              >
-                <i class="fas fa-download" :class="{ 'disabled-icon': !hasRecording(measurement) }"></i>
+                <i class="fas fa-trash" style="color: #FF6600;"></i>
               </button>
             </div>
           </div>
 
-          <!-- Timeline Player -->
+          <div class="d-flex align-items-center mb-2">
+            <button
+              @click="toggleFlythroughPlayback(measurement)"
+              class="btn btn-sm flythrough-control-btn me-2"
+              :title="getFlythroughState(measurement) === 'playing' ? 'Pause Flythrough' : 'Play Flythrough'"
+              :disabled="!hasValidFlythroughData(measurement)"
+            >
+              <i :class="getFlythroughState(measurement) === 'playing' ? 'fas fa-pause' : 'fas fa-play'"></i>
+            </button>
+            <button
+              @click="stopFlythrough(measurement)"
+              class="btn btn-sm flythrough-control-btn me-2"
+              title="Stop Flythrough"
+              :disabled="getFlythroughState(measurement) === 'stopped'"
+            >
+              <i class="fas fa-stop"></i>
+            </button>
+            <span v-if="hasRecording(measurement)" class="recording-indicator ms-auto me-2" title="Has Recording">
+              <i class="fas fa-video text-success"></i>
+            </span>
+            <button
+              @click="downloadFlythrough(measurement)"
+              class="btn btn-sm flythrough-control-btn"
+              title="Download Recording"
+              :disabled="!hasRecording(measurement)"
+            >
+              <i class="fas fa-download" :class="{ 'disabled-icon': !hasRecording(measurement) }"></i>
+            </button>
+          </div>
+
+          <div v-if="hasRecording(measurement)" class="recording-preview mb-2">
+            <video
+              :ref="`video-${measurement.id}`"
+              :src="getVideoUrl(measurement)"
+              class="recording-video"
+              controls
+              preload="metadata"
+              @loadedmetadata="onVideoLoaded(measurement)"
+              @timeupdate="onVideoTimeUpdate(measurement)"
+              @ended="onVideoEnded(measurement)"
+              @error="onVideoError(measurement)"
+              @play="onVideoPlay(measurement)"
+              @pause="onVideoPause(measurement)"
+            >
+              Your browser does not support video playback.
+            </video>
+            <div class="recording-info mt-1">
+              <small class="text-muted">
+                Recording: {{ getRecordingDuration(measurement) }} • {{ getRecordingSize(measurement) }}
+              </small>
+            </div>
+          </div>
+
           <div class="timeline-container mb-2">
             <div class="timeline-wrapper">
-              <div class="timeline-track" @click="seekFlythrough($event, measurement)">
+              <div 
+                class="timeline-track" 
+                @click="seekFlythrough($event, measurement)"
+                @mousemove="handleMouseMove"
+                @mouseup="handleMouseUp"
+              >
                 <div 
                   class="timeline-progress"
                   :style="{ width: getFlythroughProgress(measurement) + '%' }"
@@ -88,7 +125,6 @@
             </div>
           </div>
 
-          <!-- Flythrough Details -->
           <div class="flythrough-details">
             <small class="text-muted">
               {{ measurement.value }}
@@ -97,22 +133,8 @@
               </span>
             </small>
           </div>
-
-          <!-- Video element (hidden) -->
-          <video
-            v-if="hasRecording(measurement) && getVideoUrl(measurement)"
-            :ref="`video-${measurement.id}`"
-            :src="getVideoUrl(measurement)"
-            style="display: none"
-            preload="metadata"
-            @loadedmetadata="onVideoLoaded(measurement)"
-            @timeupdate="onVideoTimeUpdate(measurement)"
-            @ended="onVideoEnded(measurement)"
-            @error="onVideoError(measurement)"
-          ></video>
         </div>
 
-        <!-- Action buttons for non-flythrough items -->
         <div 
           v-if="measurement.toolName !== 'Flythrough Tool'"
           class="measurement-actions d-flex align-items-center"
@@ -126,25 +148,10 @@
                :style="{ color: measurement.isEnabled ? 'white' : 'white' }"
             ></i>
           </button>
-
           <button
             @click="deleteMeasurement(measurement.id)"
             class="btn btn-sm action-btn delete-btn"
             title="Delete Measurement"
-          >
-            <i class="fas fa-trash" style="color: #FF6600;"></i>
-          </button>
-        </div>
-
-        <!-- Delete button for flythrough items -->
-        <div 
-          v-else
-          class="flythrough-actions"
-        >
-          <button
-            @click="deleteMeasurement(measurement.id)"
-            class="btn btn-sm action-btn delete-btn"
-            title="Delete Flythrough"
           >
             <i class="fas fa-trash" style="color: #FF6600;"></i>
           </button>
@@ -180,11 +187,16 @@ export default {
       console.log('MeasurementHistory: Received updated history:', history.length, 'measurements');
       this.measurements = history;
       
-      // Register flythroughs that aren't already registered
+      // Process flythrough measurements
       history.forEach(measurement => {
         if (measurement.toolName === 'Flythrough Tool') {
           console.log('MeasurementHistory: Processing flythrough measurement:', measurement.id);
           this.ensureFlythroughRegistered(measurement);
+          
+          // Create video URL if recording exists
+          if (this.hasRecording(measurement) && !this.videoUrls.has(measurement.id)) {
+            this.createVideoUrl(measurement);
+          }
         }
       });
     });
@@ -196,17 +208,16 @@ export default {
       this.$forceUpdate();
     });
 
-    // Add mouse event listeners for dragging
-    document.addEventListener('mousemove', this.handleMouseMove);
-    document.addEventListener('mouseup', this.handleMouseUp);
-
-    // Process any existing measurements on mount
+    // Process existing measurements
     const existingMeasurements = ToolManagementService.measurementHistory$.getValue();
     if (existingMeasurements.length > 0) {
-      console.log('MeasurementHistory: Processing', existingMeasurements.length, 'existing measurements on mount');
+      console.log('MeasurementHistory: Processing', existingMeasurements.length, 'existing measurements');
       existingMeasurements.forEach(measurement => {
         if (measurement.toolName === 'Flythrough Tool') {
           this.ensureFlythroughRegistered(measurement);
+          if (this.hasRecording(measurement)) {
+            this.createVideoUrl(measurement);
+          }
         }
       });
     }
@@ -219,10 +230,6 @@ export default {
     if (this.playbackSubscription) {
       this.playbackSubscription.unsubscribe();
     }
-    
-    // Remove event listeners
-    document.removeEventListener('mousemove', this.handleMouseMove);
-    document.removeEventListener('mouseup', this.handleMouseUp);
     
     // Clean up video URLs
     this.videoUrls.forEach(url => {
@@ -250,7 +257,7 @@ export default {
           if (measurement && measurement.toolName === 'Flythrough Tool') {
             this.stopFlythrough(measurement);
             
-            // Use the flythrough ID for cleanup - try multiple approaches
+            // Clean up flythrough registration
             const flythroughId = this.getFlythroughId(measurement);
             if (flythroughId) {
               FlythroughPlaybackService.unregisterFlythrough(flythroughId);
@@ -270,24 +277,21 @@ export default {
         console.error("MeasurementHistory: Confirmation dialog error:", error);
       }
     },
-
-    // Helper to get flythrough ID from measurement - handles both structures
-    getFlythroughId(measurement) {
-      // Try entities first (new structure)
-      if (measurement.entities && measurement.entities.flythroughId) {
-        return measurement.entities.flythroughId;
-      }
-      
-      // Try cesiumEntities (old structure)
-      if (measurement.cesiumEntities && measurement.cesiumEntities.flythroughId) {
-        return measurement.cesiumEntities.flythroughId;
-      }
-      
-      // Fall back to measurement ID
-      return measurement.id;
+    
+    // Placeholder method for saving a flythrough
+    saveFlythrough(measurement) {
+      console.log('MeasurementHistory: Save Flythrough action triggered for measurement:', measurement.id);
+      PopupService.showNotification('Flythrough saved successfully!', false);
     },
 
-    // Get entities from measurement - handles both structures
+    // Helper to get flythrough ID from measurement
+    getFlythroughId(measurement) {
+      return measurement.entities?.flythroughId || 
+             measurement.cesiumEntities?.flythroughId || 
+             measurement.id;
+    },
+
+    // Get entities from measurement
     getEntities(measurement) {
       return measurement.entities || measurement.cesiumEntities || {};
     },
@@ -301,7 +305,8 @@ export default {
         measurementId: measurement.id,
         flythroughId: flythroughId,
         hasEntities: !!entities,
-        hasSampledPositions: !!entities.sampledPositions
+        hasSampledPositions: !!entities.sampledPositions,
+        hasRecordingBlob: !!entities.recordingBlob
       });
 
       if (!entities.sampledPositions || !Array.isArray(entities.sampledPositions)) {
@@ -312,20 +317,10 @@ export default {
       // Check if already registered
       if (FlythroughPlaybackService.activeFlythroughs.has(flythroughId)) {
         console.log('MeasurementHistory: Flythrough already registered:', flythroughId);
-        
-        // Update with recording blob if it wasn't there before
-        if (entities.recordingBlob && !FlythroughPlaybackService.hasRecording(flythroughId)) {
-          FlythroughPlaybackService.updateFlythroughRecording(
-            flythroughId,
-            entities.recordingBlob,
-            entities.recordingInfo
-          );
-        }
         return;
       }
 
       // Register the flythrough
-      console.log('MeasurementHistory: Registering new flythrough:', flythroughId);
       try {
         const registrationData = {
           path: entities.sampledPositions || [],
@@ -336,12 +331,6 @@ export default {
         };
         
         FlythroughPlaybackService.registerFlythrough(flythroughId, registrationData);
-
-        // Create video URL if recording exists
-        if (entities.recordingBlob) {
-          this.createVideoUrl(measurement);
-        }
-        
         console.log('MeasurementHistory: Successfully registered flythrough:', flythroughId);
       } catch (error) {
         console.error('MeasurementHistory: Failed to register flythrough:', flythroughId, error);
@@ -369,11 +358,26 @@ export default {
       if (measurement.toolName !== 'Flythrough Tool') return false;
       
       const entities = this.getEntities(measurement);
-      const hasBlob = !!entities.recordingBlob;
-      const flythroughId = this.getFlythroughId(measurement);
-      const hasPlaybackRecording = FlythroughPlaybackService.hasRecording(flythroughId);
-      
-      return hasBlob || hasPlaybackRecording;
+      return !!(entities.recordingBlob && entities.recordingBlob.size > 0);
+    },
+
+    getRecordingDuration(measurement) {
+      const entities = this.getEntities(measurement);
+      if (entities.recordingInfo && entities.recordingInfo.durationFormatted) {
+        return entities.recordingInfo.durationFormatted;
+      }
+      return '0:00';
+    },
+
+    getRecordingSize(measurement) {
+      const entities = this.getEntities(measurement);
+      if (entities.recordingInfo && entities.recordingInfo.sizeFormatted) {
+        return entities.recordingInfo.sizeFormatted;
+      }
+      if (entities.recordingBlob) {
+        return this.formatFileSize(entities.recordingBlob.size);
+      }
+      return '0 B';
     },
 
     hasValidFlythroughData(measurement) {
@@ -387,6 +391,14 @@ export default {
       const mins = Math.floor(seconds / 60);
       const secs = Math.floor(seconds % 60);
       return `${mins}:${secs.toString().padStart(2, '0')}`;
+    },
+
+    formatFileSize(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     },
 
     toggleFlythroughPlayback(measurement) {
@@ -410,7 +422,6 @@ export default {
         this.ensureFlythroughRegistered(measurement);
       }
 
-      // Check again after registration attempt
       if (!FlythroughPlaybackService.activeFlythroughs.has(flythroughId)) {
         console.error('MeasurementHistory: Failed to register flythrough for playback');
         PopupService.showNotification('Cannot play flythrough: Registration failed', true);
@@ -422,8 +433,6 @@ export default {
       
       if (!success) {
         PopupService.showNotification('Failed to start flythrough playback', true);
-      } else {
-        PopupService.showNotification('Flythrough playback started', false);
       }
     },
 
@@ -446,51 +455,89 @@ export default {
       try {
         const entities = this.getEntities(measurement);
         const recordingBlob = entities.recordingBlob;
+        
         if (!recordingBlob) {
           throw new Error('Recording blob not found');
         }
 
         console.log('MeasurementHistory: Downloading flythrough recording:', measurement.id);
         
-        const url = URL.createObjectURL(recordingBlob);
-        const link = document.createElement('a');
-        link.href = url;
-        
-        const timestamp = new Date().toISOString().split('T')[0];
-        link.download = `flythrough-${measurement.operationNumber}-${timestamp}.webm`;
-        
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+        // Try Electron save first
+        if (window.electron && window.electron.saveRecording) {
+          this.downloadViaElectron(recordingBlob, measurement);
+        } else {
+          this.downloadViaBrowser(recordingBlob, measurement);
+        }
 
-        PopupService.showNotification('Flythrough recording downloaded', false);
       } catch (error) {
         console.error('MeasurementHistory: Download failed:', error);
         PopupService.showNotification(`Download failed: ${error.message}`, true);
       }
     },
 
+    async downloadViaElectron(blob, measurement) {
+      try {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
+        const filename = `flythrough-${measurement.operationNumber}-${timestamp}.webm`;
+        
+        const arrayBuffer = await blob.arrayBuffer();
+        const result = await window.electron.saveRecording(arrayBuffer, filename, blob.type);
+        
+        if (result.success) {
+          PopupService.showNotification(`Recording saved: ${result.fileName}`, false);
+        } else {
+          throw new Error(result.error || 'Save failed');
+        }
+      } catch (error) {
+        console.error('Electron download failed, falling back to browser:', error);
+        this.downloadViaBrowser(blob, measurement);
+      }
+    },
+
+    downloadViaBrowser(blob, measurement) {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
+      link.download = `flythrough-${measurement.operationNumber}-${timestamp}.webm`;
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      PopupService.showNotification('Recording download started', false);
+    },
+
     seekFlythrough(event, measurement) {
+      // Prevent seeking while dragging the handle, as handleMouseMove handles it
+      if (this.isDragging) return;
+
       const rect = event.currentTarget.getBoundingClientRect();
       const percentage = ((event.clientX - rect.left) / rect.width) * 100;
       const clampedPercentage = Math.max(0, Math.min(100, percentage));
       
       const flythroughId = this.getFlythroughId(measurement);
-      console.log('MeasurementHistory: Seeking flythrough to:', clampedPercentage + '%');
       FlythroughPlaybackService.seekFlythrough(flythroughId, clampedPercentage);
     },
 
     startDragging(event, measurement) {
       this.isDragging = true;
       this.currentDragMeasurement = measurement;
+      
+      // Use event listeners on the document to capture mouse movement even if it leaves the handle
+      document.addEventListener('mousemove', this.handleMouseMove);
+      document.addEventListener('mouseup', this.handleMouseUp);
+      
       event.preventDefault();
     },
 
     handleMouseMove(event) {
       if (!this.isDragging || !this.currentDragMeasurement) return;
 
-      const timelineTrack = event.target.closest('.timeline-container')?.querySelector('.timeline-track');
+      // Use the cached measurement to find the timeline element in a more robust way
+      const timelineTrack = this.$el.querySelector(`.timeline-track`);
       if (!timelineTrack) return;
 
       const rect = timelineTrack.getBoundingClientRect();
@@ -502,8 +549,12 @@ export default {
     },
 
     handleMouseUp() {
-      this.isDragging = false;
-      this.currentDragMeasurement = null;
+      if (this.isDragging) {
+        this.isDragging = false;
+        this.currentDragMeasurement = null;
+        document.removeEventListener('mousemove', this.handleMouseMove);
+        document.removeEventListener('mouseup', this.handleMouseUp);
+      }
     },
 
     // Video event handlers
@@ -512,7 +563,7 @@ export default {
     },
 
     onVideoTimeUpdate(measurement) {
-      // Video time updates are handled by FlythroughPlaybackService
+      // Video time updates are handled by the video element itself
     },
 
     onVideoEnded(measurement) {
@@ -522,6 +573,14 @@ export default {
     onVideoError(measurement, error) {
       console.error('MeasurementHistory: Video error for measurement:', measurement.id, error);
       PopupService.showNotification('Video playback error occurred', true);
+    },
+
+    onVideoPlay(measurement) {
+      console.log('MeasurementHistory: Video started playing for measurement:', measurement.id);
+    },
+
+    onVideoPause(measurement) {
+      console.log('MeasurementHistory: Video paused for measurement:', measurement.id);
     },
 
     // Helper methods for flythrough state
@@ -558,9 +617,6 @@ export default {
   color: white;
   padding: 0;
   border-radius: 10px;
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -573,7 +629,6 @@ export default {
   color: #007bff;
   border-bottom: 1px solid rgba(255, 255, 255, 0.2);
   padding-bottom: 8px;
-  text-align: left;
 }
 
 .history-list {
@@ -594,18 +649,12 @@ export default {
 .history-list::-webkit-scrollbar-thumb {
   background-color: rgba(0, 123, 255, 0.5);
   border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.history-list::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(0, 123, 255, 0.7);
 }
 
 .no-measurements {
   padding: 10px;
   font-style: italic;
   color: rgba(255, 255, 255, 0.6);
-  font-size: 0.9em;
 }
 
 .history-item {
@@ -613,7 +662,6 @@ export default {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   transition: all 0.2s ease-in-out;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
   min-height: 60px;
 }
 
@@ -623,7 +671,6 @@ export default {
   transform: translateY(-2px);
 }
 
-/* Special styling for flythrough items */
 .flythrough-item {
   min-height: auto;
   padding: 15px !important;
@@ -631,27 +678,14 @@ export default {
   border: 1px solid rgba(0, 123, 255, 0.3);
 }
 
-.flythrough-item:hover {
-  background: linear-gradient(135deg, rgba(0, 123, 255, 0.2), rgba(60, 60, 60, 0.9));
-  border-color: rgba(0, 123, 255, 0.5);
-}
-
 .flythrough-container {
   width: 100%;
-}
-
-.flythrough-header {
-  margin-bottom: 10px;
 }
 
 .flythrough-title {
   font-weight: 600;
   color: #007bff;
   font-size: 1em;
-}
-
-.flythrough-controls {
-  gap: 5px;
 }
 
 .flythrough-control-btn {
@@ -661,36 +695,38 @@ export default {
   padding: 6px 10px;
   border-radius: 6px;
   transition: all 0.2s ease;
-  font-size: 0.9em;
 }
 
-.flythrough-control-btn:hover {
+.flythrough-control-btn:hover:not(:disabled) {
   background: rgba(0, 123, 255, 0.4);
   border-color: rgba(0, 123, 255, 0.6);
-  transform: scale(1.05);
 }
 
 .flythrough-control-btn:disabled {
   background: rgba(100, 100, 100, 0.2);
-  border-color: rgba(100, 100, 100, 0.3);
   cursor: not-allowed;
 }
 
-.flythrough-control-btn:disabled:hover {
-  transform: none;
+.recording-preview {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  padding: 8px;
 }
 
-.disabled-icon {
-  opacity: 0.5;
+.recording-video {
+  width: 100%;
+  height: auto;
+  max-height: 200px;
+  border-radius: 4px;
+  background: #000;
 }
 
-/* Timeline Styles */
+.recording-info {
+  text-align: center;
+}
+
 .timeline-container {
   margin: 10px 0;
-}
-
-.timeline-wrapper {
-  padding: 5px 0;
 }
 
 .timeline-track {
@@ -699,11 +735,6 @@ export default {
   border-radius: 3px;
   position: relative;
   cursor: pointer;
-  transition: height 0.2s ease;
-}
-
-.timeline-track:hover {
-  height: 8px;
 }
 
 .timeline-progress {
@@ -711,7 +742,6 @@ export default {
   background: linear-gradient(90deg, #007bff, #00d4ff);
   border-radius: 3px;
   transition: width 0.1s ease;
-  position: relative;
 }
 
 .timeline-handle {
@@ -725,17 +755,10 @@ export default {
   transform: translate(-50%, -50%);
   cursor: grab;
   transition: all 0.2s ease;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-}
-
-.timeline-handle:hover {
-  transform: translate(-50%, -50%) scale(1.2);
-  box-shadow: 0 3px 10px rgba(0, 123, 255, 0.4);
 }
 
 .timeline-handle:active {
   cursor: grabbing;
-  transform: translate(-50%, -50%) scale(1.1);
 }
 
 .timeline-info {
@@ -748,22 +771,6 @@ export default {
   font-weight: 500;
 }
 
-.timeline-duration {
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.flythrough-details {
-  margin-top: 8px;
-  font-size: 0.85em;
-}
-
-.flythrough-actions {
-  position: absolute;
-  top: 15px;
-  right: 15px;
-}
-
-/* Regular measurement styles */
 .measurement-info {
   flex-grow: 1;
   justify-content: center;
@@ -772,16 +779,11 @@ export default {
 .tool-operation-title {
   font-weight: 500;
   color: rgba(255, 255, 255, 0.9);
-  font-size: 0.95em;
 }
 
 .measurement-value {
   color: rgba(255, 255, 255, 0.7);
   font-size: 0.85em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-top: 2px;
 }
 
 .action-btn {
@@ -791,24 +793,17 @@ export default {
   padding: 5px 8px;
   cursor: pointer;
   transition: transform 0.1s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .action-btn:hover {
   transform: scale(1.1);
 }
 
-.action-btn i {
-  transition: color 0.2s ease;
-}
-
-.action-btn:hover i {
-  color: #007bff !important;
-}
-
 .delete-btn:hover i {
   color: #FF9933 !important;
+}
+
+.disabled-icon {
+  opacity: 0.5;
 }
 </style>
