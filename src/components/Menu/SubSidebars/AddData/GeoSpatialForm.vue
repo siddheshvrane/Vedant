@@ -9,8 +9,7 @@
             id="addDataTypeData"
             value="data"
             :checked="selectedOption === 'data'"
-            @change="$emit('update:selectedOption', 'data')"
-          />
+            @change="$emit('update:selectedOption', 'data')" />
           <label class="form-check-label" for="addDataTypeData">Add Data</label>
         </div>
         <div class="form-check form-check-inline">
@@ -20,23 +19,27 @@
             id="addDataTypeService"
             value="service"
             :checked="selectedOption === 'service'"
-            @change="$emit('update:selectedOption', 'service')"
-          />
-          <label class="form-check-label" for="addDataTypeService">Add Service</label>
+            @change="$emit('update:selectedOption', 'service')" />
+          <label class="form-check-label" for="addDataTypeService"
+            >Add Service</label
+          >
         </div>
       </div>
     </div>
 
     <div class="form-group mb-3">
-      <label for="contentName" class="form-label">{{ selectedOption === 'data' ? 'Data Name' : 'Service Name' }}:</label>
+      <label for="contentName" class="form-label"
+        >{{ selectedOption === "data" ? "Data Name" : "Service Name" }}:</label
+      >
       <input
         type="text"
         id="contentName"
         class="form-control"
-        :placeholder="selectedOption === 'data' ? 'Enter data name' : 'Enter service name'"
+        :placeholder="
+          selectedOption === 'data' ? 'Enter data name' : 'Enter service name'
+        "
         :value="contentName"
-        @input="$emit('update:contentName', $event.target.value)"
-      />
+        @input="$emit('update:contentName', $event.target.value)" />
     </div>
 
     <div v-if="selectedOption === 'data'" class="form-group mb-3">
@@ -46,8 +49,7 @@
           id="dataType"
           class="form-select"
           :value="contentType"
-          @change="$emit('update:contentType', $event.target.value)"
-        >
+          @change="$emit('update:contentType', $event.target.value)">
           <option value="geojson">GeoJSON</option>
           <option value="kml">KML</option>
           <option value="czml">CZML</option>
@@ -65,8 +67,7 @@
           id="serviceType"
           class="form-select"
           :value="contentType"
-          @change="$emit('update:contentType', $event.target.value)"
-        >
+          @change="$emit('update:contentType', $event.target.value)">
           <option value="wms">WMS</option>
           <option value="wmts">WMTS</option>
         </select>
@@ -82,8 +83,7 @@
         class="form-control"
         placeholder="e.g., WMS/WMTS service URL"
         :value="baseUrl"
-        @input="$emit('update:baseUrl', $event.target.value)"
-      />
+        @input="$emit('update:baseUrl', $event.target.value)" />
     </div>
 
     <div v-if="selectedOption === 'service'" class="form-group mb-3">
@@ -94,8 +94,7 @@
         rows="6"
         placeholder='Enter key-value pairs (e.g., "key: value" or "key - value")'
         :value="argsInput"
-        @input="$emit('update:argsInput', $event.target.value)"
-      ></textarea>
+        @input="$emit('update:argsInput', $event.target.value)"></textarea>
     </div>
 
     <div v-if="selectedOption === 'service'" class="form-group mb-3">
@@ -106,11 +105,17 @@
         rows="4"
         placeholder='Enter legend details (e.g., "title: My Title")'
         :value="legendOptionsInput"
-        @input="$emit('update:legendOptionsInput', $event.target.value)"
-      ></textarea>
+        @input="
+          $emit('update:legendOptionsInput', $event.target.value)
+        "></textarea>
     </div>
 
-    <div v-if="selectedOption === 'data' && ['geojson', 'kml', 'czml', '3dmodel'].includes(contentType)" class="form-group mb-3">
+    <div
+      v-if="
+        selectedOption === 'data' &&
+        ['geojson', 'kml', 'czml', '3dmodel'].includes(contentType)
+      "
+      class="form-group mb-3">
       <label for="fileUpload" class="form-label">Upload File:</label>
       <input
         type="file"
@@ -118,11 +123,12 @@
         class="form-control"
         :accept="getFileAccepts(contentType)"
         @change="handleFileUpload"
-        ref="fileInput"
-      />
+        ref="fileInput" />
     </div>
 
-    <div v-if="selectedOption === 'data' && contentType === '3dtile'" class="form-group mb-3">
+    <div
+      v-if="selectedOption === 'data' && contentType === '3dtile'"
+      class="form-group mb-3">
       <label for="tileUrl" class="form-label">3D Tile URL:</label>
       <input
         type="text"
@@ -130,155 +136,167 @@
         class="form-control"
         placeholder="Enter 3D Tile service URL"
         :value="baseUrl"
-        @input="$emit('update:baseUrl', $event.target.value)"
-      />
+        @input="$emit('update:baseUrl', $event.target.value)" />
     </div>
 
     <button
       @click="submitForm"
       class="btn btn-primary w-100 mt-3"
-      :disabled="!isFormValid"
-    >
+      :disabled="!isFormValid">
       <i class="fas fa-plus me-2"></i>
-      {{ selectedOption === 'data' ? 'Add Data' : 'Add Service' }}
+      {{ selectedOption === "data" ? "Add Data" : "Add Service" }}
     </button>
   </div>
 </template>
 
 <script>
 export default {
-  name: 'GeoSpatialForm',
+  name: "GeoSpatialForm",
   props: {
     selectedOption: {
       type: String,
-      required: true
+      required: true,
     },
     contentName: {
       type: String,
-      required: true
+      required: true,
     },
     contentType: {
       type: String,
-      required: true
+      required: true,
     },
     baseUrl: {
       type: String,
-      default: ''
+      default: "",
     },
     argsInput: {
       type: String,
-      default: ''
+      default: "",
     },
     legendOptionsInput: {
       type: String,
-      default: ''
+      default: "",
     },
   },
   emits: [
-    'update:selectedOption',
-    'update:contentName',
-    'update:contentType',
-    'update:baseUrl',
-    'update:argsInput',
-    'update:legendOptionsInput',
-    'submit-form',
-    'file-selected',
-    'open-three-d-model-form' // Still needed to trigger the popup
+    "update:selectedOption",
+    "update:contentName",
+    "update:contentType",
+    "update:baseUrl",
+    "update:argsInput",
+    "update:legendOptionsInput",
+    "submit-form",
+    "file-selected",
+    "open-three-d-model-form",
   ],
   data() {
     return {
-      fileSelected: null, // Keep track of the selected file
+      fileSelected: null,
     };
   },
   computed: {
     isFormValid() {
       if (!this.contentName) return false;
-
-      if (this.selectedOption === 'data') {
-        if (this.contentType === '3dtile') {
-          return !!this.baseUrl; // Base URL is required for 3D Tile
-        } else if (['geojson', 'kml', 'czml', '3dmodel'].includes(this.contentType)) {
-          return !!this.fileSelected; // File must be selected for these types
+      if (this.selectedOption === "data") {
+        if (this.contentType === "3dtile") {
+          return !!this.baseUrl;
+        } else if (
+          ["geojson", "kml", "czml", "3dmodel"].includes(this.contentType)
+        ) {
+          return !!this.fileSelected;
         }
       }
-      // For service options, contentName is enough (baseUrl, args, legend are optional)
       return true;
-    }
+    },
   },
   watch: {
     selectedOption(newVal) {
-      if (newVal === 'service' && !['wms', 'wmts'].includes(this.contentType)) {
-        this.$emit('update:contentType', 'wms');
-      } else if (newVal === 'data' && !['geojson', 'kml', 'czml', '3dtile', '3dmodel'].includes(this.contentType)) {
-        this.$emit('update:contentType', 'geojson');
-      }
-      this.clearFileSelection(); // Clear file when switching option type
-    },
-    contentType(newVal, oldVal) {
-      // Clear baseUrl when switching from 3D Tile to a file-based data type, and vice-versa
-      if (
-        (newVal === '3dtile' && ['geojson', 'kml', 'czml', '3dmodel'].includes(oldVal)) ||
-        (['geojson', 'kml', 'czml', '3dmodel'].includes(newVal) && oldVal === '3dtile')
+      if (newVal === "service" && !["wms", "wmts"].includes(this.contentType)) {
+        this.$emit("update:contentType", "wms");
+      } else if (
+        newVal === "data" &&
+        !["geojson", "kml", "czml", "3dtile", "3dmodel"].includes(
+          this.contentType
+        )
       ) {
-        this.$emit('update:baseUrl', '');
+        this.$emit("update:contentType", "geojson");
       }
-      this.clearFileSelection(); // Clear file selection on content type change
-    }
+      this.clearFileSelection();
+    },
+    contentType() {
+      this.clearFileSelection();
+    },
   },
   methods: {
     handleFileUpload(event) {
       this.fileSelected = event.target.files[0];
-      this.$emit('file-selected', this.fileSelected);
+      this.$emit("file-selected", this.fileSelected);
     },
     submitForm() {
+      // ========================================================================
+      // 1. ADD THIS DEBUGGING LINE
+      // This will tell us the exact state when you click the button.
+      // ========================================================================
+      console.log(
+        `DEBUG: Submitting form with contentType = '${this.contentType}'`
+      );
+
       if (!this.isFormValid) {
         console.warn("Form is not valid. Cannot submit.");
         return;
       }
 
-      if (this.selectedOption === 'data' && this.contentType === '3dmodel') {
-        // For 3D models, we trigger the popup for placement configuration
-        this.$emit('open-three-d-model-form', {
+      // ========================================================================
+      // 2. THIS IS THE CRITICAL FIX
+      // This logic now explicitly checks for the 3D model type and handles
+      // everything else separately, preventing the wrong event from being sent.
+      // ========================================================================
+      if (this.selectedOption === "data" && this.contentType === "3dmodel") {
+        // Path for 3D models (triggers the popup)
+        console.log("Triggering 3D model popup workflow.");
+        this.$emit("open-three-d-model-form", {
           contentName: this.contentName,
-          file: this.fileSelected // Pass the selected file to the popup
+          file: this.fileSelected,
         });
       } else {
-        // For all other data types (geojson, kml, czml, 3dtile, services)
+        // Path for ALL other types (KML, GeoJSON, services, etc.)
+        console.log("Triggering standard data/service submission workflow.");
         const payload = {
           selectedOption: this.selectedOption,
           contentName: this.contentName,
           contentType: this.contentType,
-          baseUrl: this.selectedOption === 'service' || this.contentType === '3dtile' ? this.baseUrl : '',
+          baseUrl:
+            this.selectedOption === "service" || this.contentType === "3dtile"
+              ? this.baseUrl
+              : "",
           argsInput: this.argsInput,
           legendOptionsInput: this.legendOptionsInput,
         };
-        // The actual file object for file-based types (geojson, kml, czml)
-        // will have been emitted via 'file-selected' and handled by the parent.
-        this.$emit('submit-form', payload);
+        this.$emit("submit-form", payload);
       }
     },
     getFileAccepts(contentType) {
       switch (contentType) {
-        case 'geojson':
-          return '.geojson,.json';
-        case 'kml':
-          return '.kml,.kmz';
-        case 'czml':
-          return '.czml,.json';
-        case '3dmodel':
-          return '.gltf,.glb,.zip'; // Common 3D model formats, often zipped
+        case "geojson":
+          return ".geojson,.json";
+        case "kml":
+          return ".kml,.kmz";
+        case "czml":
+          return ".czml,.json";
+        case "3dmodel":
+          return ".gltf,.glb,.zip";
         default:
-          return '';
+          return "";
       }
     },
     clearFileSelection() {
       this.fileSelected = null;
       if (this.$refs.fileInput) {
-        this.$refs.fileInput.value = null; // Clear the file input element visually
+        this.$refs.fileInput.value = null;
       }
-      this.$emit('file-selected', null); // Inform parent about cleared file
-    }
-  }
+      this.$emit("file-selected", null);
+    },
+  },
 };
 </script>
 
@@ -290,7 +308,8 @@ export default {
   display: block;
 }
 
-.form-control, .form-select {
+.form-control,
+.form-select {
   background-color: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
   color: #fff;
@@ -351,9 +370,9 @@ input.form-control:-webkit-autofill,
 input.form-control:-webkit-autofill:hover,
 input.form-control:-webkit-autofill:focus,
 input.form-control:-webkit-autofill:active {
-    -webkit-box-shadow: 0 0 0px 1000px rgba(30, 30, 30, 0.7) inset !important;
-    -webkit-text-fill-color: #fff !important;
-    transition: background-color 5000s ease-in-out 0s;
+  -webkit-box-shadow: 0 0 0px 1000px rgba(30, 30, 30, 0.7) inset !important;
+  -webkit-text-fill-color: #fff !important;
+  transition: background-color 5000s ease-in-out 0s;
 }
 
 /* --- STYLES FOR CUSTOM DROPDOWN ICON --- */

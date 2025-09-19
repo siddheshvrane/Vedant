@@ -2,7 +2,7 @@
   <div class="shadow-panel">
     <h3 class="panel-title">Shadow Analysis Settings</h3>
 
-    <!-- Date Picker (YYYY-MM-DD string bound) -->
+    <!-- Date Picker -->
     <div class="form-group">
       <label for="date">Select Date:</label>
       <input type="date" v-model="selectedDate" />
@@ -15,11 +15,10 @@
         type="time"
         id="shadowTime"
         step="1800"
-        v-model="shadowTimeString"
-        @input="updateShadow" />
+        v-model="shadowTimeString" />
     </div>
 
-    <!-- Dropdown Menu (quick select for seasons) -->
+    <!-- Dropdown Menu -->
     <div class="form-group">
       <label for="season">Select Seasonal Date:</label>
       <select v-model="selectedSeason">
@@ -32,15 +31,15 @@
       </select>
     </div>
 
-    <!-- Load Buildings Button -->
+    <!-- Load / Clear Buttons -->
     <button class="load-btn" @click="loadBuildings">Load Buildings</button>
+    <button class="load-btn clear-btn" @click="clearBuildings">
+      Clear Buildings
+    </button>
 
     <!-- Chart containers -->
     <div id="container1" style="margin-top: 2rem"></div>
     <div id="container2" style="margin-top: 1rem"></div>
-    <button class="load-btn clear-btn" @click="clearBuildings">
-      Clear Buildings
-    </button>
   </div>
 </template>
 
@@ -54,30 +53,28 @@ import {
 import { getToolState } from "../../../../BasicTools/tool-helpers/tools-helpers";
 
 export default {
-  name: "rooftop",
+  name: "RooftopPanel",
   props: {
     onClose: Function,
     shadowTime: Number,
-    // selectedSeason: String,  <-- remove this line
   },
   data() {
     return {
       selectedDate: "",
-      selectedSeason: "", // local reactive state only
+      selectedSeason: "", // fully local
       shadowTimeString: this.formatTime(this.shadowTime ?? 12),
       highRes: false,
       showBuildings: false,
     };
   },
-
   mounted() {
+    // Initialize date field based on season or today
     if (this.selectedSeason && this.selectedSeason !== "average") {
       const fixedDate = this.getDateForSeason(this.selectedSeason);
       if (fixedDate) this.selectedDate = this.formatDate(fixedDate);
     } else {
       this.selectedDate = this.getTodayString();
     }
-    // Initial shadow update
     this.updateShadow();
   },
   watch: {
@@ -86,11 +83,9 @@ export default {
     },
     selectedSeason(newSeason) {
       const dateForSeason = this.getDateForSeason(newSeason);
-      if (dateForSeason) {
-        this.selectedDate = this.formatDate(dateForSeason);
-      } else {
-        this.selectedDate = this.getTodayString();
-      }
+      this.selectedDate = dateForSeason
+        ? this.formatDate(dateForSeason)
+        : this.getTodayString();
       this.updateShadow();
     },
     shadowTimeString() {
@@ -139,11 +134,7 @@ export default {
       clearRooftopSolarInsulation();
     },
     loadBuildings() {
-      console.log(
-        "[Rooftop] selectedSeason at loadBuildings:",
-        this.selectedSeason
-      );
-      if (!this.selectedSeason || this.selectedSeason === "") {
+      if (!this.selectedSeason) {
         alert("Please select a season before loading.");
         return;
       }
@@ -153,11 +144,13 @@ export default {
         return;
       }
       clearRooftopSolarInsulation();
+
       const [hourStr, minuteStr] = this.shadowTimeString.split(":");
       const hour = parseInt(hourStr, 10) || 0;
       const minute = parseInt(minuteStr, 10) || 0;
       const hourDecimal = hour + minute / 60;
       const selectedDateObj = this.parseDateString(this.selectedDate);
+
       setupRooftopSolarInsulationTool(viewer, {
         selectedDate: selectedDateObj,
         shadowTime: hourDecimal,
@@ -167,6 +160,8 @@ export default {
       });
     },
     updateShadow() {
+      if (!this.selectedSeason) return;
+
       const [hourStr, minuteStr] = (this.shadowTimeString || "12:00").split(
         ":"
       );
@@ -208,7 +203,6 @@ export default {
 }
 input[type="date"],
 select,
-input[type="range"],
 input[type="time"] {
   background-color: #2b2b2b;
   border: 1px solid #444;

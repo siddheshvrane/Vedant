@@ -21,6 +21,112 @@ let currentOptions = {
   selectedDate: null,
 };
 
+let rooftopPopupOpen = false;
+
+// 🔹 Cache hourly datasets so repeated clicks don’t refetch
+const hourlyCache = new Map();
+
+// 🔹 Fetch per-building hourly stats
+async function fetchHourlyDataForBuilding(id) {
+  if (hourlyCache.has(id)) return hourlyCache.get(id);
+
+  const res = await fetch(
+    "https://vedas.sac.gov.in/vone_staging2/get_leh_data",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: String(parseInt(id, 10)) }),
+    }
+  );
+  if (!res.ok) throw new Error(`Hourly fetch failed: ${res.statusText}`);
+  const json = await res.json();
+
+  const times = [
+    "5:15",
+    "5:30",
+    "5:45",
+    "6:00",
+    "6:15",
+    "6:30",
+    "6:45",
+    "7:00",
+    "7:15",
+    "7:30",
+    "7:45",
+    "8:00",
+    "8:15",
+    "8:30",
+    "8:45",
+    "9:00",
+    "9:15",
+    "9:30",
+    "9:45",
+    "10:00",
+    "10:15",
+    "10:30",
+    "10:45",
+    "11:00",
+    "11:15",
+    "11:30",
+    "11:45",
+    "12:00",
+    "12:15",
+    "12:30",
+    "12:45",
+    "13:00",
+    "13:15",
+    "13:30",
+    "13:45",
+    "14:00",
+    "14:15",
+    "14:30",
+    "14:45",
+    "15:00",
+    "15:15",
+    "15:30",
+    "15:45",
+    "16:00",
+    "16:15",
+    "16:30",
+    "16:45",
+    "17:00",
+    "17:15",
+    "17:30",
+    "17:45",
+    "18:00",
+    "18:15",
+    "18:30",
+  ];
+
+  const [m, j, s, d] = json.df;
+
+  const data = {
+    times,
+    MarchHourly: (m || []).slice(0, -1),
+    JuneHourly: (j || []).slice(0, -1),
+    SeptemberHourly: (s || []).slice(0, -1),
+    DecemberHourly: (d || []).slice(0, -1),
+    March: m?.[m.length - 1],
+    June: j?.[j.length - 1],
+    September: s?.[s.length - 1],
+    December: d?.[d.length - 1],
+    Average: (() => {
+      const vals = [
+        m?.[m.length - 1],
+        j?.[j.length - 1],
+        s?.[s.length - 1],
+        d?.[d.length - 1],
+      ]
+        .map((v) => (typeof v === "number" ? v : null))
+        .filter((v) => v !== null);
+      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    })(),
+  };
+
+  hourlyCache.set(id, data);
+  return data;
+}
+
 // Normalize season string, treat empty or "none" as no season
 function normalizeSeason(season) {
   if (!season) return ""; // empty string means none
@@ -222,7 +328,7 @@ export function setupRooftopSolarInsulationTool(viewer, options) {
     );
   }
 
-  selectedEntityChangedListener = (selected) => {
+  selectedEntityChangedListener = async (selected) => {
     if (!selected || !selected.custom_prop) return;
 
     if (lastSelectedEntity?.polygon) {
@@ -237,75 +343,107 @@ export function setupRooftopSolarInsulationTool(viewer, options) {
     const props = selected.custom_prop;
     const lat = parseFloat(props.centroid[1]).toFixed(5);
     const lon = parseFloat(props.centroid[0]).toFixed(5);
+    const id = props.ID;
 
-    console.log(`[Rooftop] Selected building at lat:${lat}, lon:${lon}`);
+    console.log(`[Rooftop] Selected building #${id} at lat:${lat}, lon:${lon}`);
 
-    // Determine hourly data based on current season
+    // Always fetch hourly per-building data
+    let hourly;
+    try {
+      hourly = await fetchHourlyDataForBuilding(id);
+    } catch (e) {
+      console.error(e);
+      // fallback to props if fetch fails
+      hourly = {
+        times: props.times || [],
+        MarchHourly: props.MarchHourly || [],
+        JuneHourly: props.JuneHourly || [],
+        SeptemberHourly: props.SeptemberHourly || [],
+        DecemberHourly: props.DecemberHourly || [],
+        March: props.March,
+        June: props.June,
+        September: props.September,
+        December: props.December,
+        Average: props.Average,
+      };
+    }
+
     const season = currentOptions.selectedSeason || "";
     const shadowTime = currentOptions.shadowTime ?? 12;
 
+    // Pick hourly data for current season
     let hourlyData = [];
     switch (season.toLowerCase()) {
       case "march":
-        hourlyData = props.MarchHourly || [];
+        hourlyData = hourly.MarchHourly;
         break;
       case "june":
-        hourlyData = props.JuneHourly || [];
+        hourlyData = hourly.JuneHourly;
         break;
       case "september":
-        hourlyData = props.SeptemberHourly || [];
+        hourlyData = hourly.SeptemberHourly;
         break;
       case "december":
-        hourlyData = props.DecemberHourly || [];
+        hourlyData = hourly.DecemberHourly;
         break;
       default:
-        hourlyData = props.AverageHourly || [];
+        hourlyData = []; // Or compute average curve if desired
         break;
     }
 
-    PopupService.show({
-      isPlugin: true,
-      pluginId: "rooftop-solar-insulation",
-      tabTitle: "Building Solar Stats",
-      component: BuildingStats,
-      props: {
-        data: {
-          latitude: lat,
-          longitude: lon,
-          height: props.Height,
-          March: props.March,
-          June: props.June,
-          September: props.September,
-          December: props.December,
-          Average: props.Average,
-          times: props.times,
-          MarchHourly: props.MarchHourly,
-          JuneHourly: props.JuneHourly,
-          SeptemberHourly: props.SeptemberHourly,
-          DecemberHourly: props.DecemberHourly,
+    if (!rooftopPopupOpen) {
+      PopupService.show({
+        isPlugin: true,
+        pluginId: "rooftop-solar-insulation",
+        tabTitle: "Building Solar Stats",
+        component: BuildingStats,
+        props: {
+          data: {
+            latitude: lat,
+            longitude: lon,
+            height: props.Height,
+            March: hourly.March ?? props.March,
+            June: hourly.June ?? props.June,
+            September: hourly.September ?? props.September,
+            December: hourly.December ?? props.December,
+            Average: hourly.Average ?? props.Average,
+            times: hourly.times || props.times,
+            MarchHourly: hourly.MarchHourly,
+            JuneHourly: hourly.JuneHourly,
+            SeptemberHourly: hourly.SeptemberHourly,
+            DecemberHourly: hourly.DecemberHourly,
+            selectedSeason: season,
+            shadowTime,
+            hourlyData,
+          },
+          onClose: () => {
+            PopupService.hide();
+            rooftopPopupOpen = false;
+          },
         },
-        onClose: () => PopupService.hide(),
-      },
-    });
-
-    eventBus.emit("update-building-stats", {
-      latitude: lat,
-      longitude: lon,
-      height: props.Height,
-      March: props.March,
-      June: props.June,
-      September: props.September,
-      December: props.December,
-      Average: props.Average,
-      times: props.times,
-      MarchHourly: props.MarchHourly,
-      JuneHourly: props.JuneHourly,
-      SeptemberHourly: props.SeptemberHourly,
-      DecemberHourly: props.DecemberHourly,
-      selectedSeason: season,
-      shadowTime: shadowTime,
-      hourlyData: hourlyData,
-    });
+      });
+      rooftopPopupOpen = true;
+    } else {
+      // just send update if popup already open
+      eventBus.emit("update-building-stats", {
+        latitude: lat,
+        longitude: lon,
+        height: props.Height,
+        March: hourly.March ?? props.March,
+        June: hourly.June ?? props.June,
+        September: hourly.September ?? props.September,
+        December: hourly.December ?? props.December,
+        Average: hourly.Average ?? props.Average,
+        times: hourly.times || props.times,
+        MarchHourly: hourly.MarchHourly,
+        JuneHourly: hourly.JuneHourly,
+        SeptemberHourly: hourly.SeptemberHourly,
+        DecemberHourly: hourly.DecemberHourly,
+        selectedSeason: season,
+        shadowTime,
+        hourlyData,
+      });
+    }
   };
 
   viewer.selectedEntityChanged.addEventListener(selectedEntityChangedListener);
