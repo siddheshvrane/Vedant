@@ -109,9 +109,9 @@
               <span class="info-label">Status:</span>
               <span class="info-value" :class="getStatusClass()">{{ getStatusText() }}</span>
             </div>
-            <div v-if="environmentInfo" class="info-row">
+            <div v-if="environmentInfo && environmentInfo.hostname" class="info-row">
               <span class="info-label">Context:</span>
-              <span class="info-value">{{ environmentInfo.protocol.toUpperCase() }} on {{ environmentInfo.hostname }}</span>
+              <span class="info-value">{{ getProtocolText() }} on {{ environmentInfo.hostname }}</span>
             </div>
           </div>
         </div>
@@ -155,7 +155,9 @@ export default {
     },
     onCancel: {
       type: Function,
-      required: true
+      default: () => {
+        console.log('RecordingConfigPopup: Default onCancel called');
+      }
     }
   },
   data() {
@@ -172,17 +174,24 @@ export default {
     };
   },
   async mounted() {
-    // Initialize configuration
-    this.config = { ...this.config, ...this.currentConfig };
-    
-    // Check recording support and get environment info
-    this.checkRecordingSupport();
-    
-    // Set appropriate default based on support
-    if (!this.isRecordingSupported) {
+    try {
+      // Initialize configuration
+      this.config = { ...this.config, ...this.currentConfig };
+      
+      // Check recording support and get environment info
+      this.checkRecordingSupport();
+      
+      // Set appropriate default based on support
+      if (!this.isRecordingSupported) {
+        this.config.audioSource = 'skip';
+      } else if (!this.config.audioSource && this.audioDevices.length > 0) {
+        this.config.audioSource = 'none'; // Video only as safe default
+      }
+    } catch (error) {
+      console.error('RecordingConfigPopup: Error during component mount:', error);
+      // Set safe defaults
+      this.isRecordingSupported = false;
       this.config.audioSource = 'skip';
-    } else if (!this.config.audioSource && this.audioDevices.length > 0) {
-      this.config.audioSource = 'none'; // Video only as safe default
     }
   },
   beforeUnmount() {
@@ -194,12 +203,11 @@ export default {
     },
 
     availableAudioDevices() {
-      // The original logic `device.id !== 'none'` and `device.type !== 'none'`
-      // was incorrect and prevented real devices from being listed.
-      // We now filter out options that are explicitly marked for disabling.
-      // This allows the select to show actual devices and the 'Video Only' option.
+      if (!Array.isArray(this.audioDevices)) {
+        return [];
+      }
       return this.audioDevices.filter(device => 
-        !device.disabled
+        device && !device.disabled
       );
     },
 
@@ -219,13 +227,37 @@ export default {
   },
   methods: {
     checkRecordingSupport() {
-      this.isRecordingSupported = ScreenRecordingService.constructor.isSupported();
-      this.environmentInfo = ScreenRecordingService.constructor.getEnvironmentInfo();
+      try {
+        this.isRecordingSupported = ScreenRecordingService.constructor.isSupported();
+        this.environmentInfo = ScreenRecordingService.constructor.getEnvironmentInfo();
+        
+        console.log('RecordingConfigPopup: Support check:', {
+          supported: this.isRecordingSupported,
+          environment: this.environmentInfo
+        });
+      } catch (error) {
+        console.error('RecordingConfigPopup: Error checking recording support:', error);
+        this.isRecordingSupported = false;
+        this.environmentInfo = {
+          protocol: window.location.protocol || 'unknown:',
+          hostname: window.location.hostname || 'unknown'
+        };
+      }
+    },
+
+    getProtocolText() {
+      if (!this.environmentInfo || !this.environmentInfo.protocol) {
+        return 'Unknown';
+      }
       
-      console.log('RecordingConfigPopup: Support check:', {
-        supported: this.isRecordingSupported,
-        environment: this.environmentInfo
-      });
+      try {
+        // Safe string conversion and uppercase
+        const protocol = String(this.environmentInfo.protocol || '');
+        return protocol.toUpperCase();
+      } catch (error) {
+        console.error('RecordingConfigPopup: Error getting protocol text:', error);
+        return 'Unknown';
+      }
     },
 
     getHelpText() {
@@ -354,8 +386,8 @@ export default {
         return 'Video only (no audio)';
       }
       
-      const device = this.audioDevices.find(d => d.id === this.config.audioSource);
-      const deviceName = device ? device.label : 'Unknown device';
+      const device = this.audioDevices.find(d => d && d.id === this.config.audioSource);
+      const deviceName = (device && device.label) ? device.label : 'Unknown device';
       return `${deviceName} (128 kbps)`;
     },
 
@@ -398,12 +430,30 @@ export default {
       };
 
       console.log('RecordingConfigPopup: Starting with config:', finalConfig);
-      this.onStart(finalConfig);
+      
+      try {
+        if (typeof this.onStart === 'function') {
+          this.onStart(finalConfig);
+        } else {
+          console.error('RecordingConfigPopup: onStart is not a function');
+        }
+      } catch (error) {
+        console.error('RecordingConfigPopup: Error calling onStart:', error);
+      }
     },
 
     cancel() {
       this.stopAudioTest();
-      this.onCancel();
+      
+      try {
+        if (typeof this.onCancel === 'function') {
+          this.onCancel();
+        } else {
+          console.warn('RecordingConfigPopup: onCancel is not a function');
+        }
+      } catch (error) {
+        console.error('RecordingConfigPopup: Error calling onCancel:', error);
+      }
     }
   }
 };

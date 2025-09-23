@@ -1,4 +1,5 @@
-// Enhanced ScreenRecordingService.js - HTTP/HTTPS handling
+// ScreenRecordingService.js - Pure Electron desktopCapturer implementation
+// Removes getDisplayMedia completely and uses only Electron's native screen capture
 
 import { BehaviorSubject } from 'rxjs';
 import { PopupService } from './PopupService.js';
@@ -28,32 +29,45 @@ class ScreenRecordingServiceClass {
         this.audioDevices = [];
         this.initializationPromise = null;
 
+        // Electron-specific state
+        this.isElectron = !!(window.electron);
+        this.desktopSources = [];
+        this.selectedDesktopSource = null;
+
+        console.log('ScreenRecording: Initializing service...');
+        console.log('ScreenRecording: Electron environment:', this.isElectron);
+
         // Initialize immediately
         this.initializeAudioDevices();
+        if (this.isElectron) {
+            this.initializeDesktopSources();
+        } else {
+            console.warn('ScreenRecording: Non-Electron environment detected - screen recording not available');
+        }
     }
 
     /**
-     * Enhanced support check with HTTP/HTTPS validation
+     * Support check - ONLY supports Electron with desktopCapturer
      */
     static isSupported() {
         try {
-            const hasDisplayMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
-            const hasMediaRecorder = !!window.MediaRecorder;
-            const isValidContext = window.isSecureContext ||
-                                   location.hostname === 'localhost' ||
-                                   location.hostname === '127.0.0.1' ||
-                                   location.protocol === 'file:';
+            const isElectron = !!(window.electron);
+            
+            if (!isElectron) {
+                console.log('ScreenRecording: Not in Electron environment - screen recording unavailable');
+                return false;
+            }
 
-            console.log('ScreenRecording: Detailed support check:', {
-                hasDisplayMedia,
-                hasMediaRecorder,
-                protocol: location.protocol,
-                hostname: location.hostname,
-                isSecureContext: window.isSecureContext,
-                isValidContext
+            const hasDesktopCapturer = !!(window.electron.getDesktopSources);
+            const hasMediaRecorder = !!window.MediaRecorder;
+            
+            console.log('ScreenRecording: Electron support check:', {
+                isElectron,
+                hasDesktopCapturer,
+                hasMediaRecorder
             });
 
-            return hasDisplayMedia && hasMediaRecorder && isValidContext;
+            return hasDesktopCapturer && hasMediaRecorder;
         } catch (error) {
             console.warn('ScreenRecording: Support check failed:', error);
             return false;
@@ -61,23 +75,62 @@ class ScreenRecordingServiceClass {
     }
 
     /**
-     * Get detailed environment info for diagnostics
+     * Get environment info
      */
     static getEnvironmentInfo() {
+        const isElectron = !!(window.electron);
+        
         return {
-            protocol: location.protocol,
-            hostname: location.hostname,
-            isSecureContext: window.isSecureContext,
-            hasDisplayMedia: !!(navigator.mediaDevices?.getDisplayMedia),
+            isElectron: isElectron,
+            hasDesktopCapturer: isElectron ? !!(window.electron.getDesktopSources) : false,
             hasMediaRecorder: !!window.MediaRecorder,
             userAgent: navigator.userAgent.substring(0, 100),
-            isElectron: !!window.electron,
-            canRecord: this.isSupported()
+            canRecord: this.isSupported(),
+            supportedMethod: 'Electron desktopCapturer only'
         };
     }
 
     /**
-     * Enhanced initialization with better error recovery
+     * Initialize Electron desktop sources
+     */
+    async initializeDesktopSources() {
+        if (!this.isElectron) {
+            console.warn('ScreenRecording: Cannot initialize desktop sources - not in Electron');
+            return;
+        }
+
+        try {
+            console.log('ScreenRecording: Getting desktop sources from Electron...');
+            
+            const sources = await window.electron.getDesktopSources({
+                types: ['screen', 'window'],
+                thumbnailSize: { width: 150, height: 150 },
+                fetchWindowIcons: false
+            });
+
+            this.desktopSources = sources;
+            console.log(`ScreenRecording: Found ${sources.length} desktop sources`);
+            
+            // Log available sources for debugging
+            sources.forEach((source, index) => {
+                console.log(`ScreenRecording: Source ${index}: "${source.name}" (${source.type}) - ID: ${source.id}`);
+            });
+
+            // Auto-select the first screen source, or first available source
+            this.selectedDesktopSource = sources.find(source => source.type === 'screen') || sources[0];
+            if (this.selectedDesktopSource) {
+                console.log(`ScreenRecording: Auto-selected source: "${this.selectedDesktopSource.name}"`);
+            }
+
+        } catch (error) {
+            console.error('ScreenRecording: Failed to get desktop sources:', error);
+            this.desktopSources = [];
+            this.selectedDesktopSource = null;
+        }
+    }
+
+    /**
+     * Initialize audio devices (supports both Electron and browser)
      */
     async initializeAudioDevices() {
         if (this.initializationPromise) {
@@ -90,79 +143,75 @@ class ScreenRecordingServiceClass {
 
     async _initializeAudioDevicesInternal() {
         try {
-            console.log('🎤 ScreenRecording: Initializing audio devices...');
+            console.log('ScreenRecording: Initializing audio devices...');
 
-            if (window.electron && window.electron.getAudioDevices) {
-                console.log('🖥️ ScreenRecording: Using Electron audio device detection');
+            if (this.isElectron && window.electron.getAudioDevices) {
+                console.log('ScreenRecording: Using Electron audio device detection');
                 try {
                     const electronDevices = await window.electron.getAudioDevices();
                     this.audioDevices = electronDevices;
                     this.availableAudioDevices$.next(electronDevices);
-                    console.log('✅ ScreenRecording: Electron audio devices detected:', electronDevices.length);
+                    console.log(`ScreenRecording: Electron audio devices detected: ${electronDevices.length}`);
                     return;
                 } catch (electronError) {
-                    console.warn('⚠️ ScreenRecording: Electron audio detection failed, falling back to browser:', electronError);
+                    console.warn('ScreenRecording: Electron audio detection failed, falling back to browser:', electronError);
                 }
             }
 
-            console.log('🌐 ScreenRecording: Using browser audio device detection');
+            console.log('ScreenRecording: Using browser audio device detection');
 
             const audioDevicesList = [
                 { id: 'none', label: 'No Audio', type: 'none' },
                 { id: 'default', label: 'Default Microphone', type: 'default' }
             ];
 
-            // Only try browser audio enumeration if we have a secure context
-            if (window.isSecureContext || location.hostname === 'localhost') {
-                try {
-                    const permissionPromise = navigator.mediaDevices.getUserMedia({
-                        audio: {
-                            echoCancellation: false,
-                            noiseSuppression: false,
-                            autoGainControl: false
-                        }
-                    });
+            // Try browser audio enumeration
+            try {
+                const permissionPromise = navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false
+                    }
+                });
 
-                    const timeoutPromise = new Promise((_, reject) =>
-                        setTimeout(() => reject(new Error('Audio permission timeout')), 8000)
-                    );
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Audio permission timeout')), 8000)
+                );
 
-                    const tempStream = await Promise.race([permissionPromise, timeoutPromise]);
+                const tempStream = await Promise.race([permissionPromise, timeoutPromise]);
 
-                    tempStream.getTracks().forEach(track => {
-                        track.stop();
-                        console.log('ScreenRecording: Stopped temporary audio track:', track.kind);
-                    });
+                tempStream.getTracks().forEach(track => {
+                    track.stop();
+                    console.log('ScreenRecording: Stopped temporary audio track:', track.kind);
+                });
 
-                    const devices = await navigator.mediaDevices.enumerateDevices();
-                    const audioInputs = devices.filter(device => device.kind === 'audioinput');
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const audioInputs = devices.filter(device => device.kind === 'audioinput');
 
-                    audioInputs.forEach(device => {
-                        if (device.deviceId !== 'default' && device.label) {
-                            const label = device.label.toLowerCase();
-                            let deviceType = 'microphone';
+                audioInputs.forEach(device => {
+                    if (device.deviceId !== 'default' && device.label) {
+                        const label = device.label.toLowerCase();
+                        let deviceType = 'microphone';
 
-                            if (label.includes('bluetooth')) deviceType = 'bluetooth';
-                            else if (label.includes('headset') || label.includes('headphones')) deviceType = 'headset';
+                        if (label.includes('bluetooth')) deviceType = 'bluetooth';
+                        else if (label.includes('headset') || label.includes('headphones')) deviceType = 'headset';
 
-                            audioDevicesList.push({
-                                id: device.deviceId,
-                                label: device.label,
-                                type: deviceType
-                            });
-                        }
-                    });
+                        audioDevicesList.push({
+                            id: device.deviceId,
+                            label: device.label,
+                            type: deviceType
+                        });
+                    }
+                });
 
-                    console.log('✅ ScreenRecording: Browser audio devices detected:', audioDevicesList.length);
+                console.log(`ScreenRecording: Browser audio devices detected: ${audioDevicesList.length}`);
 
-                } catch (audioError) {
-                    console.warn('⚠️ ScreenRecording: Audio device detection failed:', audioError);
-                }
-            } else {
-                console.warn('⚠️ ScreenRecording: Insecure context, skipping audio enumeration');
+            } catch (audioError) {
+                console.warn('ScreenRecording: Audio device detection failed:', audioError);
                 audioDevicesList.push({
                     id: 'unsupported',
-                    label: 'Audio unavailable (requires HTTPS)',
+                    label: 'Audio unavailable',
                     type: 'disabled',
                     disabled: true
                 });
@@ -172,7 +221,7 @@ class ScreenRecordingServiceClass {
             this.availableAudioDevices$.next(audioDevicesList);
 
         } catch (error) {
-            console.error('❌ ScreenRecording: Failed to initialize audio devices:', error);
+            console.error('ScreenRecording: Failed to initialize audio devices:', error);
             const emergencyFallback = [{ id: 'none', label: 'No Audio', type: 'none' }];
             this.audioDevices = emergencyFallback;
             this.availableAudioDevices$.next(emergencyFallback);
@@ -180,215 +229,134 @@ class ScreenRecordingServiceClass {
     }
 
     /**
-     * Enhanced screen stream acquisition with HTTP/HTTPS handling
+     * Get screen stream using ONLY Electron's desktopCapturer
      */
     async getScreenStream() {
-        console.log('🎥 ScreenRecording: Attempting to get screen stream...');
+        console.log('ScreenRecording: Getting screen stream via Electron desktopCapturer...');
 
-        const envInfo = ScreenRecordingServiceClass.getEnvironmentInfo();
-        console.log('🔍 ScreenRecording: Environment check:', envInfo);
-
-        // Check if we can use screen recording APIs
-        if (!this.canUseScreenRecording()) {
-            throw this.createContextError();
+        if (!this.isElectron) {
+            throw new Error('Screen recording is only supported in Electron environment. Please use the desktop application.');
         }
 
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-            throw new Error('Screen capture APIs not available in this browser.');
+        if (!window.electron.getDesktopSources) {
+            throw new Error('Electron desktopCapturer API is not available. Please update your Electron app.');
         }
 
-        // Try multiple approaches in order of preference
-        const approaches = [
-            () => this.tryElectronScreenCapture(),
-            () => this.tryBrowserScreenCapture(),
-            () => this.tryFallbackScreenCapture()
-        ];
-
-        let lastError;
-
-        for (let i = 0; i < approaches.length; i++) {
-            try {
-                console.log(`🎯 ScreenRecording: Trying approach ${i + 1}/3...`);
-                const stream = await approaches[i]();
-                if (stream && stream.getVideoTracks().length > 0) {
-                    console.log('✅ ScreenRecording: Screen stream created successfully via approach', i + 1);
-                    console.log('🔍 ScreenRecording: Video track settings:', stream.getVideoTracks()[0].getSettings());
-                    return stream;
-                }
-            } catch (error) {
-                console.warn(`⚠️ ScreenRecording: Approach ${i + 1} failed:`, error.message);
-                lastError = error;
+        try {
+            // Ensure desktop sources are initialized
+            if (this.desktopSources.length === 0 || !this.selectedDesktopSource) {
+                console.log('ScreenRecording: Refreshing desktop sources...');
+                await this.initializeDesktopSources();
             }
-        }
 
-        // All approaches failed
-        console.error('❌ ScreenRecording: All screen capture approaches failed');
-        throw this.createUserFriendlyError(lastError);
+            if (this.desktopSources.length === 0) {
+                throw new Error('No desktop sources available for recording. Please ensure you have screens or windows available.');
+            }
+
+            if (!this.selectedDesktopSource) {
+                throw new Error('No desktop source selected. Please select a screen or window to record.');
+            }
+
+            console.log(`ScreenRecording: Using source: "${this.selectedDesktopSource.name}" (${this.selectedDesktopSource.type})`);
+
+            // Create constraints for getUserMedia with Electron's chromeMediaSourceId
+            const constraints = {
+                audio: false, // We'll handle audio separately
+                video: {
+                    mandatory: {
+                        chromeMediaSource: 'desktop',
+                        chromeMediaSourceId: this.selectedDesktopSource.id,
+                        maxWidth: this.recordingConfig.videoWidth || 1920,
+                        maxHeight: this.recordingConfig.videoHeight || 1080,
+                        maxFrameRate: this.recordingConfig.frameRate || 30,
+                        minFrameRate: Math.max(1, (this.recordingConfig.frameRate || 30) - 10)
+                    }
+                }
+            };
+
+            console.log('ScreenRecording: getUserMedia constraints:', JSON.stringify(constraints, null, 2));
+
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+            if (!stream || stream.getVideoTracks().length === 0) {
+                throw new Error('Failed to create screen capture stream from selected source.');
+            }
+
+            console.log('ScreenRecording: Screen stream created successfully');
+            const videoTrack = stream.getVideoTracks()[0];
+            if (videoTrack) {
+                const settings = videoTrack.getSettings();
+                console.log('ScreenRecording: Video track settings:', {
+                    width: settings.width,
+                    height: settings.height,
+                    frameRate: settings.frameRate,
+                    deviceId: settings.deviceId,
+                    label: videoTrack.label
+                });
+            }
+
+            return stream;
+
+        } catch (error) {
+            console.error('ScreenRecording: Screen capture failed:', error);
+            throw this.createUserFriendlyError(error);
+        }
     }
 
     /**
-     * Check if screen recording can be used in current context
+     * Create user-friendly error messages
      */
-    canUseScreenRecording() {
-        // Electron always works
-        if (window.electron && window.electron.getDesktopSources) {
-            return true;
-        }
+    createUserFriendlyError(originalError) {
+        console.error('ScreenRecording: Original error:', originalError);
 
-        // Browser requirements
-        return window.isSecureContext ||
-               location.hostname === 'localhost' ||
-               location.hostname === '127.0.0.1' ||
-               location.protocol === 'file:';
-    }
-
-    /**
-     * Create context-specific error
-     */
-    createContextError() {
-        if (location.protocol === 'http:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+        if (!this.isElectron) {
             return new Error(
-                'Screen recording requires HTTPS or localhost. Current context is HTTP.\n\n' +
-                'Solutions:\n' +
-                '• Switch to HTTPS\n' +
-                '• Use localhost or 127.0.0.1\n' +
-                '• Use Electron app version'
+                'Screen recording is only available in the Electron desktop application.\n\n' +
+                'Web browsers are not supported for screen recording in this application.\n\n' +
+                'Please download and use the desktop version of this application.'
             );
         }
 
-        return new Error('Screen recording is not supported in this browser context.');
-    }
-
-    async tryElectronScreenCapture() {
-        if (!window.electron || !window.electron.getDesktopSources) {
-            throw new Error('Electron not available');
-        }
-
-        console.log('🖥️ ScreenRecording: Trying Electron desktop capturer');
-
-        const sources = await window.electron.getDesktopSources({ types: ['screen'] });
-
-        if (sources.length === 0) {
-            throw new Error('No screen sources available from Electron');
-        }
-
-        const primaryScreen = sources[0];
-        console.log('🖥️ ScreenRecording: Using screen source:', primaryScreen.name);
-
-        return await navigator.mediaDevices.getUserMedia({
-            audio: false,
-            video: {
-                mandatory: {
-                    chromeMediaSource: 'desktop',
-                    chromeMediaSourceId: primaryScreen.id,
-                    minWidth: Math.min(this.recordingConfig.videoWidth, 1920),
-                    maxWidth: this.recordingConfig.videoWidth,
-                    minHeight: Math.min(this.recordingConfig.videoHeight, 1080),
-                    maxHeight: this.recordingConfig.videoHeight,
-                    minFrameRate: Math.min(this.recordingConfig.frameRate, 30),
-                    maxFrameRate: this.recordingConfig.frameRate
-                }
-            }
-        });
-    }
-
-    async tryBrowserScreenCapture() {
-        console.log('🌐 ScreenRecording: Trying browser getDisplayMedia');
-
-        // Check context again
-        if (!this.canUseScreenRecording()) {
-            throw new Error('Insecure context - requires HTTPS or localhost');
-        }
-        
-        // **FIX:** Re-ordering constraints to prioritize a generic, high-success-rate constraint first
-        const constraintSets = [
-            // 1. The simplest and most likely to succeed.
-            { video: true, audio: true },
-            // 2. Try the user-defined resolution.
-            {
-                video: {
-                    width: { ideal: this.recordingConfig.videoWidth, max: 2560 },
-                    height: { ideal: this.recordingConfig.videoHeight, max: 1440 },
-                    frameRate: { ideal: this.recordingConfig.frameRate, max: 60 }
-                },
-                audio: true
-            },
-            // 3. Fallback to a common HD resolution.
-            {
-                video: {
-                    width: { ideal: 1280, max: 1920 },
-                    height: { ideal: 720, max: 1080 },
-                    frameRate: { ideal: 30, max: 30 }
-                },
-                audio: true
-            }
-        ];
-
-        for (const constraints of constraintSets) {
-            try {
-                console.log('🎯 ScreenRecording: Trying constraints:', constraints);
-                return await navigator.mediaDevices.getDisplayMedia(constraints);
-            } catch (constraintError) {
-                console.warn('⚠️ ScreenRecording: Constraint failed:', constraintError.message);
-                continue;
-            }
-        }
-
-        throw new Error('All constraint sets failed');
-    }
-
-    async tryFallbackScreenCapture() {
-        console.log('🔄 ScreenRecording: Trying fallback screen capture');
-
-        try {
-            return await navigator.mediaDevices.getDisplayMedia({
-                video: {},
-                audio: true
-            });
-        } catch (error) {
-            throw new Error('Fallback screen capture failed: ' + error.message);
-        }
-    }
-
-    createUserFriendlyError(originalError) {
-        console.error('❌ ScreenRecording: Original error:', originalError);
-
-        // Check for HTTP context first
-        if (location.protocol === 'http:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+        if (originalError.message && originalError.message.includes('chromeMediaSourceId')) {
             return new Error(
-                'Screen recording blocked: Application is running on HTTP.\n\n' +
-                'Modern browsers require HTTPS for screen recording.\n\n' +
+                'Failed to access the selected screen or window.\n\n' +
+                'This can happen when:\n' +
+                '• The selected window was closed\n' +
+                '• Screen permissions were denied\n' +
+                '• The screen source is no longer available\n\n' +
                 'Solutions:\n' +
-                '• Enable HTTPS on your server\n' +
-                '• Access via localhost or 127.0.0.1\n' +
-                '• Use the Electron desktop app'
+                '• Restart the application\n' +
+                '• Try selecting a different screen/window\n' +
+                '• Check system permissions for screen recording'
             );
         }
 
         if (originalError.name === 'NotAllowedError') {
-            return new Error('Screen recording permission denied. Please allow screen sharing when prompted and try again.');
-        } else if (originalError.name === 'NotSupportedError' || originalError.message?.includes('Not supported')) {
             return new Error(
-                'Screen recording not supported in this browser environment.\n\n' +
-                'Please try:\n' +
-                '• Chrome 88+, Firefox 88+, or Edge 88+\n' +
-                '• HTTPS connection\n' +
-                '• Localhost development\n' +
-                '• Desktop application'
-            );
-        } else if (originalError.name === 'NotFoundError') {
-            return new Error('No screen sources available for recording.');
-        } else if (originalError.name === 'AbortError') {
-            return new Error('Screen recording was cancelled.');
-        } else {
-            return new Error(
-                `Screen capture failed: ${originalError.message || 'Unknown error'}\n\n` +
-                'Try:\n' +
-                '• Refreshing the page\n' +
-                '• Using HTTPS or localhost\n' +
-                '• Different browser'
+                'Screen recording permission denied.\n\n' +
+                'Please allow screen recording permissions when prompted and try again.\n\n' +
+                'You may need to restart the application after granting permissions.'
             );
         }
+
+        if (originalError.name === 'NotFoundError') {
+            return new Error(
+                'No screen sources available for recording.\n\n' +
+                'Please ensure you have at least one screen or window open and try again.'
+            );
+        }
+
+        return new Error(
+            `Screen recording failed: ${originalError.message || 'Unknown error'}\n\n` +
+            'This can happen when:\n' +
+            '• System screen recording permissions are denied\n' +
+            '• The selected screen source is unavailable\n' +
+            '• Electron security policies are blocking access\n\n' +
+            'Solutions:\n' +
+            '• Restart the application\n' +
+            '• Check system screen recording permissions\n' +
+            '• Try selecting a different screen/window'
+        );
     }
 
     /**
@@ -398,20 +366,13 @@ class ScreenRecordingServiceClass {
         if (this.recordingConfig.audioSource === 'none' ||
             this.recordingConfig.audioSource === 'unsupported' ||
             !this.recordingConfig.audioSource) {
-            console.log('🔇 ScreenRecording: No audio source selected');
-            return null;
-        }
-
-        // Check if we can access microphone
-        if (!this.canUseScreenRecording()) {
-            console.warn('🔇 ScreenRecording: Audio unavailable in insecure context');
+            console.log('ScreenRecording: No audio source selected');
             return null;
         }
 
         try {
-            console.log('🎤 ScreenRecording: Getting audio stream for device:', this.recordingConfig.audioSource);
+            console.log('ScreenRecording: Getting audio stream for device:', this.recordingConfig.audioSource);
 
-            // **IMPROVED:** Simplified constraints for clarity and consistency
             const constraints = {
                 audio: {
                     deviceId: this.recordingConfig.audioSource === 'default' ? 'default' : { exact: this.recordingConfig.audioSource },
@@ -424,11 +385,11 @@ class ScreenRecordingServiceClass {
             };
 
             const audioStream = await navigator.mediaDevices.getUserMedia(constraints);
-            console.log('✅ ScreenRecording: Audio stream created successfully');
+            console.log('ScreenRecording: Audio stream created successfully');
             return audioStream;
 
         } catch (audioError) {
-            console.warn('⚠️ ScreenRecording: Failed to get audio stream:', audioError);
+            console.warn('ScreenRecording: Failed to get audio stream:', audioError);
             throw new Error(`Audio capture failed: ${audioError.message}`);
         }
     }
@@ -441,45 +402,45 @@ class ScreenRecordingServiceClass {
 
         screenStream.getVideoTracks().forEach(track => {
             combinedStream.addTrack(track);
-            console.log('🔄 ScreenRecording: Added video track:', track.id, track.label);
+            console.log('ScreenRecording: Added video track:', track.id, track.label);
         });
 
         if (audioStream) {
             audioStream.getAudioTracks().forEach(track => {
                 combinedStream.addTrack(track);
-                console.log('🔄 ScreenRecording: Added audio track:', track.id, track.label);
+                console.log('ScreenRecording: Added audio track:', track.id, track.label);
             });
         }
 
-        console.log('🔄 ScreenRecording: Streams combined - Video tracks:',
+        console.log('ScreenRecording: Combined stream - Video tracks:',
             combinedStream.getVideoTracks().length, 'Audio tracks:', combinedStream.getAudioTracks().length);
 
         return combinedStream;
     }
 
     /**
-     * Enhanced start recording with context validation
+     * Start recording using Electron desktopCapturer
      */
     async startRecording() {
         if (this.isRecording$.value) {
-            console.warn('⚠️ ScreenRecording: Recording already in progress');
+            console.warn('ScreenRecording: Recording already in progress');
             return false;
         }
 
-        console.log('🎬 ScreenRecording: Starting recording with config:', this.recordingConfig);
+        console.log('ScreenRecording: Starting recording with config:', this.recordingConfig);
 
         // Pre-flight check
         if (!ScreenRecordingServiceClass.isSupported()) {
             const envInfo = ScreenRecordingServiceClass.getEnvironmentInfo();
-            console.error('❌ ScreenRecording: Recording not supported:', envInfo);
-            throw this.createContextError();
+            console.error('ScreenRecording: Recording not supported:', envInfo);
+            throw new Error('Screen recording is only available in the Electron desktop application.');
         }
 
         try {
             // Ensure audio devices are initialized
             await this.initializeAudioDevices();
 
-            // Get screen capture stream
+            // Get screen capture stream using Electron desktopCapturer
             const screenStream = await this.getScreenStream();
             if (!screenStream) {
                 throw new Error('Failed to capture screen stream');
@@ -491,7 +452,7 @@ class ScreenRecordingServiceClass {
                 try {
                     audioStream = await this.getAudioStream();
                 } catch (audioError) {
-                    console.warn('⚠️ ScreenRecording: Audio stream failed, continuing with video only:', audioError);
+                    console.warn('ScreenRecording: Audio stream failed, continuing with video only:', audioError);
                     PopupService.showNotification(
                         `Audio capture failed: ${audioError.message}. Continuing with video-only recording.`,
                         true
@@ -510,7 +471,7 @@ class ScreenRecordingServiceClass {
                 audioBitsPerSecond: 128000  // 128 kbps
             };
 
-            console.log('🎬 ScreenRecording: MediaRecorder options:', options);
+            console.log('ScreenRecording: MediaRecorder options:', options);
 
             this.mediaRecorder = new MediaRecorder(combinedStream, options);
             this.recordedChunks = [];
@@ -519,12 +480,12 @@ class ScreenRecordingServiceClass {
             this.mediaRecorder.ondataavailable = (event) => {
                 if (event.data && event.data.size > 0) {
                     this.recordedChunks.push(event.data);
-                    console.log('📦 ScreenRecording: Data chunk received, size:', event.data.size);
+                    console.log('ScreenRecording: Data chunk received, size:', event.data.size);
                 }
             };
 
             this.mediaRecorder.onerror = (event) => {
-                console.error('❌ ScreenRecording: MediaRecorder error:', event.error);
+                console.error('ScreenRecording: MediaRecorder error:', event.error);
                 this.cleanup();
                 PopupService.showNotification(`Recording error: ${event.error}`, true);
             };
@@ -538,7 +499,7 @@ class ScreenRecordingServiceClass {
             // Set up stream ended handlers
             combinedStream.getVideoTracks().forEach(track => {
                 track.addEventListener('ended', () => {
-                    console.warn('⚠️ ScreenRecording: Video track ended');
+                    console.warn('ScreenRecording: Video track ended');
                     this.stopRecording();
                 });
             });
@@ -546,15 +507,14 @@ class ScreenRecordingServiceClass {
             // Start progress tracking
             this.startProgressTracking();
 
-            console.log('✅ ScreenRecording: Recording started successfully');
+            console.log('ScreenRecording: Recording started successfully using Electron desktopCapturer');
             PopupService.showNotification('Screen recording started successfully!');
             return true;
 
         } catch (error) {
-            console.error('❌ ScreenRecording: Failed to start recording:', error);
+            console.error('ScreenRecording: Failed to start recording:', error);
             this.cleanup();
-            PopupService.showNotification(`Recording failed: ${error.message}`, true);
-            return false;
+            throw error;
         }
     }
 
@@ -571,7 +531,7 @@ class ScreenRecordingServiceClass {
                 this.recordingProgress$.next({ duration, size });
 
                 if (Math.floor(duration) % 10 === 0) {
-                    console.log(`📊 ScreenRecording: Progress - ${duration.toFixed(0)}s, ${this.formatFileSize(size)}`);
+                    console.log(`ScreenRecording: Progress - ${duration.toFixed(0)}s, ${this.formatFileSize(size)}`);
                 }
             }
         }, 1000);
@@ -580,24 +540,24 @@ class ScreenRecordingServiceClass {
     async stopRecording() {
         return new Promise((resolve, reject) => {
             if (!this.isRecording$.value || !this.mediaRecorder) {
-                console.warn('⚠️ ScreenRecording: No active recording to stop');
+                console.warn('ScreenRecording: No active recording to stop');
                 resolve(null);
                 return;
             }
 
-            console.log('🛑 ScreenRecording: Stopping recording...');
+            console.log('ScreenRecording: Stopping recording...');
             const recordingStarted = this.recordingStartTime;
 
             this.mediaRecorder.onstop = async () => {
                 try {
-                    console.log('✅ ScreenRecording: MediaRecorder stopped, processing chunks...');
+                    console.log('ScreenRecording: MediaRecorder stopped, processing chunks...');
 
                     if (this.recordedChunks.length === 0) {
                         throw new Error('No recording data available - no chunks were collected');
                     }
 
                     const totalSize = this.recordedChunks.reduce((sum, chunk) => sum + chunk.size, 0);
-                    console.log('📦 ScreenRecording: Total data size:', this.formatFileSize(totalSize));
+                    console.log('ScreenRecording: Total data size:', this.formatFileSize(totalSize));
 
                     const recordingBlob = new Blob(this.recordedChunks, {
                         type: this.getOutputMimeType()
@@ -611,18 +571,18 @@ class ScreenRecordingServiceClass {
                     this.cleanup(false);
 
                     PopupService.showNotification('Recording completed successfully!');
-                    console.log('✅ ScreenRecording: Recording processed successfully');
+                    console.log('ScreenRecording: Recording processed successfully');
 
                     resolve({ blob: recordingBlob, info: recordingInfo });
                 } catch (error) {
-                    console.error('❌ ScreenRecording: Error processing recording:', error);
+                    console.error('ScreenRecording: Error processing recording:', error);
                     this.cleanup();
                     reject(error);
                 }
             };
 
             this.mediaRecorder.onerror = (event) => {
-                console.error('❌ ScreenRecording: MediaRecorder error on stop:', event.error);
+                console.error('ScreenRecording: MediaRecorder error on stop:', event.error);
                 this.cleanup();
                 reject(event.error);
             };
@@ -635,7 +595,7 @@ class ScreenRecordingServiceClass {
                     throw new Error('MediaRecorder not in recording state: ' + this.mediaRecorder.state);
                 }
             } catch (stopError) {
-                console.error('❌ ScreenRecording: Error stopping MediaRecorder:', stopError);
+                console.error('ScreenRecording: Error stopping MediaRecorder:', stopError);
                 this.cleanup();
                 reject(stopError);
             }
@@ -644,21 +604,21 @@ class ScreenRecordingServiceClass {
 
     async downloadRecording(blob, filename) {
         try {
-            console.log('💾 ScreenRecording: Starting download:', filename);
+            console.log('ScreenRecording: Starting download:', filename);
 
             if (!blob || blob.size === 0) {
                 throw new Error('Invalid or empty recording blob');
             }
 
-            // Try Electron save dialog first
-            if (window.electron && window.electron.saveRecording) {
-                console.log('🖥️ ScreenRecording: Using Electron save dialog');
+            // Use Electron save dialog
+            if (this.isElectron && window.electron.saveRecording) {
+                console.log('ScreenRecording: Using Electron save dialog');
                 const arrayBuffer = await blob.arrayBuffer();
                 const buffer = new Uint8Array(arrayBuffer);
 
                 const result = await window.electron.saveRecording(buffer, filename, blob.type);
                 if (result.success) {
-                    console.log('✅ ScreenRecording: File saved via Electron:', result.filePath);
+                    console.log('ScreenRecording: File saved via Electron:', result.filePath);
                     PopupService.showNotification(`Recording saved: ${result.filePath}`);
                 } else {
                     throw new Error(result.error || 'Electron save failed');
@@ -666,27 +626,11 @@ class ScreenRecordingServiceClass {
                 return;
             }
 
-            // Browser download fallback
-            console.log('🌐 ScreenRecording: Using browser download');
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.style.display = 'none';
-            a.href = url;
-            a.download = filename;
-
-            document.body.appendChild(a);
-            a.click();
-
-            setTimeout(() => {
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            }, 100);
-
-            console.log('✅ ScreenRecording: Browser download triggered');
-            PopupService.showNotification('Recording download started');
+            // Fallback - should not happen in pure Electron implementation
+            throw new Error('Download only available in Electron desktop application');
 
         } catch (error) {
-            console.error('❌ ScreenRecording: Download failed:', error);
+            console.error('ScreenRecording: Download failed:', error);
             PopupService.showNotification(`Download failed: ${error.message}`, true);
             throw error;
         }
@@ -709,13 +653,16 @@ class ScreenRecordingServiceClass {
             recordingStartTime: actualStartTime,
             recordingEndTime: Date.now(),
             hasAudio: this.recordingConfig.audioSource !== 'none' && this.recordingConfig.audioSource !== 'unsupported',
-            audioSource: this.recordingConfig.audioSource
+            audioSource: this.recordingConfig.audioSource,
+            environment: 'Electron',
+            captureMethod: 'desktopCapturer',
+            sourceUsed: this.selectedDesktopSource ? this.selectedDesktopSource.name : 'Unknown'
         };
     }
 
     updateConfig(newConfig) {
         this.recordingConfig = { ...this.recordingConfig, ...newConfig };
-        console.log('🔧 ScreenRecording: Configuration updated:', this.recordingConfig);
+        console.log('ScreenRecording: Configuration updated:', this.recordingConfig);
     }
 
     getStatus() {
@@ -726,7 +673,10 @@ class ScreenRecordingServiceClass {
             totalSize: this.recordedChunks.reduce((total, chunk) => total + chunk.size, 0),
             mediaRecorderState: this.mediaRecorder ? this.mediaRecorder.state : 'inactive',
             canRecord: ScreenRecordingServiceClass.isSupported(),
-            environment: ScreenRecordingServiceClass.getEnvironmentInfo()
+            environment: ScreenRecordingServiceClass.getEnvironmentInfo(),
+            isElectron: this.isElectron,
+            desktopSources: this.desktopSources.length,
+            selectedSource: this.selectedDesktopSource ? this.selectedDesktopSource.name : null
         };
     }
 
@@ -743,12 +693,12 @@ class ScreenRecordingServiceClass {
 
         for (const type of types) {
             if (MediaRecorder.isTypeSupported(type)) {
-                console.log('🎬 ScreenRecording: Using MIME type:', type);
+                console.log('ScreenRecording: Using MIME type:', type);
                 return type;
             }
         }
 
-        console.warn('⚠️ ScreenRecording: No supported MIME type found, using default');
+        console.warn('ScreenRecording: No supported MIME type found, using default');
         return 'video/webm';
     }
 
@@ -771,7 +721,7 @@ class ScreenRecordingServiceClass {
     }
 
     cleanup(clearChunks = true) {
-        console.log('🧹 ScreenRecording: Cleaning up resources...');
+        console.log('ScreenRecording: Cleaning up resources...');
 
         if (this.progressInterval) {
             clearInterval(this.progressInterval);
@@ -781,7 +731,7 @@ class ScreenRecordingServiceClass {
         if (this.currentStream) {
             this.currentStream.getTracks().forEach(track => {
                 track.stop();
-                console.log('🛑 ScreenRecording: Stopped track:', track.kind, track.id);
+                console.log('ScreenRecording: Stopped track:', track.kind, track.id);
             });
             this.currentStream = null;
         }
@@ -790,7 +740,6 @@ class ScreenRecordingServiceClass {
             this.recordedChunks = [];
         }
 
-        // **FIX:** Resetting MediaRecorder state and observables
         if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
              this.mediaRecorder.stop();
         }
@@ -799,9 +748,52 @@ class ScreenRecordingServiceClass {
         this.isRecording$.next(false);
         this.recordingProgress$.next({ duration: 0, size: 0 });
 
-        console.log('✅ ScreenRecording: Cleanup completed');
+        console.log('ScreenRecording: Cleanup completed');
     }
 
+    /**
+     * Get available desktop sources for manual selection
+     */
+    getDesktopSources() {
+        if (!this.isElectron) {
+            console.warn('ScreenRecording: Desktop sources only available in Electron');
+            return [];
+        }
+        return this.desktopSources;
+    }
+
+    /**
+     * Select a specific desktop source for recording
+     */
+    selectDesktopSource(sourceId) {
+        if (!this.isElectron) {
+            console.warn('ScreenRecording: Desktop source selection only available in Electron');
+            return false;
+        }
+
+        const source = this.desktopSources.find(s => s.id === sourceId);
+        if (!source) {
+            console.error('ScreenRecording: Desktop source not found:', sourceId);
+            return false;
+        }
+
+        this.selectedDesktopSource = source;
+        console.log('ScreenRecording: Selected desktop source:', source.name);
+        return true;
+    }
+
+    /**
+     * Refresh available desktop sources
+     */
+    async refreshDesktopSources() {
+        if (!this.isElectron) {
+            console.warn('ScreenRecording: Desktop source refresh only available in Electron');
+            return [];
+        }
+
+        await this.initializeDesktopSources();
+        return this.desktopSources;
+    }
 }
 
 // Singleton pattern to ensure only one instance is created

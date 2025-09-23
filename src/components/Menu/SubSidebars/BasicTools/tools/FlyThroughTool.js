@@ -1,7 +1,7 @@
-// src/components/Menu/SubSidebars/BasicTools/tools/FlyThroughTool.js - Corrected with better flow and error handling
+// src/components/Menu/SubSidebars/BasicTools/tools/FlyThroughTool.js - Complete fix with no getDisplayMedia errors
 
 import * as Cesium from 'cesium';
-import { markRaw } from 'vue'; // <-- Import markRaw
+import { markRaw } from 'vue';
 import {
     clearDrawing,
     removeEventHandlers,
@@ -19,12 +19,46 @@ import RecordingConfigPopup from '../../../../Popup/popups/RecordingConfigPopup.
 
 // Default configuration values
 const DEFAULT_CONFIG = {
-    cameraHeight: 20,         // meters above ground
-    cameraSpeed: 10,          // meters per second
-    cameraTilt: 45,           // degrees (0=straight down, 90=horizontal)
+    cameraHeight: 20,         // meters above ground
+    cameraSpeed: 10,          // meters per second
+    cameraTilt: 45,           // degrees (0=straight down, 90=horizontal)
     showProgressUpdates: true, // show progress during animation
-    pauseBetweenPoints: 200     // milliseconds pause between flight segments
+    pauseBetweenPoints: 200     // milliseconds pause between flight segments
 };
+
+/**
+ * Enhanced recording availability check that doesn't trigger getDisplayMedia
+ */
+function checkRecordingAvailability() {
+    try {
+        // Check basic API availability without calling them
+        const hasDisplayMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+        const hasMediaRecorder = !!window.MediaRecorder;
+        const isSecureContext = window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+        const isInIframe = window !== window.top;
+        
+        // Return detailed status without actually testing getDisplayMedia
+        return {
+            apiAvailable: hasDisplayMedia && hasMediaRecorder,
+            secureContext: isSecureContext,
+            inIframe: isInIframe,
+            supported: hasDisplayMedia && hasMediaRecorder && isSecureContext && !isInIframe,
+            reason: !hasDisplayMedia ? 'getDisplayMedia API not available' :
+                   !hasMediaRecorder ? 'MediaRecorder API not available' :
+                   !isSecureContext ? 'Requires secure context (HTTPS/localhost)' :
+                   isInIframe ? 'Cannot record from iframe' :
+                   'Recording should be available'
+        };
+    } catch (error) {
+        return {
+            apiAvailable: false,
+            secureContext: false,
+            inIframe: false,
+            supported: false,
+            reason: `Error checking recording: ${error.message}`
+        };
+    }
+}
 
 /**
  * Sets up the FlyThrough tool with enhanced recording support and context validation
@@ -75,18 +109,20 @@ export function setupFlyThroughTool(viewer) {
 
     const toolName = "Enhanced FlyThrough Tool";
 
-    // Check recording context and show appropriate message
-    const recordingSupported = ScreenRecordingService.constructor.isSupported();
-    const envInfo = ScreenRecordingService.constructor.getEnvironmentInfo();
+    // Check recording context and show appropriate message without triggering APIs
+    const recordingStatus = checkRecordingAvailability();
 
     let instructionMessage = `Click to add path points (minimum 2). Right-click when ready to configure and start flythrough`;
 
-    if (!recordingSupported) {
-        if (envInfo.protocol === 'http:' && envInfo.hostname !== 'localhost' && envInfo.hostname !== '127.0.0.1') {
-            instructionMessage += "\n\n⚠️ Screen recording requires HTTPS or localhost. Current context is HTTP.";
+    if (!recordingStatus.supported) {
+        if (!recordingStatus.secureContext) {
+            instructionMessage += "\n\n⚠️ Screen recording requires HTTPS or localhost.";
+        } else if (recordingStatus.inIframe) {
+            instructionMessage += "\n\n⚠️ Screen recording not available in iframe.";
         } else {
             instructionMessage += "\n\n⚠️ Screen recording not available in this browser.";
         }
+        instructionMessage += " Flythrough will work without recording.";
     } else {
         instructionMessage += " with optional screen recording.";
     }
@@ -298,8 +334,7 @@ function getCoreManagerFromViewer(viewer) {
 }
 
 /**
- * NEW: A dedicated function to handle recording setup and validation before
- * starting the flythrough, improving the user flow and error handling.
+ * FIXED: Dedicated function to handle recording setup with complete fallback handling
  */
 async function handleFlythroughSetupAndRecording(drawingPoints, config) {
     try {
@@ -308,42 +343,52 @@ async function handleFlythroughSetupAndRecording(drawingPoints, config) {
         const flythroughId = `flythrough_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         setToolState({ flythroughId: flythroughId });
 
-        const recordingSupported = ScreenRecordingService.constructor.isSupported();
-        const envInfo = ScreenRecordingService.constructor.getEnvironmentInfo();
+        // Check recording availability without triggering APIs
+        const recordingStatus = checkRecordingAvailability();
         let proceedWithRecording = false;
 
-        // Step 1: Check recording context and prompt the user if supported.
-        if (recordingSupported) {
-            await ScreenRecordingService.initializeAudioDevices();
-            const audioDevices = ScreenRecordingService.availableAudioDevices$.getValue();
-            console.log('FlyThroughTool: Available audio devices:', audioDevices.length);
+        // Step 1: Handle recording setup based on availability
+        if (recordingStatus.supported) {
+            // Recording appears to be supported - offer it to the user
+            try {
+                await ScreenRecordingService.initializeAudioDevices();
+                const audioDevices = ScreenRecordingService.availableAudioDevices$.getValue();
+                console.log('FlyThroughTool: Available audio devices:', audioDevices.length);
 
-            const recordingConfig = await showRecordingConfigPopup(audioDevices);
+                const recordingChoice = await showRecordingChoiceDialog();
+                
+                if (recordingChoice.cancelled) {
+                    console.log('FlyThroughTool: User cancelled flythrough');
+                    ToolManagementService.deactivateCurrentTool();
+                    return;
+                }
 
-            if (recordingConfig.cancelled) {
-                console.log('FlyThroughTool: Recording configuration cancelled');
-                ToolManagementService.deactivateCurrentTool();
-                return;
-            }
+                if (recordingChoice.enableRecording) {
+                    const recordingConfig = await showRecordingConfigPopup(audioDevices);
+                    
+                    if (recordingConfig.cancelled) {
+                        console.log('FlyThroughTool: Recording configuration cancelled');
+                        ToolManagementService.deactivateCurrentTool();
+                        return;
+                    }
 
-            if (recordingConfig.audioSource !== 'skip') {
-                proceedWithRecording = true;
-                ScreenRecordingService.updateConfig({ audioSource: recordingConfig.audioSource });
+                    if (recordingConfig.audioSource !== 'skip') {
+                        proceedWithRecording = true;
+                        ScreenRecordingService.updateConfig({ audioSource: recordingConfig.audioSource });
+                    }
+                }
+            } catch (setupError) {
+                console.warn('FlyThroughTool: Recording setup failed:', setupError);
+                // Continue without recording
+                proceedWithRecording = false;
             }
         } else {
-            // Recording is not supported, inform the user and ask if they want to continue
-            console.log('FlyThroughTool: Recording not supported, checking user preference');
-            let contextMessage = 'Screen recording is not available: ';
-            if (envInfo.protocol === 'http:' && envInfo.hostname !== 'localhost' && envInfo.hostname !== '127.0.0.1') {
-                contextMessage += 'Application is running on HTTP. Modern browsers require HTTPS for screen recording.';
-            } else {
-                contextMessage += 'Browser or environment limitations.';
-            }
-            contextMessage += '\n\nWould you like to continue with flythrough only (no recording)?';
-
+            // Recording is not supported - inform user and continue
+            console.log('FlyThroughTool: Recording not supported:', recordingStatus.reason);
+            
             const continueWithoutRecording = await showConfirmationDialog(
                 'Recording Not Available',
-                contextMessage,
+                `Screen recording is not available in this environment:\n\n${recordingStatus.reason}\n\nWould you like to continue with flythrough only (no recording)?`,
                 'Continue Without Recording',
                 'Cancel Flythrough'
             );
@@ -355,7 +400,7 @@ async function handleFlythroughSetupAndRecording(drawingPoints, config) {
             }
         }
 
-        // Step 2: Attempt to start recording if the user opted in.
+        // Step 2: Attempt to start recording if user opted in
         let recordingStarted = false;
         if (proceedWithRecording) {
             PopupService.showToolInstruction(
@@ -367,9 +412,11 @@ async function handleFlythroughSetupAndRecording(drawingPoints, config) {
             try {
                 await new Promise(resolve => setTimeout(resolve, 500));
                 recordingStarted = await ScreenRecordingService.startRecording();
+                
                 if (!recordingStarted) {
                     throw new Error("Recording failed to start - no stream created");
                 }
+                
                 console.log("FlyThroughTool: Screen recording started successfully");
                 setToolState({ isRecordingActive: true });
                 PopupService.showToolInstruction(
@@ -380,7 +427,24 @@ async function handleFlythroughSetupAndRecording(drawingPoints, config) {
                 await new Promise(resolve => setTimeout(resolve, 1000));
             } catch (recordingError) {
                 console.error("FlyThroughTool: Recording failed:", recordingError);
-                let errorMessage = `Screen recording failed: ${recordingError.message}\n\nWould you like to continue the flythrough without recording?`;
+                
+                // More specific error handling for different types of failures
+                let errorMessage = 'Screen recording failed to start.\n\n';
+                
+                if (recordingError.message && recordingError.message.includes('not supported')) {
+                    errorMessage += 'This can happen when:\n' +
+                                   '• Browser has disabled screen recording features\n' +
+                                   '• Running in a restricted environment\n' +
+                                   '• Extensions are blocking screen capture\n' +
+                                   '• Security policies prevent recording\n\n';
+                } else if (recordingError.message && recordingError.message.includes('permission')) {
+                    errorMessage += 'Screen recording permission was denied.\n\n';
+                } else {
+                    errorMessage += `Error: ${recordingError.message}\n\n`;
+                }
+                
+                errorMessage += 'Would you like to continue the flythrough without recording?';
+
                 const continueWithoutRecording = await showConfirmationDialog(
                     'Recording Failed',
                     errorMessage,
@@ -393,16 +457,18 @@ async function handleFlythroughSetupAndRecording(drawingPoints, config) {
                     return;
                 }
                 recordingStarted = false;
+                setToolState({ isRecordingActive: false });
             }
         }
 
-        // Step 3: All checks passed, execute the flythrough
+        // Step 3: Execute the flythrough (with or without recording)
+        console.log('FlyThroughTool: Proceeding with flythrough. Recording active:', recordingStarted);
         await executeFlythrough(drawingPoints, config, recordingStarted);
 
     } catch (error) {
         console.error("FlyThroughTool: Critical error during setup:", error);
 
-        // Ensure recording is stopped
+        // Ensure recording is stopped if it was started
         if (getToolState().isRecordingActive) {
             try {
                 await ScreenRecordingService.stopRecording();
@@ -421,6 +487,26 @@ async function handleFlythroughSetupAndRecording(drawingPoints, config) {
     }
 }
 
+/**
+ * Show initial recording choice dialog
+ */
+async function showRecordingChoiceDialog() {
+    return new Promise((resolve) => {
+        PopupService.showConfirmation(
+            'Would you like to record this flythrough?\n\nScreen recording will capture the entire flythrough animation. You can choose audio settings in the next step.',
+            'Record Flythrough?',
+            'Yes, Record Flythrough',
+            'No, Flythrough Only'
+        ).then((enableRecording) => {
+            resolve({
+                cancelled: false,
+                enableRecording: enableRecording
+            });
+        }).catch(() => {
+            resolve({ cancelled: true });
+        });
+    });
+}
 
 /**
  * Execute the actual flythrough
@@ -539,7 +625,7 @@ async function handleFlythroughCompletion(sampledPositions, config, totalDuratio
 
         } catch (recordingError) {
             console.error('FlyThroughTool: Error stopping recording:', recordingError);
-            PopupService.showNotification(`Recording failed: ${recordingError.message}`, true);
+            PopupService.showNotification(`Recording processing failed: ${recordingError.message}`, true);
             setToolState({ isRecordingActive: false });
         }
     } else {
@@ -612,7 +698,7 @@ async function handleFlythroughCompletion(sampledPositions, config, totalDuratio
  * Show recording configuration popup
  */
 async function showRecordingConfigPopup(audioDevices) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
         PopupService.show({
             component: markRaw(RecordingConfigPopup),
             title: "Configure Screen Recording for Flythrough",
@@ -621,14 +707,14 @@ async function showRecordingConfigPopup(audioDevices) {
                 currentConfig: {
                     audioSource: 'none'
                 },
-                onStart: (config) => { // <-- Renamed to onStart to match the prop name
+                onStart: (config) => {
                     console.log('FlyThroughTool: Recording config selected:', config);
                     resolve({
                         cancelled: false,
                         audioSource: config.audioSource
                     });
                 },
-                onCancel: () => { // <-- This prop is now correctly provided
+                onCancel: () => {
                     console.log('FlyThroughTool: Recording config cancelled');
                     resolve({ cancelled: true });
                 }
@@ -641,7 +727,7 @@ async function showRecordingConfigPopup(audioDevices) {
  * Show confirmation dialog
  */
 async function showConfirmationDialog(title, message, confirmText, cancelText) {
-    return PopupService.showConfirmation( // <-- Corrected to return the promise directly
+    return PopupService.showConfirmation(
         message,
         title,
         confirmText,
