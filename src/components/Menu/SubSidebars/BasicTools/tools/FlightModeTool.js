@@ -1,3 +1,5 @@
+// src/components/Menu/SubSidebars/BasicTools/tools/FlightModeTool.js - Updated with shared recording helper
+
 import * as Cesium from 'cesium';
 import {
     clearDrawing,
@@ -8,7 +10,7 @@ import {
 import { PopupService } from '../../../../../services/PopupService.js';
 import { ToolManagementService } from '../../../../../services/ToolManagementService.js';
 import { MapService } from '../../../../../services/MapService.js';
-import { ScreenRecordingService } from '../../../../../services/ScreenRecordingService.js'; // Import the recording service
+import { ScreenRecordingHelper } from '../tool-helpers/ScreenRecordingHelper.js';
 
 // Default flight configuration
 const DEFAULT_FLIGHT_CONFIG = {
@@ -80,17 +82,16 @@ export function setupFlightModeTool(viewer) {
         keyboardHandler: null,
         startPosition: null,
         flightStartTime: null,
-        isRecordingActive: false, // New state to track if recording is active
-        recordedBlob: null, // To store the blob after recording stops
-        recordedInfo: null, // To store info after recording stops
+        isRecordingActive: false,
+        recordedBlob: null,
+        recordedInfo: null,
     });
 
     const { handler } = getToolState();
     const toolName = "Flight Mode";
 
-    // Show detailed initial instructions popup
-    PopupService.showToolInstruction(
-        `📋 **FLIGHT MODE INSTRUCTIONS:**\n\n` +
+    // Show detailed initial instructions popup with recording context
+    const baseInstructions = `📋 **FLIGHT MODE INSTRUCTIONS:**\n\n` +
         `🖱️ **MOUSE CONTROLS:**\n` +
         `• Left-click anywhere to START flight mode\n` +
         `• Right-click anywhere to STOP flight mode\n\n` +
@@ -100,7 +101,12 @@ export function setupFlightModeTool(viewer) {
         `• E or C: Move down\n` +
         `• I/J/K/L: Look up/left/down/right\n` +
         `• Hold Shift: Move faster (2x speed)\n\n` +
-        `✈️ Ready to fly? Left-click to begin!`,
+        `✈️ Ready to fly? Left-click to begin`;
+
+    const enhancedInstructions = ScreenRecordingHelper.addRecordingContextToInstructions(baseInstructions, toolName);
+
+    PopupService.showToolInstruction(
+        enhancedInstructions,
         "Flight Mode Setup",
         true // Show dismiss button
     );
@@ -153,57 +159,47 @@ function getCoreManagerFromViewer(viewer) {
 
     console.error('FlightModeTool: ❌ CesiumCoreManager not found in any expected location');
     console.error('FlightModeTool: Debug information:');
-    console.error(`  • viewer exists: ${!!viewer}`);
-    console.error(`  • viewer._coreManager exists: ${!!viewer?._coreManager}`);
-    console.error(`  • window.cesiumCoreManager exists: ${!!window.cesiumCoreManager}`);
-    console.error(`  • MapService.getCoreManager() exists: ${!!MapService.getCoreManager()}`);
+    console.error(`  • viewer exists: ${!!viewer}`);
+    console.error(`  • viewer._coreManager exists: ${!!viewer?._coreManager}`);
+    console.error(`  • window.cesiumCoreManager exists: ${!!window.cesiumCoreManager}`);
+    console.error(`  • MapService.getCoreManager() exists: ${!!MapService.getCoreManager()}`);
 
     return null;
 }
 
 /**
- * Starts the flight mode with keyboard controls
+ * Starts the flight mode with keyboard controls and recording
  */
 async function startFlightMode(toolName) {
     console.log("FlightModeTool: Starting flight mode");
 
-    // Step 1: Prompt user for audio device selection
-    const audioDevices = ScreenRecordingService.availableAudioDevices$.getValue();
-    let selectedAudioDeviceId = 'none'; // Default to no audio
-
-    await new Promise((resolve, reject) => {
-        PopupService.showSelectAudioDeviceForm({
-            audioDevices: audioDevices,
-            onSelect: (deviceId) => {
-                selectedAudioDeviceId = deviceId;
-                resolve();
-            },
-            onCancel: () => {
-                reject(new Error("Audio device selection cancelled. Flight mode will not start."));
-            }
-        });
-    });
-
-    // Update ScreenRecordingService config with the selected audio device
-    ScreenRecordingService.updateConfig({ audioSource: selectedAudioDeviceId });
-
     try {
-        // Step 2: Start screen recording
-        const recordingStarted = await ScreenRecordingService.startRecording();
-        if (!recordingStarted) {
-            throw new Error("Screen recording failed to start. Flight mode cancelled.");
+        // Use shared recording helper for setup
+        const recordingSetup = await ScreenRecordingHelper.initializeRecording();
+        
+        if (recordingSetup.cancelled) {
+            console.log('FlightModeTool: User cancelled flight mode');
+            ToolManagementService.deactivateCurrentTool();
+            return;
         }
-        setToolState({ isRecordingActive: true });
 
         const { viewer, coreManager } = getToolState();
         const startPosition = coreManager.getCameraState().position.clone();
         const startTime = Date.now();
 
+        // Set flight as active first
         setToolState({
             flightActive: true,
             startPosition: startPosition,
             flightStartTime: startTime
         });
+
+        // Start recording if user opted in
+        let recordingActive = false;
+        if (recordingSetup.recordingEnabled) {
+            recordingActive = await ScreenRecordingHelper.startRecording('Flight Mode');
+            setToolState({ isRecordingActive: recordingActive });
+        }
 
         // Set up keyboard event listeners
         setupKeyboardControls();
@@ -214,8 +210,9 @@ async function startFlightMode(toolName) {
         // Update instructions
         const { flightConfig } = getToolState();
         if (flightConfig.showInstructions) {
+            const recordingStatus = recordingActive ? 'Recording is in progress.' : 'No recording active.';
             PopupService.showToolInstruction(
-                `Flight Mode Active! Recording is in progress. WASD/Arrows: Move | IJKL: Look | Q/E: Up/Down | Shift: Faster | Right-click: Stop`,
+                `Flight Mode Active! ${recordingStatus} WASD/Arrows: Move | IJKL: Look | Q/E: Up/Down | Shift: Faster | Right-click: Stop`,
                 "Flight Controls",
                 false
             );
@@ -225,15 +222,15 @@ async function startFlightMode(toolName) {
         coreManager.setDefaultCameraControlsEnabled(false);
 
         console.log("FlightModeTool: Flight mode started successfully");
+        
     } catch (error) {
-        console.error("FlightModeTool: Error during flight mode start or recording:", error);
+        console.error("FlightModeTool: Error during flight mode start:", error);
         PopupService.showToolInstruction(
             `Flight mode failed to start: ${error.message || 'Unknown error'}`,
             "Flight Mode Error",
             true
         );
         ToolManagementService.deactivateCurrentTool();
-        return;
     }
 }
 
@@ -256,38 +253,24 @@ async function stopFlightMode(toolName) {
     // Restore default camera controls using CesiumCoreManager
     coreManager.setDefaultCameraControlsEnabled(true);
 
-    // Stop recording if active
+    // Handle recording stop using shared helper
     if (isRecordingActive) {
-        PopupService.showToolInstruction(
-            'Flight mode stopped. Stopping recording...',
-            'Finishing Up',
-            false
-        );
         try {
-            const { blob, info } = await ScreenRecordingService.stopRecording();
-            setToolState({ isRecordingActive: false, recordedBlob: blob, recordedInfo: info });
-
-            // Offer download after recording stops
-            PopupService.showDownloadRecordingForm({
-                recordingInfo: info,
-                onDownload: () => {
-                    ScreenRecordingService.downloadRecording(blob, info.timestamp);
-                },
-                onCancel: () => {
-                    console.log("FlightModeTool: Download cancelled by user.");
+            await ScreenRecordingHelper.completeRecording(
+                'Flight Mode',
+                (result) => {
+                    setToolState({
+                        isRecordingActive: false,
+                        recordedBlob: result.success ? result.blob : null,
+                        recordedInfo: result.success ? result.info : null
+                    });
                 }
-            });
-
-        } catch (recordingError) {
-            console.error('FlightModeTool: Error stopping recording:', recordingError);
-            PopupService.showToolInstruction(
-                `Recording failed to stop or save: ${recordingError.message}`,
-                'Recording Error',
-                true
             );
+        } catch (recordingError) {
+            console.error('FlightModeTool: Error handling recording completion:', recordingError);
+            setToolState({ isRecordingActive: false });
         }
     }
-
 
     // Update state
     setToolState({
@@ -297,8 +280,8 @@ async function stopFlightMode(toolName) {
         keyboardHandler: null
     });
 
-    // Show completion message
-    if (flightStartTime) {
+    // Show completion message if no recording was processed
+    if (flightStartTime && !isRecordingActive) {
         const flightDuration = ((Date.now() - flightStartTime) / 1000).toFixed(1);
         PopupService.showToolInstruction(
             `Flight mode stopped. Flight duration: ${flightDuration}s`,
@@ -492,21 +475,11 @@ export async function stopFlightModeTool() {
     // Remove keyboard controls
     removeKeyboardControls();
 
-    // Stop recording if active and a clean stop has not occurred
+    // Handle emergency recording stop using shared helper
     if (isRecordingActive) {
-      PopupService.showToolInstruction('Unexpected cleanup. Stopping recording...', 'Finishing Up', false);
-      try {
-        const { blob, info } = await ScreenRecordingService.stopRecording();
-        PopupService.showDownloadRecordingForm({
-          recordingInfo: info,
-          onDownload: () => ScreenRecordingService.downloadRecording(blob, info.timestamp),
-          onCancel: () => console.log("FlightModeTool: Download cancelled during cleanup."),
-        });
-      } catch (error) {
-        console.error('FlightModeTool: Error during unexpected recording stop:', error);
-      }
+        await ScreenRecordingHelper.emergencyStopRecording('Flight Mode');
+        setToolState({ isRecordingActive: false });
     }
-
 
     // Clear drawing and remove event handlers
     clearDrawing();
