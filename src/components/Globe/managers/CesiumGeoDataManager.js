@@ -1,5 +1,5 @@
 import * as Cesium from "cesium";
-import { INDIA_BBOX } from "./CesiumCoreManager"; // Import INDIA_BBOX from CesiumCoreManager
+import { INDIA_BBOX } from "./CesiumCoreManager"; // Assuming this is defined in this file
 
 class CesiumGeoDataManager {
   constructor(viewer) {
@@ -12,72 +12,42 @@ class CesiumGeoDataManager {
     this.cesiumLayersMap = new Map();
     this.currentLocationMarkerEntity = null;
 
-    // Ensure terrain is enabled for accurate model placement
     if (!this.viewer.terrainProvider) {
       console.warn(
         "CesiumGeoDataManager: Viewer does not have a terrain provider. Models might not be placed accurately on the ground."
       );
-      // You might want to automatically add one if not present, e.g.:
-      // this.viewer.terrainProvider = Cesium.createWorldTerrain();
     }
   }
-  // ...
-  async _addKmlLayer(layerModel) {
-    // The result now contains two items
-    const result = await renderAndZoomKml({
-      viewer: this.viewer,
-      layerModel: layerModel,
-    });
-
-    if (result && result.kmlDataSource) {
-      // Store both items so you can remove them both later
-      this.activeLayers.set(layerModel.id, {
-        kml: result.kmlDataSource,
-        marker: result.markerEntity,
-      });
-    }
-  }
-  // ...
   /**
    * Adds a geospatial layer to the Cesium globe based on its type.
-   * Stores a Promise in the map until the layer is fully loaded.
    * @param {object} layerEntry - The full Data or Service model.
    * @param {number} [imageryIndex] - Optional. For imagery layers, the exact index at which to insert the layer.
-   * @returns {Promise<Cesium.ImageryLayer|Cesium.DataSource|Cesium.Cesium3DTileset|Cesium.Entity|null>} The Cesium layer object, or null if failed.
+   * @returns {Promise<object|null>} The primary Cesium layer object.
    */
   async addLayer(layerEntry, imageryIndex) {
-    // IMPORTANT: The `reconcileLayers` method now handles the "already known" check
-    // by clearing everything and re-adding. This specific check here might be redundant
-    // if `addLayer` is always called via `reconcileLayers` after a clear.
-    // However, keeping it for robustness if `addLayer` is called directly elsewhere.
     if (this.cesiumLayersMap.has(layerEntry.id)) {
       console.warn(
         `[DEBUG] CesiumGeoDataManager: Layer with ID ${layerEntry.id} already known. Updating visibility.`
       );
-      const existingLayer = this.cesiumLayersMap.get(layerEntry.id);
-      // Wait for the layer to resolve if it's a promise
-      const resolvedLayer =
-        existingLayer instanceof Promise ? await existingLayer : existingLayer;
-
-      if (resolvedLayer) {
-        if (resolvedLayer instanceof Cesium.Entity && resolvedLayer.model) {
-          resolvedLayer.model.show = layerEntry.isVisible;
-        } else {
-          resolvedLayer.show = layerEntry.isVisible;
-        }
+      const existingLayer = await Promise.resolve(
+        this.cesiumLayersMap.get(layerEntry.id)
+      );
+      if (existingLayer) {
+        this.toggleLayerVisibility(layerEntry.id, layerEntry.isVisible);
       }
-      return resolvedLayer;
+      return existingLayer;
     }
 
     let cesiumLayer = null;
-    let modelUri = null; // Declare here so it's accessible for cleanup in catch blocks
+    let modelUri = null;
 
     try {
       if (
         layerEntry.type === "geojson" &&
-        (layerEntry.srcInfo?.jsonContent || layerEntry.url)
+        (layerEntry.srcInfo?.geojsonDetails?.jsonContent || layerEntry.url)
       ) {
-        const source = layerEntry.srcInfo?.jsonContent || layerEntry.url;
+        const source =
+          layerEntry.srcInfo?.geojsonDetails?.jsonContent || layerEntry.url;
         const ds = await Cesium.GeoJsonDataSource.load(source, {
           stroke: Cesium.Color.HOTPINK,
           fill: Cesium.Color.PINK.withAlpha(0.5),
@@ -111,13 +81,17 @@ class CesiumGeoDataManager {
         this.viewer.dataSources.add(ds);
         cesiumLayer = ds;
         console.log(
-          `[DEBUG] CesiumGeoDataManager: Added GeoJSON layer: ${layerEntry.name}. Visible: ${ds.show}. Markers replaced with pointers.`
+          `[DEBUG] CesiumGeoDataManager: Added GeoJSON layer: ${layerEntry.name}.`
         );
+
+        // --- FIX for GeoJSON: Auto-zoom after adding ---
+        this.viewer.flyTo(ds);
+        // --- UPDATED KML SECTION to add marker ---
       } else if (
         layerEntry.type === "kml" &&
-        (layerEntry.srcInfo?.kmlContent || layerEntry.url)
+        layerEntry.srcInfo?.kmlDetails?.rawContent
       ) {
-        const source = layerEntry.srcInfo?.kmlContent || layerEntry.url;
+        const source = layerEntry.srcInfo.kmlDetails.rawContent;
         const ds = await Cesium.KmlDataSource.load(source, {
           camera: this.viewer.camera,
           canvas: this.viewer.canvas,
@@ -126,47 +100,69 @@ class CesiumGeoDataManager {
         ds.name = layerEntry.name;
         ds.show = layerEntry.isVisible;
         this.viewer.dataSources.add(ds);
-        cesiumLayer = ds;
+
+        let markerEntity = null;
+        const placemarks = layerEntry.srcInfo.kmlDetails.placemarks;
+        if (placemarks && placemarks.length > 0) {
+          const firstPlacemark = placemarks.find((p) => p.coordinates);
+          if (firstPlacemark) {
+            const { lon, lat, alt } = firstPlacemark.coordinates;
+            markerEntity = this.viewer.entities.add({
+              name: `${layerEntry.name} - Marker`,
+              position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
+              point: {
+                pixelSize: 12,
+                color: Cesium.Color.DODGERBLUE,
+                outlineColor: Cesium.Color.WHITE,
+                outlineWidth: 2,
+                disableDepthTestDistance: Number.POSITIVE_INFINITY,
+              },
+              show: layerEntry.isVisible,
+            });
+          }
+        }
+
+        // Store both the data source and the marker as a single entry
+        cesiumLayer = { dataSource: ds, marker: markerEntity };
         console.log(
-          `[DEBUG] CesiumGeoDataManager: Added KML layer: ${layerEntry.name}. Visible: ${ds.show}`
+          `[DEBUG] CesiumGeoDataManager: Added KML layer and marker: ${layerEntry.name}.`
         );
+
+        // --- FIX for KML: Auto-zoom after adding ---
+        this.viewer.flyTo(ds);
       } else if (
         layerEntry.type === "czml" &&
-        (layerEntry.srcInfo?.jsonContent || layerEntry.url)
+        (layerEntry.srcInfo?.czmlDetails?.czmlContent || layerEntry.url)
       ) {
-        const source = layerEntry.srcInfo?.jsonContent || layerEntry.url;
+        const source =
+          layerEntry.srcInfo?.czmlDetails?.czmlContent || layerEntry.url;
         const ds = await Cesium.CzmlDataSource.load(source);
-        ds.name = layerEntry.name;
+
+        // --- FIX for CZML: Cannot set .name property, it's read-only ---
+        // ds.name = layerEntry.name; // This line is removed
+
         ds.show = layerEntry.isVisible;
         this.viewer.dataSources.add(ds);
         cesiumLayer = ds;
+        this.viewer.clock.shouldAnimate = true;
         console.log(
-          `[DEBUG] CesiumGeoDataManager: Added CZML layer: ${layerEntry.name}. Visible: ${ds.show}`
+          `[DEBUG] CesiumGeoDataManager: Added CZML layer: ${layerEntry.name}.`
         );
-      } else if (layerEntry.type === "3dtiles" && layerEntry.url) {
-        try {
-          const tileset = await Cesium.Cesium3DTileset.fromUrl(layerEntry.url);
-          tileset.name = layerEntry.name;
-          tileset.show = layerEntry.isVisible;
-          this.viewer.scene.primitives.add(tileset);
-          cesiumLayer = tileset;
-          console.log(
-            `[DEBUG] CesiumGeoDataManager: Added 3D Tileset: ${layerEntry.name}. Visible: ${tileset.show}`
-          );
-        } catch (tilesetError) {
-          console.error(
-            `[ERROR] CesiumGeoDataManager: Failed to load 3D Tileset ${layerEntry.name}:`,
-            tilesetError
-          );
-          return null;
-        }
-      }
-      // Add 3D Model (glTF/GLB) support from URL or local file content
-      else if (
-        layerEntry.type === "gltf" ||
-        layerEntry.type === "glb" ||
-        layerEntry.type === "3dmodel"
-      ) {
+      } else if (layerEntry.type === "3dtile" && layerEntry.srcInfo.url) {
+        const tileset = await Cesium.Cesium3DTileset.fromUrl(
+          layerEntry.srcInfo.url
+        );
+        tileset.name = layerEntry.name;
+        tileset.show = layerEntry.isVisible;
+        this.viewer.scene.primitives.add(tileset);
+        cesiumLayer = tileset;
+        console.log(
+          `[DEBUG] CesiumGeoDataManager: Added 3D Tileset: ${layerEntry.name}.`
+        );
+
+        // --- FIX for 3D Tile: Auto-zoom after adding ---
+        this.viewer.flyTo(tileset);
+      } else if (["gltf", "glb", "3dmodel"].includes(layerEntry.type)) {
         console.log(
           `[DEBUG] CesiumGeoDataManager: Attempting to add 3D Model: ${layerEntry.name}`
         );
@@ -304,10 +300,9 @@ class CesiumGeoDataManager {
               uri: modelUri,
               show: layerEntry.isVisible,
               scale: modelScale,
-              minimumPixelSize: modelMinPixelSize,
+              // --- FIX for 3D Model: Remove minimumPixelSize to allow realistic scaling ---
+              // minimumPixelSize: modelMinPixelSize,
               maximumScale: modelMaxScale,
-              maximumScreenSpaceError:
-                layerEntry.srcInfo?.maximumScreenSpaceError || 16,
               heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
             },
             distanceDisplayCondition: new Cesium.DistanceDisplayCondition(
@@ -439,13 +434,13 @@ class CesiumGeoDataManager {
         return cesiumLayer;
       } else {
         console.warn(
-          `[WARN] CesiumGeoDataManager: addLayer finished without creating a cesiumLayer for ${layerEntry.name} (Type: ${layerEntry.type}). This might indicate an unhandled condition.`
+          `[WARN] CesiumGeoDataManager: addLayer finished without creating a cesiumLayer for ${layerEntry.name}.`
         );
         return null;
       }
     } catch (error) {
       console.error(
-        `[CRITICAL ERROR] CesiumGeoDataManager: Uncaught error while attempting to add layer ${layerEntry.name} (Type: ${layerEntry.type}):`,
+        `[CRITICAL ERROR] CesiumGeoDataManager: Uncaught error while adding layer ${layerEntry.name}:`,
         error
       );
       if (modelUri && modelUri.startsWith("blob:")) {
@@ -463,10 +458,17 @@ class CesiumGeoDataManager {
   removeLayer(layerId) {
     const cesiumLayer = this.cesiumLayersMap.get(layerId);
     if (cesiumLayer) {
-      if (cesiumLayer instanceof Cesium.ImageryLayer) {
-        this.viewer.imageryLayers.remove(cesiumLayer, true);
+      // --- FIX --- Corrected the logic chain to handle the KML object first.
+      if (
+        cesiumLayer.dataSource &&
+        cesiumLayer.dataSource instanceof Cesium.KmlDataSource
+      ) {
+        this.viewer.dataSources.remove(cesiumLayer.dataSource, true);
+        if (cesiumLayer.marker) {
+          this.viewer.entities.remove(cesiumLayer.marker);
+        }
         console.log(
-          `[DEBUG] CesiumGeoDataManager: Removed ImageryLayer with ID: ${layerId}`
+          `[DEBUG] CesiumGeoDataManager: Removed KML composite layer with ID: ${layerId}`
         );
       } else if (cesiumLayer instanceof Cesium.DataSource) {
         this.viewer.dataSources.remove(cesiumLayer, true);
@@ -515,17 +517,21 @@ class CesiumGeoDataManager {
   toggleLayerVisibility(layerId, isVisible) {
     const cesiumLayer = this.cesiumLayersMap.get(layerId);
     if (cesiumLayer) {
-      if (cesiumLayer instanceof Cesium.Entity && cesiumLayer.model) {
+      // Check if it's our special KML object
+      if (cesiumLayer.dataSource instanceof Cesium.KmlDataSource) {
+        cesiumLayer.dataSource.show = isVisible;
+        if (cesiumLayer.marker) {
+          cesiumLayer.marker.show = isVisible;
+        }
+      }
+      // Your existing visibility logic for other types
+      else if (cesiumLayer instanceof Cesium.Entity && cesiumLayer.model) {
         cesiumLayer.model.show = isVisible;
       } else {
         cesiumLayer.show = isVisible;
       }
       console.log(
         `[DEBUG] CesiumGeoDataManager: Toggled visibility for layer ${layerId} to ${isVisible}`
-      );
-    } else {
-      console.warn(
-        `[WARN] CesiumGeoDataManager: Layer with ID ${layerId} not found to toggle visibility.`
       );
     }
   }
@@ -651,6 +657,7 @@ class CesiumGeoDataManager {
       );
       return;
     }
+    const target = cesiumLayer.dataSource || cesiumLayer;
 
     if (cesiumLayer instanceof Cesium.ImageryLayer) {
       if (layerEntry.bbox) {
@@ -678,32 +685,26 @@ class CesiumGeoDataManager {
         );
         this.viewer.camera.flyHome();
       }
-    } else if (cesiumLayer instanceof Cesium.DataSource) {
-      if (cesiumLayer.entities.values.length > 0) {
-        this.viewer.flyTo(cesiumLayer.entities, { duration: 1.5 });
+    } else if (target instanceof Cesium.DataSource) {
+      if (target.entities.values.length > 0) {
+        this.viewer.flyTo(target, { duration: 1.5 });
         console.log(
           `[DEBUG] CesiumGeoDataManager: Zoomed to GeoJSON/KML/CZML layer: ${layerEntry.name}`
         );
       } else {
-        console.warn(
-          `[WARN] CesiumGeoDataManager: GeoJSON/KML/CZML layer ${layerEntry.name} has no entities to zoom to.`
-        );
         this.viewer.camera.flyHome();
       }
-    } else if (cesiumLayer instanceof Cesium.Cesium3DTileset) {
-      this.viewer.flyTo(cesiumLayer, { duration: 1.5 });
+    } else if (target instanceof Cesium.Cesium3DTileset) {
+      this.viewer.flyTo(target, { duration: 1.5 });
       console.log(
         `[DEBUG] CesiumGeoDataManager: Zoomed to 3D Tileset: ${layerEntry.name}`
       );
-    } else if (cesiumLayer instanceof Cesium.Entity && cesiumLayer.model) {
-      this.viewer.flyTo(cesiumLayer, { duration: 1.5 });
+    } else if (target instanceof Cesium.Entity && target.model) {
+      this.viewer.flyTo(target, { duration: 1.5 });
       console.log(
         `[DEBUG] CesiumGeoDataManager: Zoomed to 3D Model: ${layerEntry.name}`
       );
     } else {
-      console.warn(
-        `[WARN] CesiumGeoDataManager: Unsupported layer type for zooming: ${layerEntry.type}`
-      );
       this.viewer.camera.flyHome();
     }
   }
