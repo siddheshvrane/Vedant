@@ -1,12 +1,17 @@
-// electron/main.js
-
 const { app, BrowserWindow, session, Menu } = require('electron');
 const path = require('path');
 
-// CRITICAL: Import the recording handler to enable screen recording
-require('./electron-recording-main.js');
+// Check if running in development or production
+const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
-function createWindow () {
+// CRITICAL: Import the recording handler to enable screen recording
+try {
+  require('./electron-recording-main.js');
+} catch (error) {
+  console.log('Recording handler not found, continuing without it');
+}
+
+function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -18,41 +23,67 @@ function createWindow () {
     autoHideMenuBar: true,
 
     // App icon
-    icon: path.join(__dirname, '../src/assets/icon.png'),
+    icon: path.join(__dirname, isDev ? '../src/assets/icon.png' : '../build/icon.png'),
 
     webPreferences: {
-      // CRITICAL: Use the recording-enabled preload script
+      // Use the recording-enabled preload script if available
       preload: path.join(__dirname, 'electron-preload-recording.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: false, // For debugging - remove in production
-      enableRemoteModule: false
+      webSecurity: !isDev, // Disable only in development
+      enableRemoteModule: false,
+      devTools: isDev // Enable DevTools only in development
     }
   });
 
   // Remove default menu bar
   Menu.setApplicationMenu(null);
 
-  // Load the Vite development server URL
-  mainWindow.loadURL('http://localhost:5173');
+  // Load the app
+  if (isDev) {
+    // Development mode: Load from Vite dev server
+    mainWindow.loadURL('http://localhost:5173').catch(err => {
+      console.error('Failed to load dev server:', err);
+      // Fallback to built files if dev server is not running
+      loadProductionApp(mainWindow);
+    });
 
-  // Open DevTools for debugging
-  mainWindow.webContents.openDevTools();
+    // Open DevTools for debugging in development
+    mainWindow.webContents.openDevTools();
+  } else {
+    // Production mode: Load built files
+    loadProductionApp(mainWindow);
+  }
 
   // Debug logging to verify setup
   mainWindow.webContents.once('did-finish-load', () => {
     console.log('🚀 Electron app loaded successfully');
-    console.log('📁 Preload script path:', path.join(__dirname, 'electron-preload-recording.js'));
+    console.log('📁 Running in', isDev ? 'DEVELOPMENT' : 'PRODUCTION', 'mode');
     
-    // Test if recording APIs are available
-    mainWindow.webContents.executeJavaScript(`
-      console.log('🔍 Testing window.electron availability:', !!window.electron);
-      if (window.electron) {
-        console.log('✅ window.electron methods:', Object.keys(window.electron));
-      } else {
-        console.error('❌ window.electron is not available - preload script failed');
-      }
-    `);
+    if (isDev) {
+      // Test if recording APIs are available (dev only)
+      mainWindow.webContents.executeJavaScript(`
+        console.log('🔍 Testing window.electron availability:', !!window.electron);
+        if (window.electron) {
+          console.log('✅ window.electron methods:', Object.keys(window.electron));
+        } else {
+          console.error('❌ window.electron is not available - preload script failed');
+        }
+      `);
+    }
+  });
+
+  // Handle external links
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    require('electron').shell.openExternal(url);
+    return { action: 'deny' };
+  });
+}
+
+function loadProductionApp(window) {
+  const indexPath = path.join(__dirname, '../dist/index.html');
+  window.loadFile(indexPath).catch(err => {
+    console.error('Failed to load production app:', err);
   });
 }
 

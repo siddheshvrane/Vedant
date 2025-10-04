@@ -1,16 +1,23 @@
 {
   "name": "new-vedant-app",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "main": "electron/main.js",
   "type": "commonjs",
+  "author": "Vedant",
+  "description": "Vedant Earth Visualization - Desktop Application",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "electron": "electron .",
     "start": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && npm run electron\"",
-    "electron-build": "electron-builder"
+    "electron:build": "npm run build && electron-builder",
+    "electron-build": "npm run electron:build",
+    "electron:build:win": "npm run build && electron-builder --win",
+    "electron:build:mac": "npm run build && electron-builder --mac",
+    "electron:build:linux": "npm run build && electron-builder --linux",
+    "electron:build:all": "npm run build && electron-builder -mwl"
   },
   "dependencies": {
     "bootstrap": "^5.3.3",
@@ -23,7 +30,7 @@
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.4",
     "concurrently": "^8.2.2",
-    "electron": "^29.2.0",
+    "electron": "^38.2.1",
     "electron-builder": "^24.13.3",
     "vite": "^6.0.0",
     "vite-plugin-cesium": "^1.2.2",
@@ -34,25 +41,16 @@
     "productName": "Vedant Earth Visualization",
     "copyright": "Copyright © 2025 Vedant",
     "directories": {
-      "output": "dist-electron"
+      "output": "release",
+      "buildResources": "build"
     },
+    "icon": "build/icon.ico",
     "files": [
       "dist/**/*",
-      "electron/main.js",
-      "electron/preload.js",
-      "src/assets/icon.png",
-      "src/lib/**/*",
-      "public/index.html"
+      "electron/**/*",
+      "!electron/node_modules",
+      "package.json"
     ],
-    "win": {
-      "icon": "src/assets/icon.png"
-    },
-    "mac": {
-      "icon": "src/assets/icon.png"
-    },
-    "linux": {
-      "icon": "src/assets/icon.png"
-    },
     "extraResources": [
       {
         "from": "node_modules/cesium/Build/Cesium",
@@ -61,6 +59,117 @@
           "**/*"
         ]
       }
-    ]
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-${arch}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Vedant Earth Visualization",
+      "perMachine": false,
+      "allowElevation": true
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.icns",
+      "category": "public.app-category.education",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "title": "${productName} ${version}",
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "rpm",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "snap",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icons",
+      "category": "Education",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "desktop": {
+        "Name": "Vedant Earth Visualization",
+        "Comment": "Earth Visualization Desktop Application",
+        "Categories": "Education;Science;Geography;"
+      }
+    },
+    "snap": {
+      "confinement": "classic",
+      "summary": "Vedant Earth Visualization Application"
+    }
   }
 }
