@@ -1,4 +1,4 @@
-// src/components/Menu/SubSidebars/BasicTools/tools/FlightModeTool.js - Updated with shared recording helper
+// src/components/Menu/SubSidebars/BasicTools/tools/FlightModeTool.js - Updated with screen recording
 
 import * as Cesium from 'cesium';
 import {
@@ -47,7 +47,7 @@ const FLIGHT_KEYS = {
  * @param {Cesium.Viewer} viewer The Cesium Viewer instance.
  */
 export function setupFlightModeTool(viewer) {
-    console.log("FlightModeTool: Setting up flight mode with keyboard controls");
+    console.log("FlightModeTool: Setting up flight mode with keyboard controls and recording");
 
     // Get CesiumCoreManager instance from viewer with comprehensive fallback
     const coreManager = getCoreManagerFromViewer(viewer);
@@ -85,22 +85,24 @@ export function setupFlightModeTool(viewer) {
         isRecordingActive: false,
         recordedBlob: null,
         recordedInfo: null,
+        flightModeId: null,
     });
 
     const { handler } = getToolState();
     const toolName = "Flight Mode";
 
-    // Show detailed initial instructions popup with recording context
+    // Show initial instructions with recording context
     const baseInstructions = `📋 **FLIGHT MODE INSTRUCTIONS:**\n\n` +
-        `🖱️ **MOUSE CONTROLS:**\n` +
-        `• Left-click anywhere to START flight mode\n` +
-        `• Right-click anywhere to STOP flight mode\n\n` +
-        `⌨️ **KEYBOARD CONTROLS (active during flight):**\n` +
+        `🖱️ **GET STARTED:**\n` +
+        `• Left-click anywhere to configure and START flight mode\n\n` +
+        `⌨️ **FLIGHT CONTROLS (active during flight):**\n` +
         `• WASD or Arrow Keys: Move forward/back/left/right\n` +
         `• Q or Space: Move up\n` +
         `• E or C: Move down\n` +
         `• I/J/K/L: Look up/left/down/right\n` +
         `• Hold Shift: Move faster (2x speed)\n\n` +
+        `🛑 **TO FINISH:**\n` +
+        `• Right-click to STOP flight and save recording\n\n` +
         `✈️ Ready to fly? Left-click to begin`;
 
     const enhancedInstructions = ScreenRecordingHelper.addRecordingContextToInstructions(baseInstructions, toolName);
@@ -111,19 +113,19 @@ export function setupFlightModeTool(viewer) {
         true // Show dismiss button
     );
 
-    // LEFT_CLICK Handler - Start flight mode
-    handler.setInputAction((click) => {
+    // LEFT_CLICK Handler - Start flight mode with recording setup
+    handler.setInputAction(async (click) => {
         const { flightActive } = getToolState();
         if (!flightActive) {
-            startFlightMode(toolName);
+            await initializeFlightModeWithRecording(toolName);
         }
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
-    // RIGHT_CLICK Handler - Stop flight mode
-    handler.setInputAction(() => {
+    // RIGHT_CLICK Handler - Stop flight mode and save recording
+    handler.setInputAction(async () => {
         const { flightActive } = getToolState();
         if (flightActive) {
-            stopFlightMode(toolName);
+            await stopFlightModeWithRecording(toolName);
         }
     }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
 }
@@ -134,100 +136,95 @@ export function setupFlightModeTool(viewer) {
 function getCoreManagerFromViewer(viewer) {
     console.log('FlightModeTool: Looking for CesiumCoreManager...');
 
-    // Method 1: Check if attached to viewer
-    if (viewer && viewer._coreManager) {
-        console.log('FlightModeTool: ✅ Found CesiumCoreManager attached to viewer');
-        return viewer._coreManager;
-    }
-
-    // Method 2: Check MapService first (most reliable)
+    // Method 1: Check MapService first (most reliable)
     try {
         const coreManagerFromMapService = MapService.getCoreManager();
         if (coreManagerFromMapService) {
-            console.log('FlightModeTool: ✅ Found CesiumCoreManager in MapService');
+            console.log('FlightModeTool: Found CesiumCoreManager in MapService');
             return coreManagerFromMapService;
         }
     } catch (error) {
         console.warn('FlightModeTool: Could not get core manager from MapService:', error);
     }
 
+    // Method 2: Check if attached to viewer
+    if (viewer && viewer._coreManager) {
+        console.log('FlightModeTool: Found CesiumCoreManager attached to viewer');
+        return viewer._coreManager;
+    }
+
     // Method 3: Check global reference
     if (window.cesiumCoreManager) {
-        console.log('FlightModeTool: ✅ Found CesiumCoreManager in global window');
+        console.log('FlightModeTool: Found CesiumCoreManager in global window');
         return window.cesiumCoreManager;
     }
 
-    console.error('FlightModeTool: ❌ CesiumCoreManager not found in any expected location');
-    console.error('FlightModeTool: Debug information:');
-    console.error(`  • viewer exists: ${!!viewer}`);
-    console.error(`  • viewer._coreManager exists: ${!!viewer?._coreManager}`);
-    console.error(`  • window.cesiumCoreManager exists: ${!!window.cesiumCoreManager}`);
-    console.error(`  • MapService.getCoreManager() exists: ${!!MapService.getCoreManager()}`);
-
+    console.error('FlightModeTool: CesiumCoreManager not found in any expected location');
     return null;
 }
 
 /**
- * Starts the flight mode with keyboard controls and recording
+ * Initialize flight mode with recording setup (similar to FlyThroughTool)
  */
-async function startFlightMode(toolName) {
-    console.log("FlightModeTool: Starting flight mode");
+async function initializeFlightModeWithRecording(toolName) {
+    console.log("FlightModeTool: Starting flight mode initialization with recording setup");
 
     try {
-        // Use shared recording helper for setup
-        const recordingSetup = await ScreenRecordingHelper.initializeRecording();
-        
-        if (recordingSetup.cancelled) {
-            console.log('FlightModeTool: User cancelled flight mode');
-            ToolManagementService.deactivateCurrentTool();
-            return;
-        }
+        // Generate unique flight mode ID
+        const flightModeId = `flightmode_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        setToolState({ flightModeId: flightModeId });
 
-        const { viewer, coreManager } = getToolState();
-        const startPosition = coreManager.getCameraState().position.clone();
-        const startTime = Date.now();
-
-        // Set flight as active first
-        setToolState({
-            flightActive: true,
-            startPosition: startPosition,
-            flightStartTime: startTime
-        });
-
-        // Start recording if user opted in
         let recordingActive = false;
-        if (recordingSetup.recordingEnabled) {
-            recordingActive = await ScreenRecordingHelper.startRecording('Flight Mode');
-            setToolState({ isRecordingActive: recordingActive });
-        }
 
-        // Set up keyboard event listeners
-        setupKeyboardControls();
+        // Use shared recording helper for setup
+        try {
+            const recordingSetup = await ScreenRecordingHelper.initializeRecording();
+            
+            if (recordingSetup.cancelled) {
+                console.log('FlightModeTool: User cancelled flight mode');
+                ToolManagementService.deactivateCurrentTool();
+                return;
+            }
 
-        // Start animation loop
-        startFlightAnimation();
-
-        // Update instructions
-        const { flightConfig } = getToolState();
-        if (flightConfig.showInstructions) {
-            const recordingStatus = recordingActive ? 'Recording is in progress.' : 'No recording active.';
-            PopupService.showToolInstruction(
-                `Flight Mode Active! ${recordingStatus} WASD/Arrows: Move | IJKL: Look | Q/E: Up/Down | Shift: Faster | Right-click: Stop`,
-                "Flight Controls",
-                false
+            if (recordingSetup.recordingEnabled) {
+                recordingActive = await ScreenRecordingHelper.startRecording('Flight Mode');
+                setToolState({ isRecordingActive: recordingActive });
+            }
+        } catch (recordingError) {
+            console.warn('FlightModeTool: Recording setup failed:', recordingError);
+            
+            // Check if it's a user-friendly error that allows continuation
+            const continueWithoutRecording = await ScreenRecordingHelper.showConfirmationDialog(
+                'Recording Setup Failed',
+                `${recordingError.message}\n\nWould you like to continue with flight mode only (no recording)?`,
+                'Continue Without Recording',
+                'Cancel Flight Mode'
             );
+
+            if (!continueWithoutRecording) {
+                ToolManagementService.deactivateCurrentTool();
+                return;
+            }
+            recordingActive = false;
+            setToolState({ isRecordingActive: false });
         }
 
-        // Disable default camera controls using CesiumCoreManager
-        coreManager.setDefaultCameraControlsEnabled(false);
+        // Start flight mode (with or without recording)
+        console.log('FlightModeTool: Proceeding with flight mode. Recording active:', recordingActive);
+        await startFlightMode(toolName, recordingActive);
 
-        console.log("FlightModeTool: Flight mode started successfully");
-        
     } catch (error) {
-        console.error("FlightModeTool: Error during flight mode start:", error);
+        console.error("FlightModeTool: Critical error during initialization:", error);
+
+        // Emergency cleanup if recording was started
+        if (getToolState().isRecordingActive) {
+            await ScreenRecordingHelper.emergencyStopRecording('Flight Mode');
+            setToolState({ isRecordingActive: false });
+        }
+
         PopupService.showToolInstruction(
-            `Flight mode failed to start: ${error.message || 'Unknown error'}`,
-            "Flight Mode Error",
+            `Flight mode initialization failed: ${error.message}`,
+            'Error',
             true
         );
         ToolManagementService.deactivateCurrentTool();
@@ -235,12 +232,54 @@ async function startFlightMode(toolName) {
 }
 
 /**
- * Stops the flight mode and restores normal camera controls
+ * Starts the flight mode with keyboard controls
  */
-async function stopFlightMode(toolName) {
-    console.log("FlightModeTool: Stopping flight mode");
+async function startFlightMode(toolName, recordingActive) {
+    console.log("FlightModeTool: Starting flight mode. Recording:", recordingActive);
 
-    const { animationFrame, flightStartTime, coreManager, isRecordingActive } = getToolState();
+    const { viewer, coreManager } = getToolState();
+    const startPosition = coreManager.getCameraState().position.clone();
+    const startTime = Date.now();
+
+    // Set flight as active
+    setToolState({
+        flightActive: true,
+        startPosition: startPosition,
+        flightStartTime: startTime
+    });
+
+    // Set up keyboard event listeners
+    setupKeyboardControls();
+
+    // Start animation loop
+    startFlightAnimation();
+
+    // Update instructions
+    const { flightConfig } = getToolState();
+    if (flightConfig.showInstructions) {
+        const recordingStatus = recordingActive ? '🔴 Recording Active!' : 'No recording active.';
+        PopupService.showToolInstruction(
+            `✈️ Flight Mode Active! ${recordingStatus}\n\n` +
+            `WASD/Arrows: Move | IJKL: Look | Q/E: Up/Down | Shift: Faster\n\n` +
+            `Right-click to STOP and save recording`,
+            "Flight Controls",
+            false
+        );
+    }
+
+    // Disable default camera controls using CesiumCoreManager
+    coreManager.setDefaultCameraControlsEnabled(false);
+
+    console.log("FlightModeTool: Flight mode started successfully");
+}
+
+/**
+ * Stops the flight mode and handles recording completion
+ */
+async function stopFlightModeWithRecording(toolName) {
+    console.log("FlightModeTool: Stopping flight mode with recording processing");
+
+    const { animationFrame, flightStartTime, coreManager, isRecordingActive, flightModeId } = getToolState();
 
     // Stop animation loop
     if (animationFrame) {
@@ -253,12 +292,18 @@ async function stopFlightMode(toolName) {
     // Restore default camera controls using CesiumCoreManager
     coreManager.setDefaultCameraControlsEnabled(true);
 
-    // Handle recording stop using shared helper
+    // Calculate flight duration
+    const flightDuration = flightStartTime ? ((Date.now() - flightStartTime) / 1000).toFixed(1) : 0;
+
+    let recordingResult = null;
+
+    // Stop recording if it was active using shared helper
     if (isRecordingActive) {
         try {
-            await ScreenRecordingHelper.completeRecording(
+            recordingResult = await ScreenRecordingHelper.completeRecording(
                 'Flight Mode',
                 (result) => {
+                    // Store the recording data
                     setToolState({
                         isRecordingActive: false,
                         recordedBlob: result.success ? result.blob : null,
@@ -280,14 +325,47 @@ async function stopFlightMode(toolName) {
         keyboardHandler: null
     });
 
+    // Add to measurement history
+    const flightValue = `Flight duration: ${flightDuration}s${recordingResult?.success ? ' (Recorded)' : ''}`;
+
+    const entities = {
+        flightModeId: flightModeId,
+        recordingBlob: recordingResult?.success ? recordingResult.blob : null,
+        recordingInfo: recordingResult?.success ? recordingResult.info : null,
+        flightDuration: parseFloat(flightDuration),
+        startTime: flightStartTime,
+        endTime: Date.now()
+    };
+
+    console.log("FlightModeTool: Creating measurement with entities:", {
+        flightModeId: entities.flightModeId,
+        hasRecordingBlob: !!entities.recordingBlob,
+        flightDuration: entities.flightDuration
+    });
+
+    ToolManagementService.addMeasurement(
+        'Flight Mode',
+        flightValue,
+        entities
+    );
+
+    console.log("FlightModeTool: Added flight mode session to measurement history");
+
     // Show completion message if no recording was processed
-    if (flightStartTime && !isRecordingActive) {
-        const flightDuration = ((Date.now() - flightStartTime) / 1000).toFixed(1);
+    if (!isRecordingActive) {
         PopupService.showToolInstruction(
-            `Flight mode stopped. Flight duration: ${flightDuration}s`,
+            `Flight mode stopped. Flight duration: ${flightDuration}s (No recording was made)`,
             "Flight Complete",
             true
         );
+        setTimeout(() => {
+            ToolManagementService.deactivateCurrentTool();
+        }, 3000);
+    } else if (!recordingResult?.success) {
+        // Show completion if recording failed but flight succeeded
+        setTimeout(() => {
+            ToolManagementService.deactivateCurrentTool();
+        }, 2000);
     }
 
     console.log("FlightModeTool: Flight mode stopped successfully");
@@ -464,7 +542,7 @@ export async function stopFlightModeTool() {
 
     // Stop flight mode if active
     if (flightActive && viewer) {
-        await stopFlightMode("Flight Mode");
+        await stopFlightModeWithRecording("Flight Mode");
     }
 
     // Cancel any pending animation frame
@@ -498,6 +576,7 @@ export async function stopFlightModeTool() {
         isRecordingActive: false,
         recordedBlob: null,
         recordedInfo: null,
+        flightModeId: null,
     });
 
     // Hide any active popups

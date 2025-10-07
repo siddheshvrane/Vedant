@@ -8,7 +8,11 @@ export default defineConfig({
     vue(),
     cesium()
   ],
-  base: './', // CRITICAL: Use relative paths for Electron
+  // CRITICAL FIX FOR ELECTRON BLANK SCREEN:
+  // This forces all built assets (JS/CSS/images) to be loaded using relative paths 
+  // (e.g., ./assets/...) instead of absolute paths (/assets/...). 
+  // This is mandatory when assets are loaded via the file:// protocol in Electron.
+  base: './', 
   build: {
     outDir: 'dist',
     assetsDir: 'assets',

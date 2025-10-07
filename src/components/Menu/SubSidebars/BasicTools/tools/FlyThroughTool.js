@@ -14,6 +14,8 @@ import { ToolManagementService } from '../../../../../services/ToolManagementSer
 import { MapService } from '../../../../../services/MapService.js';
 import { FlythroughPlaybackService } from '../../../../../services/FlythroughPlaybackService.js';
 import { ScreenRecordingHelper } from '../tool-helpers/ScreenRecordingHelper.js';
+import { markRaw } from 'vue'; // Add this import
+import FlyThroughModePopup from '../../../../Popup/popups/FlyThroughModePopup.vue';
 
 // Default configuration values
 const DEFAULT_CONFIG = {
@@ -67,6 +69,7 @@ export function setupFlyThroughTool(viewer) {
         recordedBlob: null,
         recordedInfo: null,
         flythroughId: null,
+        selectedMode: null,
     });
 
     const { handler } = getToolState();

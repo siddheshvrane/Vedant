@@ -12,7 +12,7 @@
     >
       <img :src="vedantLogoSrc" alt="Vedant Logo" class="vedant-logo-img-globe" />
       <div class="copyright-text" :class="{ 'copyright-text-final': localGlobeLogoFinalPosition }">
-        Copyright © 2024 - VEDAS, SAC, ISRO.
+        Copyright © 2025 - VEDAS, SAC, ISRO.
       </div>
     </div>
   </div>

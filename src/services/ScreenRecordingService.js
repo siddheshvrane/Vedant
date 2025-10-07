@@ -613,20 +613,43 @@ class ScreenRecordingServiceClass {
             // Use Electron save dialog
             if (this.isElectron && window.electron.saveRecording) {
                 console.log('ScreenRecording: Using Electron save dialog');
-                const arrayBuffer = await blob.arrayBuffer();
-                const buffer = new Uint8Array(arrayBuffer);
+                
+                try {
+                    // Properly convert Blob to ArrayBuffer, then to Uint8Array
+                    const arrayBuffer = await blob.arrayBuffer();
+                    
+                    // Verify ArrayBuffer was created successfully
+                    if (!arrayBuffer || !(arrayBuffer instanceof ArrayBuffer)) {
+                        throw new Error('Failed to convert blob to ArrayBuffer');
+                    }
+                    
+                    // Convert to Uint8Array which Electron expects
+                    const buffer = new Uint8Array(arrayBuffer);
+                    
+                    console.log('ScreenRecording: Converted blob to Uint8Array, size:', buffer.length, 'bytes');
+                    console.log('ScreenRecording: Buffer type check:', {
+                        isUint8Array: buffer instanceof Uint8Array,
+                        length: buffer.length,
+                        byteLength: buffer.byteLength
+                    });
 
-                const result = await window.electron.saveRecording(buffer, filename, blob.type);
-                if (result.success) {
-                    console.log('ScreenRecording: File saved via Electron:', result.filePath);
-                    PopupService.showNotification(`Recording saved: ${result.filePath}`);
-                } else {
-                    throw new Error(result.error || 'Electron save failed');
+                    const result = await window.electron.saveRecording(buffer, filename, blob.type);
+                    
+                    if (result.success) {
+                        console.log('ScreenRecording: File saved via Electron:', result.filePath);
+                        PopupService.showNotification(`Recording saved: ${result.filePath}`);
+                        return;
+                    } else {
+                        throw new Error(result.error || 'Electron save failed');
+                    }
+                } catch (conversionError) {
+                    console.error('ScreenRecording: Blob conversion or save failed:', conversionError);
+                    throw new Error(`Failed to save recording: ${conversionError.message}`);
                 }
-                return;
             }
 
             // Fallback - should not happen in pure Electron implementation
+            console.warn('ScreenRecording: Electron not available, cannot download');
             throw new Error('Download only available in Electron desktop application');
 
         } catch (error) {

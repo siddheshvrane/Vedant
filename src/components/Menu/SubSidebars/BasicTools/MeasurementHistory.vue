@@ -9,10 +9,14 @@
         v-for="measurement in measurements"
         :key="measurement.id"
         class="history-item d-flex align-items-center p-2 mb-2 rounded"
-        :class="{ 'flythrough-item': measurement.toolName === 'Flythrough Tool' }"
+        :class="{ 
+          'flythrough-item': isFlythroughType(measurement),
+          'flightmode-item': measurement.toolName === 'Flight Mode'
+        }"
       >
+        <!-- Regular measurement display (non-flythrough/non-flight) -->
         <div 
-          v-if="measurement.toolName !== 'Flythrough Tool'"
+          v-if="!isFlythroughType(measurement)"
           class="measurement-info d-flex flex-column flex-grow-1 me-2"
         >
           <span class="tool-operation-title">
@@ -21,6 +25,7 @@
           <span class="measurement-value mt-1">{{ measurement.value }}</span>
         </div>
 
+        <!-- Flythrough/Flight Mode display (with video support) -->
         <div 
           v-else
           class="flythrough-container w-100"
@@ -31,52 +36,24 @@
             </span>
             <div class="flythrough-actions d-flex align-items-center">
               <button
-                @click="saveFlythrough(measurement)"
-                class="btn btn-sm action-btn me-2"
-                title="Save Flythrough"
+                @click="downloadFlythrough(measurement)"
+                class="btn btn-sm flythrough-control-btn"
+                title="Download Recording"
+                :disabled="!hasRecording(measurement)"
               >
-                <i class="fas fa-download" style="color: #007bff;"></i>
+                <i class="fas fa-download" :class="{ 'disabled-icon': !hasRecording(measurement) }"></i>
               </button>
               <button
                 @click="deleteMeasurement(measurement.id)"
                 class="btn btn-sm action-btn delete-btn"
-                title="Delete Flythrough"
+                title="Delete"
               >
                 <i class="fas fa-trash" style="color: #FF6600;"></i>
               </button>
             </div>
           </div>
 
-          <div class="d-flex align-items-center mb-2">
-            <button
-              @click="toggleFlythroughPlayback(measurement)"
-              class="btn btn-sm flythrough-control-btn me-2"
-              :title="getFlythroughState(measurement) === 'playing' ? 'Pause Flythrough' : 'Play Flythrough'"
-              :disabled="!hasValidFlythroughData(measurement)"
-            >
-              <i :class="getFlythroughState(measurement) === 'playing' ? 'fas fa-pause' : 'fas fa-play'"></i>
-            </button>
-            <button
-              @click="stopFlythrough(measurement)"
-              class="btn btn-sm flythrough-control-btn me-2"
-              title="Stop Flythrough"
-              :disabled="getFlythroughState(measurement) === 'stopped'"
-            >
-              <i class="fas fa-stop"></i>
-            </button>
-            <span v-if="hasRecording(measurement)" class="recording-indicator ms-auto me-2" title="Has Recording">
-              <i class="fas fa-video text-success"></i>
-            </span>
-            <button
-              @click="downloadFlythrough(measurement)"
-              class="btn btn-sm flythrough-control-btn"
-              title="Download Recording"
-              :disabled="!hasRecording(measurement)"
-            >
-              <i class="fas fa-download" :class="{ 'disabled-icon': !hasRecording(measurement) }"></i>
-            </button>
-          </div>
-
+          <!-- Video preview (for both Flythrough Tool and Flight Mode) -->
           <div v-if="hasRecording(measurement)" class="recording-preview mb-2">
             <video
               :ref="`video-${measurement.id}`"
@@ -85,8 +62,6 @@
               controls
               preload="metadata"
               @loadedmetadata="onVideoLoaded(measurement)"
-              @timeupdate="onVideoTimeUpdate(measurement)"
-              @ended="onVideoEnded(measurement)"
               @error="onVideoError(measurement)"
               @play="onVideoPlay(measurement)"
               @pause="onVideoPause(measurement)"
@@ -99,8 +74,24 @@
               </small>
             </div>
           </div>
-
-          <div class="timeline-container mb-2">
+          
+          <!-- Timeline controls (only for Flythrough Tool with path) -->
+          <div v-if="measurement.toolName === 'Flythrough Tool' && hasValidFlythroughData(measurement)" class="timeline-container mb-2">
+            <button
+              @click="toggleFlythroughPlayback(measurement)"
+              class="btn btn-sm flythrough-control-btn me-2"
+              :title="getFlythroughState(measurement) === 'playing' ? 'Pause Flythrough' : 'Play Flythrough'"
+            >
+              <i :class="getFlythroughState(measurement) === 'playing' ? 'fas fa-pause' : 'fas fa-play'"></i>
+            </button>
+            <button
+              @click="stopFlythrough(measurement)"
+              class="btn btn-sm flythrough-control-btn me-2"
+              title="Stop Flythrough"
+              :disabled="getFlythroughState(measurement) === 'stopped'"
+            >
+              <i class="fas fa-stop"></i>
+            </button>
             <div class="timeline-wrapper">
               <div 
                 class="timeline-track" 
@@ -125,18 +116,22 @@
             </div>
           </div>
 
-          <div class="flythrough-details">
-            <small class="text-muted">
-              {{ measurement.value }}
-              <span v-if="hasRecording(measurement)" class="recording-info ms-2">
-                • <i class="fas fa-video"></i> Recording Available
-              </span>
-            </small>
+          <!-- Flight Mode info display (no timeline, just duration) -->
+          <div v-if="measurement.toolName === 'Flight Mode'" class="flight-info-container">
+            <div class="flight-info-row">
+              <span class="info-label">Flight Duration:</span>
+              <span class="info-value">{{ getFlightDuration(measurement) }}</span>
+            </div>
+            <div v-if="hasRecording(measurement)" class="flight-info-row">
+              <span class="info-label">Recording Status:</span>
+              <span class="info-value recording-badge">Recorded</span>
+            </div>
           </div>
         </div>
 
+        <!-- Action buttons for regular measurements -->
         <div 
-          v-if="measurement.toolName !== 'Flythrough Tool'"
+          v-if="!isFlythroughType(measurement)"
           class="measurement-actions d-flex align-items-center"
         >
           <button
@@ -187,13 +182,17 @@ export default {
       console.log('MeasurementHistory: Received updated history:', history.length, 'measurements');
       this.measurements = history;
       
-      // Process flythrough measurements
+      // Process flythrough and flight mode measurements
       history.forEach(measurement => {
-        if (measurement.toolName === 'Flythrough Tool') {
-          console.log('MeasurementHistory: Processing flythrough measurement:', measurement.id);
-          this.ensureFlythroughRegistered(measurement);
+        if (this.isFlythroughType(measurement)) {
+          console.log('MeasurementHistory: Processing flythrough/flight measurement:', measurement.id, measurement.toolName);
           
-          // Create video URL if recording exists
+          // Only register if it's Flythrough Tool (has path for playback)
+          if (measurement.toolName === 'Flythrough Tool') {
+            this.ensureFlythroughRegistered(measurement);
+          }
+          
+          // Create video URL if recording exists (for both types)
           if (this.hasRecording(measurement) && !this.videoUrls.has(measurement.id)) {
             this.createVideoUrl(measurement);
           }
@@ -201,7 +200,7 @@ export default {
       });
     });
 
-    // Subscribe to playback state changes
+    // Subscribe to playback state changes (only for Flythrough Tool)
     this.playbackSubscription = FlythroughPlaybackService.playbackStates$.subscribe(states => {
       console.log('MeasurementHistory: Playback states updated:', states.size, 'flythroughs');
       this.playbackStates = new Map(states);
@@ -213,8 +212,10 @@ export default {
     if (existingMeasurements.length > 0) {
       console.log('MeasurementHistory: Processing', existingMeasurements.length, 'existing measurements');
       existingMeasurements.forEach(measurement => {
-        if (measurement.toolName === 'Flythrough Tool') {
-          this.ensureFlythroughRegistered(measurement);
+        if (this.isFlythroughType(measurement)) {
+          if (measurement.toolName === 'Flythrough Tool') {
+            this.ensureFlythroughRegistered(measurement);
+          }
           if (this.hasRecording(measurement)) {
             this.createVideoUrl(measurement);
           }
@@ -238,6 +239,11 @@ export default {
     this.videoUrls.clear();
   },
   methods: {
+    // Check if measurement is flythrough type (Flythrough Tool or Flight Mode)
+    isFlythroughType(measurement) {
+      return measurement.toolName === 'Flythrough Tool' || measurement.toolName === 'Flight Mode';
+    },
+
     toggleEnabled(id) {
       ToolManagementService.toggleMeasurementEnabled(id);
     },
@@ -265,7 +271,7 @@ export default {
             }
           }
           
-          // Clean up video URL
+          // Clean up video URL (for both Flythrough Tool and Flight Mode)
           if (this.videoUrls.has(id)) {
             URL.revokeObjectURL(this.videoUrls.get(id));
             this.videoUrls.delete(id);
@@ -277,17 +283,13 @@ export default {
         console.error("MeasurementHistory: Confirmation dialog error:", error);
       }
     },
-    
-    // Placeholder method for saving a flythrough
-    saveFlythrough(measurement) {
-      console.log('MeasurementHistory: Save Flythrough action triggered for measurement:', measurement.id);
-      PopupService.showNotification('Flythrough saved successfully!', false);
-    },
 
     // Helper to get flythrough ID from measurement
     getFlythroughId(measurement) {
       return measurement.entities?.flythroughId || 
+             measurement.entities?.flightModeId ||
              measurement.cesiumEntities?.flythroughId || 
+             measurement.cesiumEntities?.flightModeId ||
              measurement.id;
     },
 
@@ -296,8 +298,12 @@ export default {
       return measurement.entities || measurement.cesiumEntities || {};
     },
 
-    // Flythrough registration
+    // Flythrough registration (only for Flythrough Tool with path)
     ensureFlythroughRegistered(measurement) {
+      if (measurement.toolName !== 'Flythrough Tool') {
+        return; // Flight Mode doesn't need path registration
+      }
+
       const flythroughId = this.getFlythroughId(measurement);
       const entities = this.getEntities(measurement);
       
@@ -355,7 +361,7 @@ export default {
     },
 
     hasRecording(measurement) {
-      if (measurement.toolName !== 'Flythrough Tool') return false;
+      if (!this.isFlythroughType(measurement)) return false;
       
       const entities = this.getEntities(measurement);
       return !!(entities.recordingBlob && entities.recordingBlob.size > 0);
@@ -378,6 +384,14 @@ export default {
         return this.formatFileSize(entities.recordingBlob.size);
       }
       return '0 B';
+    },
+
+    getFlightDuration(measurement) {
+      const entities = this.getEntities(measurement);
+      if (entities.flightDuration) {
+        return `${entities.flightDuration}s`;
+      }
+      return 'N/A';
     },
 
     hasValidFlythroughData(measurement) {
@@ -448,7 +462,7 @@ export default {
 
     downloadFlythrough(measurement) {
       if (!this.hasRecording(measurement)) {
-        PopupService.showNotification('No recording available for this flythrough', true);
+        PopupService.showNotification('No recording available', true);
         return;
       }
 
@@ -460,7 +474,7 @@ export default {
           throw new Error('Recording blob not found');
         }
 
-        console.log('MeasurementHistory: Downloading flythrough recording:', measurement.id);
+        console.log('MeasurementHistory: Downloading recording:', measurement.id);
         
         // Try Electron save first
         if (window.electron && window.electron.saveRecording) {
@@ -478,7 +492,8 @@ export default {
     async downloadViaElectron(blob, measurement) {
       try {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
-        const filename = `flythrough-${measurement.operationNumber}-${timestamp}.webm`;
+        const toolPrefix = measurement.toolName === 'Flight Mode' ? 'flightmode' : 'flythrough';
+        const filename = `${toolPrefix}-${measurement.operationNumber}-${timestamp}.webm`;
         
         const arrayBuffer = await blob.arrayBuffer();
         const result = await window.electron.saveRecording(arrayBuffer, filename, blob.type);
@@ -500,7 +515,8 @@ export default {
       link.href = url;
       
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
-      link.download = `flythrough-${measurement.operationNumber}-${timestamp}.webm`;
+      const toolPrefix = measurement.toolName === 'Flight Mode' ? 'flightmode' : 'flythrough';
+      link.download = `${toolPrefix}-${measurement.operationNumber}-${timestamp}.webm`;
       
       document.body.appendChild(link);
       link.click();
@@ -511,7 +527,6 @@ export default {
     },
 
     seekFlythrough(event, measurement) {
-      // Prevent seeking while dragging the handle, as handleMouseMove handles it
       if (this.isDragging) return;
 
       const rect = event.currentTarget.getBoundingClientRect();
@@ -526,7 +541,6 @@ export default {
       this.isDragging = true;
       this.currentDragMeasurement = measurement;
       
-      // Use event listeners on the document to capture mouse movement even if it leaves the handle
       document.addEventListener('mousemove', this.handleMouseMove);
       document.addEventListener('mouseup', this.handleMouseUp);
       
@@ -536,7 +550,6 @@ export default {
     handleMouseMove(event) {
       if (!this.isDragging || !this.currentDragMeasurement) return;
 
-      // Use the cached measurement to find the timeline element in a more robust way
       const timelineTrack = this.$el.querySelector(`.timeline-track`);
       if (!timelineTrack) return;
 
@@ -562,14 +575,6 @@ export default {
       console.log('MeasurementHistory: Video loaded for measurement:', measurement.id);
     },
 
-    onVideoTimeUpdate(measurement) {
-      // Video time updates are handled by the video element itself
-    },
-
-    onVideoEnded(measurement) {
-      console.log('MeasurementHistory: Video ended for measurement:', measurement.id);
-    },
-
     onVideoError(measurement, error) {
       console.error('MeasurementHistory: Video error for measurement:', measurement.id, error);
       PopupService.showNotification('Video playback error occurred', true);
@@ -583,7 +588,7 @@ export default {
       console.log('MeasurementHistory: Video paused for measurement:', measurement.id);
     },
 
-    // Helper methods for flythrough state
+    // Helper methods for flythrough state (only for Flythrough Tool)
     getFlythroughState(measurement) {
       const flythroughId = this.getFlythroughId(measurement);
       return FlythroughPlaybackService.getState(flythroughId);
@@ -678,6 +683,11 @@ export default {
   border: 1px solid rgba(0, 123, 255, 0.3);
 }
 
+.flightmode-item {
+  background: linear-gradient(135deg, rgba(123, 0, 255, 0.1), rgba(45, 45, 45, 0.9));
+  border: 1px solid rgba(123, 0, 255, 0.3);
+}
+
 .flythrough-container {
   width: 100%;
 }
@@ -686,6 +696,10 @@ export default {
   font-weight: 600;
   color: #007bff;
   font-size: 1em;
+}
+
+.flightmode-item .flythrough-title {
+  color: #7b00ff;
 }
 
 .flythrough-control-btn {
@@ -697,9 +711,19 @@ export default {
   transition: all 0.2s ease;
 }
 
+.flightmode-item .flythrough-control-btn {
+  background: rgba(123, 0, 255, 0.2);
+  border-color: rgba(123, 0, 255, 0.4);
+}
+
 .flythrough-control-btn:hover:not(:disabled) {
   background: rgba(0, 123, 255, 0.4);
   border-color: rgba(0, 123, 255, 0.6);
+}
+
+.flightmode-item .flythrough-control-btn:hover:not(:disabled) {
+  background: rgba(123, 0, 255, 0.4);
+  border-color: rgba(123, 0, 255, 0.6);
 }
 
 .flythrough-control-btn:disabled {
@@ -723,6 +747,40 @@ export default {
 
 .recording-info {
   text-align: center;
+}
+
+.flight-info-container {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  padding: 10px;
+  margin-top: 8px;
+}
+
+.flight-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.info-label {
+  font-size: 0.85em;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.info-value {
+  font-size: 0.9em;
+  font-weight: 500;
+  color: white;
+}
+
+.recording-badge {
+  background: rgba(0, 255, 0, 0.2);
+  border: 1px solid rgba(0, 255, 0, 0.4);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.8em;
+  color: #00ff00;
 }
 
 .timeline-container {
@@ -771,6 +829,10 @@ export default {
   font-weight: 500;
 }
 
+.timeline-wrapper {
+  flex: 1;
+}
+
 .measurement-info {
   flex-grow: 1;
   justify-content: center;
@@ -805,5 +867,16 @@ export default {
 
 .disabled-icon {
   opacity: 0.5;
+}
+
+.flythrough-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.flythrough-actions {
+  display: flex;
+  gap: 8px;
 }
 </style>
