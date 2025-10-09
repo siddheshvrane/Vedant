@@ -1,4 +1,4 @@
-// src/components/Menu/SubSidebars/BasicTools/tools/FlightModeTool.js - Updated with screen recording
+// src/components/Menu/SubSidebars/BasicTools/tools/FlightModeTool.js - Fixed entity structure
 
 import * as Cesium from 'cesium';
 import {
@@ -275,6 +275,7 @@ async function startFlightMode(toolName, recordingActive) {
 
 /**
  * Stops the flight mode and handles recording completion
+ * FIXED: Proper entity structure to match MeasurementHistory expectations
  */
 async function stopFlightModeWithRecording(toolName) {
     console.log("FlightModeTool: Stopping flight mode with recording processing");
@@ -325,9 +326,10 @@ async function stopFlightModeWithRecording(toolName) {
         keyboardHandler: null
     });
 
-    // Add to measurement history
+    // Add to measurement history with CORRECT entity structure
     const flightValue = `Flight duration: ${flightDuration}s${recordingResult?.success ? ' (Recorded)' : ''}`;
 
+    // CRITICAL FIX: Use the SAME structure as FlyThroughTool for consistency
     const entities = {
         flightModeId: flightModeId,
         recordingBlob: recordingResult?.success ? recordingResult.blob : null,
@@ -340,13 +342,17 @@ async function stopFlightModeWithRecording(toolName) {
     console.log("FlightModeTool: Creating measurement with entities:", {
         flightModeId: entities.flightModeId,
         hasRecordingBlob: !!entities.recordingBlob,
-        flightDuration: entities.flightDuration
+        recordingBlobSize: entities.recordingBlob ? entities.recordingBlob.size : 0,
+        recordingBlobType: entities.recordingBlob ? entities.recordingBlob.type : 'none',
+        flightDuration: entities.flightDuration,
+        hasRecordingInfo: !!entities.recordingInfo
     });
 
+    // Add measurement to history
     ToolManagementService.addMeasurement(
         'Flight Mode',
         flightValue,
-        entities
+        entities  // This goes to measurement.entities
     );
 
     console.log("FlightModeTool: Added flight mode session to measurement history");

@@ -11,10 +11,8 @@
         class="history-item d-flex align-items-center p-2 mb-2 rounded"
         :class="{ 
           'flythrough-item': isFlythroughType(measurement),
-          'flightmode-item': measurement.toolName === 'Flight Mode'
         }"
       >
-        <!-- Regular measurement display (non-flythrough/non-flight) -->
         <div 
           v-if="!isFlythroughType(measurement)"
           class="measurement-info d-flex flex-column flex-grow-1 me-2"
@@ -25,7 +23,6 @@
           <span class="measurement-value mt-1">{{ measurement.value }}</span>
         </div>
 
-        <!-- Flythrough/Flight Mode display (with video support) -->
         <div 
           v-else
           class="flythrough-container w-100"
@@ -53,7 +50,7 @@
             </div>
           </div>
 
-          <!-- Video preview (for both Flythrough Tool and Flight Mode) -->
+          <!-- VIDEO PREVIEW - Show for BOTH Flythrough Tool AND Flight Mode if recording exists -->
           <div v-if="hasRecording(measurement)" class="recording-preview mb-2">
             <video
               :ref="`video-${measurement.id}`"
@@ -75,39 +72,41 @@
             </div>
           </div>
           
-          <!-- Timeline controls (only for Flythrough Tool with path) -->
+          <!-- TIMELINE CONTROLS - Only for Flythrough Tool (has path playback) -->
           <div v-if="measurement.toolName === 'Flythrough Tool' && hasValidFlythroughData(measurement)" class="timeline-container mb-2">
-            <button
-              @click="toggleFlythroughPlayback(measurement)"
-              class="btn btn-sm flythrough-control-btn me-2"
-              :title="getFlythroughState(measurement) === 'playing' ? 'Pause Flythrough' : 'Play Flythrough'"
-            >
-              <i :class="getFlythroughState(measurement) === 'playing' ? 'fas fa-pause' : 'fas fa-play'"></i>
-            </button>
-            <button
-              @click="stopFlythrough(measurement)"
-              class="btn btn-sm flythrough-control-btn me-2"
-              title="Stop Flythrough"
-              :disabled="getFlythroughState(measurement) === 'stopped'"
-            >
-              <i class="fas fa-stop"></i>
-            </button>
-            <div class="timeline-wrapper">
-              <div 
-                class="timeline-track" 
-                @click="seekFlythrough($event, measurement)"
-                @mousemove="handleMouseMove"
-                @mouseup="handleMouseUp"
+            <div class="d-flex align-items-center mb-1">
+              <button
+                @click="toggleFlythroughPlayback(measurement)"
+                class="btn btn-sm flythrough-control-btn me-2"
+                :title="getFlythroughState(measurement) === 'playing' ? 'Pause Flythrough' : 'Play Flythrough'"
               >
+                <i :class="getFlythroughState(measurement) === 'playing' ? 'fas fa-pause' : 'fas fa-play'"></i>
+              </button>
+              <button
+                @click="stopFlythrough(measurement)"
+                class="btn btn-sm flythrough-control-btn me-2"
+                title="Stop Flythrough"
+                :disabled="getFlythroughState(measurement) === 'stopped'"
+              >
+                <i class="fas fa-stop"></i>
+              </button>
+              <div class="timeline-wrapper">
                 <div 
-                  class="timeline-progress"
-                  :style="{ width: getFlythroughProgress(measurement) + '%' }"
-                ></div>
-                <div 
-                  class="timeline-handle"
-                  :style="{ left: getFlythroughProgress(measurement) + '%' }"
-                  @mousedown="startDragging($event, measurement)"
-                ></div>
+                  class="timeline-track" 
+                  @click="seekFlythrough($event, measurement)"
+                  @mousemove="handleMouseMove"
+                  @mouseup="handleMouseUp"
+                >
+                  <div 
+                    class="timeline-progress"
+                    :style="{ width: getFlythroughProgress(measurement) + '%' }"
+                  ></div>
+                  <div 
+                    class="timeline-handle"
+                    :style="{ left: getFlythroughProgress(measurement) + '%' }"
+                    @mousedown="startDragging($event, measurement)"
+                  ></div>
+                </div>
               </div>
             </div>
             <div class="timeline-info d-flex justify-content-between mt-1">
@@ -115,21 +114,17 @@
               <span class="timeline-duration">{{ formatTime(getTotalDuration(measurement)) }}</span>
             </div>
           </div>
-
-          <!-- Flight Mode info display (no timeline, just duration) -->
-          <div v-if="measurement.toolName === 'Flight Mode'" class="flight-info-container">
-            <div class="flight-info-row">
-              <span class="info-label">Flight Duration:</span>
-              <span class="info-value">{{ getFlightDuration(measurement) }}</span>
-            </div>
-            <div v-if="hasRecording(measurement)" class="flight-info-row">
-              <span class="info-label">Recording Status:</span>
-              <span class="info-value recording-badge">Recorded</span>
-            </div>
+          
+          <!-- FLIGHT MODE INFO - Show duration for Flight Mode -->
+          <div v-if="measurement.toolName === 'Flight Mode'" class="flight-mode-info mt-2">
+            <small class="text-muted">
+              <i class="fas fa-plane me-1"></i>
+              Flight Duration: {{ getFlightDuration(measurement) }}
+            </small>
           </div>
+          
         </div>
 
-        <!-- Action buttons for regular measurements -->
         <div 
           v-if="!isFlythroughType(measurement)"
           class="measurement-actions d-flex align-items-center"
@@ -192,7 +187,7 @@ export default {
             this.ensureFlythroughRegistered(measurement);
           }
           
-          // Create video URL if recording exists (for both types)
+          // Create video URL if recording exists (for BOTH types)
           if (this.hasRecording(measurement) && !this.videoUrls.has(measurement.id)) {
             this.createVideoUrl(measurement);
           }
@@ -287,10 +282,10 @@ export default {
     // Helper to get flythrough ID from measurement
     getFlythroughId(measurement) {
       return measurement.entities?.flythroughId || 
-             measurement.entities?.flightModeId ||
-             measurement.cesiumEntities?.flythroughId || 
-             measurement.cesiumEntities?.flightModeId ||
-             measurement.id;
+              measurement.entities?.flightModeId ||
+              measurement.cesiumEntities?.flythroughId || 
+              measurement.cesiumEntities?.flightModeId ||
+              measurement.id;
     },
 
     // Get entities from measurement
@@ -349,7 +344,7 @@ export default {
         try {
           const url = URL.createObjectURL(entities.recordingBlob);
           this.videoUrls.set(measurement.id, url);
-          console.log('MeasurementHistory: Created video URL for measurement:', measurement.id);
+          console.log('MeasurementHistory: Created video URL for measurement:', measurement.id, measurement.toolName);
         } catch (error) {
           console.error('MeasurementHistory: Error creating video URL:', error);
         }
@@ -364,7 +359,13 @@ export default {
       if (!this.isFlythroughType(measurement)) return false;
       
       const entities = this.getEntities(measurement);
-      return !!(entities.recordingBlob && entities.recordingBlob.size > 0);
+      const hasBlob = !!(entities.recordingBlob && entities.recordingBlob.size > 0);
+      
+      if (hasBlob) {
+        console.log('MeasurementHistory: Recording found for', measurement.toolName, measurement.id, 'Size:', entities.recordingBlob.size);
+      }
+      
+      return hasBlob;
     },
 
     getRecordingDuration(measurement) {
@@ -474,7 +475,7 @@ export default {
           throw new Error('Recording blob not found');
         }
 
-        console.log('MeasurementHistory: Downloading recording:', measurement.id);
+        console.log('MeasurementHistory: Downloading recording:', measurement.id, measurement.toolName);
         
         // Try Electron save first
         if (window.electron && window.electron.saveRecording) {
@@ -492,7 +493,7 @@ export default {
     async downloadViaElectron(blob, measurement) {
       try {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
-        const toolPrefix = measurement.toolName === 'Flight Mode' ? 'flightmode' : 'flythrough';
+        const toolPrefix = measurement.toolName.toLowerCase().replace(/\s/g, '');
         const filename = `${toolPrefix}-${measurement.operationNumber}-${timestamp}.webm`;
         
         const arrayBuffer = await blob.arrayBuffer();
@@ -515,7 +516,7 @@ export default {
       link.href = url;
       
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
-      const toolPrefix = measurement.toolName === 'Flight Mode' ? 'flightmode' : 'flythrough';
+      const toolPrefix = measurement.toolName.toLowerCase().replace(/\s/g, '');
       link.download = `${toolPrefix}-${measurement.operationNumber}-${timestamp}.webm`;
       
       document.body.appendChild(link);
@@ -572,20 +573,20 @@ export default {
 
     // Video event handlers
     onVideoLoaded(measurement) {
-      console.log('MeasurementHistory: Video loaded for measurement:', measurement.id);
+      console.log('MeasurementHistory: Video loaded for measurement:', measurement.id, measurement.toolName);
     },
 
     onVideoError(measurement, error) {
-      console.error('MeasurementHistory: Video error for measurement:', measurement.id, error);
+      console.error('MeasurementHistory: Video error for measurement:', measurement.id, measurement.toolName, error);
       PopupService.showNotification('Video playback error occurred', true);
     },
 
     onVideoPlay(measurement) {
-      console.log('MeasurementHistory: Video started playing for measurement:', measurement.id);
+      console.log('MeasurementHistory: Video started playing for measurement:', measurement.id, measurement.toolName);
     },
 
     onVideoPause(measurement) {
-      console.log('MeasurementHistory: Video paused for measurement:', measurement.id);
+      console.log('MeasurementHistory: Video paused for measurement:', measurement.id, measurement.toolName);
     },
 
     // Helper methods for flythrough state (only for Flythrough Tool)
@@ -676,16 +677,12 @@ export default {
   transform: translateY(-2px);
 }
 
+/* Unified Flythrough/Flight Mode Styling (Blue Gradient Only) */
 .flythrough-item {
   min-height: auto;
   padding: 15px !important;
   background: linear-gradient(135deg, rgba(0, 123, 255, 0.1), rgba(45, 45, 45, 0.9));
   border: 1px solid rgba(0, 123, 255, 0.3);
-}
-
-.flightmode-item {
-  background: linear-gradient(135deg, rgba(123, 0, 255, 0.1), rgba(45, 45, 45, 0.9));
-  border: 1px solid rgba(123, 0, 255, 0.3);
 }
 
 .flythrough-container {
@@ -698,10 +695,6 @@ export default {
   font-size: 1em;
 }
 
-.flightmode-item .flythrough-title {
-  color: #7b00ff;
-}
-
 .flythrough-control-btn {
   background: rgba(0, 123, 255, 0.2);
   border: 1px solid rgba(0, 123, 255, 0.4);
@@ -711,24 +704,15 @@ export default {
   transition: all 0.2s ease;
 }
 
-.flightmode-item .flythrough-control-btn {
-  background: rgba(123, 0, 255, 0.2);
-  border-color: rgba(123, 0, 255, 0.4);
-}
-
 .flythrough-control-btn:hover:not(:disabled) {
   background: rgba(0, 123, 255, 0.4);
   border-color: rgba(0, 123, 255, 0.6);
 }
 
-.flightmode-item .flythrough-control-btn:hover:not(:disabled) {
-  background: rgba(123, 0, 255, 0.4);
-  border-color: rgba(123, 0, 255, 0.6);
-}
-
 .flythrough-control-btn:disabled {
   background: rgba(100, 100, 100, 0.2);
   cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .recording-preview {
@@ -749,38 +733,15 @@ export default {
   text-align: center;
 }
 
-.flight-info-container {
-  background: rgba(255, 255, 255, 0.05);
+.flight-mode-info {
+  padding: 8px;
+  background: rgba(0, 123, 255, 0.1);
   border-radius: 6px;
-  padding: 10px;
-  margin-top: 8px;
+  text-align: center;
 }
 
-.flight-info-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 4px 0;
-}
-
-.info-label {
-  font-size: 0.85em;
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.info-value {
-  font-size: 0.9em;
-  font-weight: 500;
-  color: white;
-}
-
-.recording-badge {
-  background: rgba(0, 255, 0, 0.2);
-  border: 1px solid rgba(0, 255, 0, 0.4);
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 0.8em;
-  color: #00ff00;
+.flight-mode-info small {
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .timeline-container {

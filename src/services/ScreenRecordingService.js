@@ -1,5 +1,5 @@
 // ScreenRecordingService.js - Pure Electron desktopCapturer implementation
-// Removes getDisplayMedia completely and uses only Electron's native screen capture
+// Fixed ArrayBuffer conversion for Electron IPC
 
 import { BehaviorSubject } from 'rxjs';
 import { PopupService } from './PopupService.js';
@@ -615,7 +615,7 @@ class ScreenRecordingServiceClass {
                 console.log('ScreenRecording: Using Electron save dialog');
                 
                 try {
-                    // Properly convert Blob to ArrayBuffer, then to Uint8Array
+                    // Convert Blob to ArrayBuffer properly
                     const arrayBuffer = await blob.arrayBuffer();
                     
                     // Verify ArrayBuffer was created successfully
@@ -623,17 +623,16 @@ class ScreenRecordingServiceClass {
                         throw new Error('Failed to convert blob to ArrayBuffer');
                     }
                     
-                    // Convert to Uint8Array which Electron expects
-                    const buffer = new Uint8Array(arrayBuffer);
-                    
-                    console.log('ScreenRecording: Converted blob to Uint8Array, size:', buffer.length, 'bytes');
-                    console.log('ScreenRecording: Buffer type check:', {
-                        isUint8Array: buffer instanceof Uint8Array,
-                        length: buffer.length,
-                        byteLength: buffer.byteLength
+                    console.log('ScreenRecording: Converted blob to ArrayBuffer, size:', arrayBuffer.byteLength, 'bytes');
+                    console.log('ScreenRecording: ArrayBuffer type check:', {
+                        isArrayBuffer: arrayBuffer instanceof ArrayBuffer,
+                        byteLength: arrayBuffer.byteLength,
+                        constructor: arrayBuffer.constructor.name
                     });
 
-                    const result = await window.electron.saveRecording(buffer, filename, blob.type);
+                    // Pass the ArrayBuffer directly (NOT converted to Uint8Array)
+                    // Electron IPC should handle ArrayBuffer natively
+                    const result = await window.electron.saveRecording(arrayBuffer, filename, blob.type);
                     
                     if (result.success) {
                         console.log('ScreenRecording: File saved via Electron:', result.filePath);

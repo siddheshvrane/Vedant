@@ -1,4 +1,5 @@
 // src/services/ScreenRecordingHelper.js - Shared utility for screen recording across flythrough tools
+// Fixed version with better error handling for isSupported check
 
 import { ScreenRecordingService } from '../../../../../services/ScreenRecordingService.js';
 import { PopupService } from '../../../../../services/PopupService.js';
@@ -22,20 +23,26 @@ export class ScreenRecordingHelper {
             const isInIframe = window !== window.top;
             const isElectron = !!(window.electron);
             
-            // Use the service's static method if available, otherwise check manually
+            // Safe check for service support
             let electronSupported = false;
             try {
-                if (typeof ScreenRecordingService.isSupported === 'function') {
-                    electronSupported = ScreenRecordingService.isSupported();
+                // Check if the service class and static method exist
+                if (ScreenRecordingService && 
+                    ScreenRecordingService.constructor && 
+                    typeof ScreenRecordingService.constructor.isSupported === 'function') {
+                    electronSupported = ScreenRecordingService.constructor.isSupported();
                 } else {
-                    // Fallback check if static method isn't available
+                    // Fallback manual check if static method isn't available
                     electronSupported = isElectron && 
                         !!(window.electron.getDesktopSources) && 
                         !!window.MediaRecorder;
                 }
             } catch (serviceError) {
                 console.warn('ScreenRecordingHelper: Error checking service support:', serviceError);
-                electronSupported = false;
+                // Fallback to manual check
+                electronSupported = isElectron && 
+                    !!(window.electron && window.electron.getDesktopSources) && 
+                    !!window.MediaRecorder;
             }
             
             return {
