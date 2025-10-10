@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Vedant Earth Visualization
+Exec=AppRun --no-sandbox %U
+Terminal=false
+Type=Application
+Icon=new-vedant-app
+StartupWMClass=Vedant Earth Visualization
+X-AppImage-Version=1.0.0
+Comment=Vedant Earth Visualization - Desktop Application
+Categories=Education;

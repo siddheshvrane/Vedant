@@ -2,9 +2,9 @@ import Data from "../../../../datamodels/Data.js";
 import Service from "../../../../datamodels/Service.js";
 import { ArgumentParser } from "./utils/ArgumentParser.js";
 import { ValidationHelper } from "./utils/ValidationHelper.js";
-import { parseKml } from "./utils/KmlProcessor.js";
+import { parseKml } from "./utils/kmlProcessor.js";
 import { parseCzml } from "./utils/czmlProcessor.js";
-import { ThreeDTileProcessor } from "./utils/threeDTileProcessor.js";
+import { ThreeDTileProcessor } from "./utils/threeDTileprocessor.js";
 import { parseGeoJson } from "./utils/geojsonProcessor.js";
 import { ThreeDModelProcessor } from "./utils/threeDModelProcessor.js";
 

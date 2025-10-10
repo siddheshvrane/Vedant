@@ -4,23 +4,25 @@
   "version": "1.0.0",
   "main": "electron/main.js",
   "type": "commonjs",
-  "author": "Vedant",
+  "author": {
+    "name": "Vedant",
+    "email": "vedant@example.com"
+  },
   "description": "Vedant Earth Visualization - Desktop Application",
   "scripts": {
-  "dev": "vite",
-  "build": "vite build",
-  "preview": "vite preview",
-  "electron": "electron .",
-  "start": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && npm run electron\"",
-  "postbuild:copy-cesium": "node ./scripts/copy-cesium.js",
-  "electron:build": "npm run build && npm run postbuild:copy-cesium && electron-builder",
-  "electron-build": "npm run electron:build",
-  "electron:build:win": "npm run build && npm run postbuild:copy-cesium && electron-builder --win",
-  "electron:build:mac": "npm run build && npm run postbuild:copy-cesium && electron-builder --mac",
-  "electron:build:linux": "npm run build && npm run postbuild:copy-cesium && electron-builder --linux",
-  "electron:build:all": "npm run build && npm run postbuild:copy-cesium && electron-builder -mwl"
- },
-
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron": "electron .",
+    "start": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && npm run electron\"",
+    "postbuild:copy-cesium": "node ./scripts/copy-cesium.js",
+    "electron:build": "npm run build && npm run postbuild:copy-cesium && electron-builder",
+    "electron-build": "npm run electron:build",
+    "electron:build:win": "npm run build && npm run postbuild:copy-cesium && electron-builder --win",
+    "electron:build:mac": "npm run build && npm run postbuild:copy-cesium && electron-builder --mac",
+    "electron:build:linux": "npm run build && npm run postbuild:copy-cesium && electron-builder --linux",
+    "electron:build:all": "npm run build && npm run postbuild:copy-cesium && electron-builder -mwl"
+  },
   "dependencies": {
     "bootstrap": "^5.3.3",
     "cesium": "^1.131.0",
@@ -34,6 +36,7 @@
     "concurrently": "^8.2.2",
     "electron": "^38.2.1",
     "electron-builder": "^24.13.3",
+    "fs-extra": "^11.3.2",
     "vite": "^6.0.0",
     "vite-plugin-cesium": "^1.2.2",
     "wait-on": "^7.2.0"
@@ -126,31 +129,19 @@
     },
     "linux": {
       "target": [
-        {
-          "target": "AppImage",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "deb",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "rpm",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "snap",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
+    {
+      "target": "AppImage",
+      "arch": ["x64"]
+    },
+    {
+      "target": "deb",
+      "arch": ["x64"]
+    },
+    {
+      "target": "snap",
+      "arch": ["x64"]
+    }
+  ],
       "icon": "build/icons",
       "category": "Education",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
@@ -166,3 +157,4 @@
     }
   }
 }
+

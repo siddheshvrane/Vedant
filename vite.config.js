@@ -1,23 +1,13 @@
+// vite.config.js
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import cesium from 'vite-plugin-cesium';
 import path from 'path';
-import fs from 'fs-extra';
 
 export default defineConfig({
   plugins: [
     vue(),
-    cesium(),
-    {
-      name: 'copy-cesium-assets',
-      apply: 'build',
-      closeBundle() {
-        const cesiumSource = 'node_modules/cesium/Build/Cesium';
-        const cesiumDest = 'dist/cesium';
-        fs.copySync(cesiumSource, cesiumDest);
-        console.log('✅ Copied Cesium assets to dist/cesium');
-      }
-    }
+    cesium()
   ],
   base: './',
   build: {
@@ -49,3 +39,4 @@ export default defineConfig({
     include: ['cesium']
   }
 });
+
