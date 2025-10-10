@@ -50,3 +50,16 @@ Thumbs.db
 *.snap
 *.AppImage
 *.zip
+release/
+squashfs-root/
+*.asar
+*.AppImage
+*.deb
+*.rpm
+*.snap
+*.exe
+*.msi
+*.zip
+*.dmg
+*.pkg
+*.tar.gz
