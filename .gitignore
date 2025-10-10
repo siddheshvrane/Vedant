@@ -29,6 +29,15 @@ release
 /out/
 /release/
 
+# Ignore build and release output
+/release
+/squashfs-root
+*.AppImage
+*.deb
+*.snap
+*.asar
+
+
 # OS files
 Thumbs.db
 .DS_Store
