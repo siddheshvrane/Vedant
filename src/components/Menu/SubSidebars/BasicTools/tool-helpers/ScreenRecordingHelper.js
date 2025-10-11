@@ -1,5 +1,4 @@
-// src/services/ScreenRecordingHelper.js - Shared utility for screen recording across flythrough tools
-// Fixed version with better error handling for isSupported check
+// src/services/ScreenRecordingHelper.js - Fixed download dialog handling
 
 import { ScreenRecordingService } from '../../../../../services/ScreenRecordingService.js';
 import { PopupService } from '../../../../../services/PopupService.js';
@@ -16,30 +15,25 @@ export class ScreenRecordingHelper {
      */
     static checkRecordingAvailability() {
         try {
-            // Check basic API availability without calling them
             const hasDisplayMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
             const hasMediaRecorder = !!window.MediaRecorder;
             const isSecureContext = window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
             const isInIframe = window !== window.top;
             const isElectron = !!(window.electron);
             
-            // Safe check for service support
             let electronSupported = false;
             try {
-                // Check if the service class and static method exist
                 if (ScreenRecordingService && 
                     ScreenRecordingService.constructor && 
                     typeof ScreenRecordingService.constructor.isSupported === 'function') {
                     electronSupported = ScreenRecordingService.constructor.isSupported();
                 } else {
-                    // Fallback manual check if static method isn't available
                     electronSupported = isElectron && 
                         !!(window.electron.getDesktopSources) && 
                         !!window.MediaRecorder;
                 }
             } catch (serviceError) {
                 console.warn('ScreenRecordingHelper: Error checking service support:', serviceError);
-                // Fallback to manual check
                 electronSupported = isElectron && 
                     !!(window.electron && window.electron.getDesktopSources) && 
                     !!window.MediaRecorder;
@@ -83,20 +77,17 @@ export class ScreenRecordingHelper {
         try {
             console.log('ScreenRecordingHelper: Initializing recording setup flow...');
 
-            // Check recording availability first
             const recordingStatus = this.checkRecordingAvailability();
             
             if (!recordingStatus.supported) {
                 throw new Error(`Recording not available: ${recordingStatus.reason}`);
             }
 
-            // Initialize audio devices with error handling
             try {
                 await ScreenRecordingService.initializeAudioDevices();
                 const audioDevices = ScreenRecordingService.availableAudioDevices$.getValue();
                 console.log('ScreenRecordingHelper: Available audio devices:', audioDevices.length);
 
-                // Show recording choice dialog
                 const recordingChoice = await this.showRecordingChoiceDialog();
                 
                 if (recordingChoice.cancelled) {
@@ -107,14 +98,12 @@ export class ScreenRecordingHelper {
                     return { recordingEnabled: false, cancelled: false };
                 }
 
-                // Show audio device configuration
                 const recordingConfig = await this.showRecordingConfigPopup(audioDevices);
                 
                 if (recordingConfig.cancelled) {
                     throw new Error('Recording configuration cancelled by user');
                 }
 
-                // Update ScreenRecordingService configuration
                 if (recordingConfig.audioSource !== 'skip') {
                     ScreenRecordingService.updateConfig({ audioSource: recordingConfig.audioSource });
                 }
@@ -129,12 +118,10 @@ export class ScreenRecordingHelper {
             } catch (serviceError) {
                 console.error('ScreenRecordingHelper: Service initialization failed:', serviceError);
                 
-                // If it's a user cancellation, rethrow
                 if (serviceError.message.includes('cancelled')) {
                     throw serviceError;
                 }
                 
-                // For service errors, offer to continue without recording
                 throw new Error(
                     `Recording service initialization failed: ${serviceError.message}\n\n` +
                     'This can happen when:\n' +
@@ -164,7 +151,6 @@ export class ScreenRecordingHelper {
                 false
             );
 
-            // Small delay to show the message
             await new Promise(resolve => setTimeout(resolve, 500));
 
             const recordingStarted = await ScreenRecordingService.startRecording();
@@ -180,7 +166,6 @@ export class ScreenRecordingHelper {
                 false
             );
             
-            // Brief delay to show success message
             await new Promise(resolve => setTimeout(resolve, 1000));
             
             return true;
@@ -224,7 +209,7 @@ export class ScreenRecordingHelper {
     }
 
     /**
-     * Show download dialog for completed recording using available PopupService methods
+     * Show download dialog for completed recording - FIXED VERSION
      */
     static async showDownloadDialog(recordingBlob, recordingInfo, toolName = 'Tool') {
         return new Promise((resolve) => {
@@ -237,32 +222,42 @@ export class ScreenRecordingHelper {
                 `📱 Format: ${recordingInfo.format || 'webm'}\n\n` +
                 `Would you like to download the recording?`;
 
-            PopupService.showConfirmation(
-                message,
-                `${toolName} - Recording Complete`,
-                'Download Recording',
-                'Skip Download'
-            ).then(async (shouldDownload) => {
-                if (shouldDownload) {
-                    try {
-                        console.log('ScreenRecordingHelper: Download requested');
-                        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
-                        const filename = `${toolName.toLowerCase().replace(/\s+/g, '-')}-recording-${timestamp}.webm`;
-                        await ScreenRecordingService.downloadRecording(recordingBlob, filename);
-                        resolve({ downloaded: true });
-                    } catch (downloadError) {
-                        console.error('ScreenRecordingHelper: Download failed:', downloadError);
-                        PopupService.showNotification(`Download failed: ${downloadError.message}`, true);
-                        resolve({ downloaded: false, error: downloadError });
+            // Add delay before showing download dialog to ensure previous popups are cleared
+            setTimeout(() => {
+                PopupService.showConfirmation(
+                    message,
+                    `${toolName} - Recording Complete`,
+                    'Download Recording',
+                    'Skip Download'
+                ).then(async (shouldDownload) => {
+                    if (shouldDownload) {
+                        try {
+                            console.log('ScreenRecordingHelper: Download requested');
+                            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
+                            const filename = `${toolName.toLowerCase().replace(/\s+/g, '-')}-recording-${timestamp}.webm`;
+                            await ScreenRecordingService.downloadRecording(recordingBlob, filename);
+                            
+                            // Show success notification after download
+                            PopupService.showNotification('Recording downloaded successfully!', false);
+                            resolve({ downloaded: true });
+                        } catch (downloadError) {
+                            console.error('ScreenRecordingHelper: Download failed:', downloadError);
+                            PopupService.showNotification(`Download failed: ${downloadError.message}`, true);
+                            resolve({ downloaded: false, error: downloadError });
+                        }
+                    } else {
+                        console.log('ScreenRecordingHelper: Download skipped by user');
+                        PopupService.showNotification('Recording saved in history. You can download it later.', false);
+                        resolve({ downloaded: false, cancelled: true });
                     }
-                } else {
-                    console.log('ScreenRecordingHelper: Download cancelled by user');
-                    resolve({ downloaded: false, cancelled: true });
-                }
-            }).catch((error) => {
-                console.error('ScreenRecordingHelper: Error in download dialog:', error);
-                resolve({ downloaded: false, error: error });
-            });
+                }).catch((error) => {
+                    console.error('ScreenRecordingHelper: Error in download dialog:', error);
+                    // If dialog was dismissed, treat as skip
+                    console.log('ScreenRecordingHelper: Download dialog dismissed, treating as skip');
+                    PopupService.showNotification('Recording saved in history. You can download it later.', false);
+                    resolve({ downloaded: false, dismissed: true });
+                });
+            }, 800); // 800ms delay to ensure previous popups are cleared
         });
     }
 
@@ -274,7 +269,11 @@ export class ScreenRecordingHelper {
             const result = await this.stopRecording(toolName);
             
             if (result.success && result.blob) {
-                await this.showDownloadDialog(result.blob, result.info, toolName);
+                // Show download dialog with proper delay
+                const downloadResult = await this.showDownloadDialog(result.blob, result.info, toolName);
+                
+                // Merge download result into recording result
+                result.downloadResult = downloadResult;
             }
             
             if (onComplete) {
