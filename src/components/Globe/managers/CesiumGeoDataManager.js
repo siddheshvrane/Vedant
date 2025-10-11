@@ -24,7 +24,7 @@ class CesiumGeoDataManager {
    * @param {number} [imageryIndex] - Optional. For imagery layers, the exact index at which to insert the layer.
    * @returns {Promise<object|null>} The primary Cesium layer object.
    */
-  async addLayer(layerEntry, imageryIndex) {
+  async addLayer(layerEntry, imageryIndex, shouldZoom = false) {
     if (this.cesiumLayersMap.has(layerEntry.id)) {
       console.warn(
         `[DEBUG] CesiumGeoDataManager: Layer with ID ${layerEntry.id} already known. Updating visibility.`
@@ -46,127 +46,223 @@ class CesiumGeoDataManager {
         layerEntry.type === "geojson" &&
         (layerEntry.srcInfo?.geojsonDetails?.jsonContent || layerEntry.url)
       ) {
-        const source =
-          layerEntry.srcInfo?.geojsonDetails?.jsonContent || layerEntry.url;
-        const ds = await Cesium.GeoJsonDataSource.load(source, {
-          stroke: Cesium.Color.HOTPINK,
-          fill: Cesium.Color.PINK.withAlpha(0.5),
-          strokeWidth: 3,
-          clampToGround: true,
-        });
+        try {
+          const source =
+            layerEntry.srcInfo?.geojsonDetails?.jsonContent || layerEntry.url;
 
-        for (const entity of ds.entities.values) {
-          if (entity.billboard) {
-            entity.billboard = undefined;
+          // Load GeoJSON DataSource
+          const ds = await Cesium.GeoJsonDataSource.load(source, {
+            stroke: Cesium.Color.HOTPINK,
+            fill: Cesium.Color.PINK.withAlpha(0.5),
+            strokeWidth: 3,
+            clampToGround: true,
+          });
+
+          // Iterate entities to style them
+          ds.entities.values.forEach((entity) => {
+            // Remove existing billboard
+            if (entity.billboard) entity.billboard = undefined;
+
+            // Ensure points are visible
+            if (!entity.point) {
+              entity.point = {
+                pixelSize: 10,
+                color: Cesium.Color.RED,
+                outlineColor: Cesium.Color.WHITE,
+                outlineWidth: 2,
+              };
+            }
+
+            // Clamp polygons and polylines to ground
+            if (entity.polygon) {
+              entity.polygon.heightReference =
+                Cesium.HeightReference.CLAMP_TO_GROUND;
+            }
+            if (entity.polyline) {
+              entity.polyline.clampToGround = true;
+            }
+          });
+
+          // Set name and visibility
+          ds.name = layerEntry.name;
+          ds.show = layerEntry.isVisible;
+
+          // Add to viewer
+          this.viewer.dataSources.add(ds);
+          cesiumLayer = ds;
+
+          console.log(
+            `[DEBUG] CesiumGeoDataManager: Added GeoJSON layer: ${layerEntry.name}.`
+          );
+
+          // Auto-zoom to the GeoJSON layer
+          if (shouldZoom && ds.entities.values.length > 0) {
+            this.viewer.flyTo(ds, { duration: 1.5 });
           }
-          if (entity.point === undefined) {
-            entity.point = {
-              pixelSize: 10,
-              color: Cesium.Color.RED,
-              outlineColor: Cesium.Color.WHITE,
-              outlineWidth: 2,
-            };
-          }
-          if (entity.polygon) {
-            entity.polygon.heightReference =
-              Cesium.HeightReference.CLAMP_TO_GROUND;
-          }
-          if (entity.polyline) {
-            entity.polyline.clampToGround = true;
-          }
+        } catch (geojsonError) {
+          console.error(
+            `[ERROR] CesiumGeoDataManager: Failed to load GeoJSON layer ${layerEntry.name}:`,
+            geojsonError
+          );
+          return null;
         }
-
-        ds.name = layerEntry.name;
-        ds.show = layerEntry.isVisible;
-        this.viewer.dataSources.add(ds);
-        cesiumLayer = ds;
-        console.log(
-          `[DEBUG] CesiumGeoDataManager: Added GeoJSON layer: ${layerEntry.name}.`
-        );
-
-        // --- FIX for GeoJSON: Auto-zoom after adding ---
-        this.viewer.flyTo(ds);
-        // --- UPDATED KML SECTION to add marker ---
       } else if (
         layerEntry.type === "kml" &&
         layerEntry.srcInfo?.kmlDetails?.rawContent
       ) {
-        const source = layerEntry.srcInfo.kmlDetails.rawContent;
-        const ds = await Cesium.KmlDataSource.load(source, {
-          camera: this.viewer.camera,
-          canvas: this.viewer.canvas,
-          clampToGround: true,
-        });
-        ds.name = layerEntry.name;
-        ds.show = layerEntry.isVisible;
-        this.viewer.dataSources.add(ds);
+        try {
+          const source = layerEntry.srcInfo.kmlDetails.rawContent;
 
-        let markerEntity = null;
-        const placemarks = layerEntry.srcInfo.kmlDetails.placemarks;
-        if (placemarks && placemarks.length > 0) {
-          const firstPlacemark = placemarks.find((p) => p.coordinates);
-          if (firstPlacemark) {
-            const { lon, lat, alt } = firstPlacemark.coordinates;
-            markerEntity = this.viewer.entities.add({
-              name: `${layerEntry.name} - Marker`,
-              position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
-              point: {
-                pixelSize: 12,
-                color: Cesium.Color.DODGERBLUE,
-                outlineColor: Cesium.Color.WHITE,
-                outlineWidth: 2,
-                disableDepthTestDistance: Number.POSITIVE_INFINITY,
-              },
-              show: layerEntry.isVisible,
-            });
+          // Load KML DataSource
+          const kmlDataSource = await Cesium.KmlDataSource.load(source, {
+            camera: this.viewer.camera,
+            canvas: this.viewer.canvas,
+            clampToGround: true,
+          });
+
+          kmlDataSource.name = layerEntry.name;
+          kmlDataSource.show = layerEntry.isVisible;
+          this.viewer.dataSources.add(kmlDataSource);
+
+          // Add markers for all placemarks with coordinates
+          const markerEntities = [];
+          const placemarks = layerEntry.srcInfo.kmlDetails.placemarks;
+
+          if (placemarks?.length > 0) {
+            for (const placemark of placemarks) {
+              if (placemark.coordinates) {
+                const { lon, lat, alt = 0 } = placemark.coordinates;
+                const marker = this.viewer.entities.add({
+                  name: `${layerEntry.name} - Marker`,
+                  position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
+                  point: {
+                    pixelSize: 12,
+                    color: Cesium.Color.DODGERBLUE,
+                    outlineColor: Cesium.Color.WHITE,
+                    outlineWidth: 2,
+                    disableDepthTestDistance: Number.POSITIVE_INFINITY,
+                  },
+                  label: {
+                    text: placemark.name || "Placemark",
+                    font: "14pt Poppins, sans-serif",
+                    style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                    outlineWidth: 2,
+                    verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                    pixelOffset: new Cesium.Cartesian2(0, -15),
+                    disableDepthTestDistance: Number.POSITIVE_INFINITY,
+                  },
+                  show: layerEntry.isVisible,
+                });
+                markerEntities.push(marker);
+              }
+            }
           }
+
+          // Store the KML DataSource and marker(s) together
+          cesiumLayer = { dataSource: kmlDataSource, markers: markerEntities };
+
+          console.log(
+            `[DEBUG] CesiumGeoDataManager: Added KML layer with ${markerEntities.length} marker(s): ${layerEntry.name}.`
+          );
+
+          // Auto-zoom to the KML layer
+          if (shouldZoom && kmlDataSource.entities.values.length > 0) {
+            this.viewer.flyTo(kmlDataSource, { duration: 1.5 });
+          }
+        } catch (error) {
+          console.error(
+            `[ERROR] CesiumGeoDataManager: Failed to load KML layer ${layerEntry.name}:`,
+            error
+          );
+          return null;
         }
-
-        // Store both the data source and the marker as a single entry
-        cesiumLayer = { dataSource: ds, marker: markerEntity };
-        console.log(
-          `[DEBUG] CesiumGeoDataManager: Added KML layer and marker: ${layerEntry.name}.`
-        );
-
-        // --- FIX for KML: Auto-zoom after adding ---
-        this.viewer.flyTo(ds);
       } else if (
         layerEntry.type === "czml" &&
         (layerEntry.srcInfo?.czmlDetails?.czmlContent || layerEntry.url)
       ) {
-        const source =
-          layerEntry.srcInfo?.czmlDetails?.czmlContent || layerEntry.url;
-        const ds = await Cesium.CzmlDataSource.load(source);
+        try {
+          const source =
+            layerEntry.srcInfo?.czmlDetails?.czmlContent || layerEntry.url;
 
-        // --- FIX for CZML: Cannot set .name property, it's read-only ---
-        // ds.name = layerEntry.name; // This line is removed
+          // Load CZML
+          const ds = await Cesium.CzmlDataSource.load(source, {
+            clampToGround: true, // <-- clamp entities to terrain (if possible)
+          });
 
-        ds.show = layerEntry.isVisible;
-        this.viewer.dataSources.add(ds);
-        cesiumLayer = ds;
-        this.viewer.clock.shouldAnimate = true;
-        console.log(
-          `[DEBUG] CesiumGeoDataManager: Added CZML layer: ${layerEntry.name}.`
-        );
+          // Add to viewer
+          this.viewer.dataSources.add(ds);
+          cesiumLayer = ds;
+
+          // Enable animation clock
+          this.viewer.clock.shouldAnimate = true;
+
+          // Iterate over entities to adjust heightReference if needed
+          ds.entities.values.forEach((entity) => {
+            if (entity.position) {
+              // Clamp points or models to ground
+              if (entity.point)
+                entity.point.heightReference =
+                  Cesium.HeightReference.CLAMP_TO_GROUND;
+              if (entity.billboard)
+                entity.billboard.heightReference =
+                  Cesium.HeightReference.CLAMP_TO_GROUND;
+              if (entity.model)
+                entity.model.heightReference =
+                  Cesium.HeightReference.RELATIVE_TO_GROUND;
+            }
+          });
+
+          // Auto-zoom
+          if (shouldZoom && ds.entities.values.length > 0) {
+            this.viewer.flyTo(ds, { duration: 1.5 });
+          }
+
+          console.log(
+            `[DEBUG] CesiumGeoDataManager: Added CZML layer: ${layerEntry.name}.`
+          );
+        } catch (czmlError) {
+          console.error(
+            `[ERROR] CesiumGeoDataManager: Failed to load CZML layer ${layerEntry.name}:`,
+            czmlError
+          );
+          return null;
+        }
       } else if (layerEntry.type === "3dtile" && layerEntry.srcInfo.url) {
-        const tileset = await Cesium.Cesium3DTileset.fromUrl(
-          layerEntry.srcInfo.url
-        );
-        tileset.name = layerEntry.name;
-        tileset.show = layerEntry.isVisible;
-        this.viewer.scene.primitives.add(tileset);
-        cesiumLayer = tileset;
-        console.log(
-          `[DEBUG] CesiumGeoDataManager: Added 3D Tileset: ${layerEntry.name}.`
-        );
+        try {
+          const tileset = new Cesium.Cesium3DTileset({
+            url: layerEntry.srcInfo.url,
+            show: layerEntry.isVisible,
+          });
 
-        // --- FIX for 3D Tile: Auto-zoom after adding ---
-        this.viewer.flyTo(tileset);
+          // Optional: store the name for reference
+          tileset.layerName = layerEntry.name;
+
+          // Add the tileset to the scene
+          this.viewer.scene.primitives.add(tileset);
+          cesiumLayer = tileset;
+
+          console.log(
+            `[DEBUG] CesiumGeoDataManager: Added 3D Tileset: ${layerEntry.name}.`
+          );
+
+          // Auto-zoom after tileset is ready
+          if (shouldZoom) {
+            await tileset.readyPromise; // wait until tileset is loaded
+            this.viewer.flyTo(tileset, { duration: 2.0 });
+          }
+        } catch (tilesError) {
+          console.error(
+            `[ERROR] CesiumGeoDataManager: Failed to load 3D Tileset ${layerEntry.name}:`,
+            tilesError
+          );
+          return null;
+        }
       } else if (["gltf", "glb", "3dmodel"].includes(layerEntry.type)) {
         console.log(
           `[DEBUG] CesiumGeoDataManager: Attempting to add 3D Model: ${layerEntry.name}`
         );
 
+        // Determine model URI (Blob or URL)
         if (
           layerEntry.srcInfo?.fileContent instanceof Blob ||
           layerEntry.srcInfo?.fileContent instanceof ArrayBuffer
@@ -179,7 +275,7 @@ class CesiumGeoDataManager {
           });
           modelUri = URL.createObjectURL(blob);
           console.log(
-            `[DEBUG] CesiumGeoDataManager: Creating Blob URL for local 3D model: ${modelUri}`
+            `[DEBUG] CesiumGeoDataManager: Created Blob URL for 3D model: ${modelUri}`
           );
         } else if (layerEntry.url) {
           modelUri = layerEntry.url;
@@ -188,7 +284,7 @@ class CesiumGeoDataManager {
           );
         } else {
           console.error(
-            `[ERROR] CesiumGeoDataManager: Missing URL or local file content for 3D model ${layerEntry.name}. Cannot add model.`
+            `[ERROR] CesiumGeoDataManager: Missing URL or file content for 3D model ${layerEntry.name}.`
           );
           return null;
         }
@@ -199,72 +295,65 @@ class CesiumGeoDataManager {
 
         if (typeof longitude !== "number" || typeof latitude !== "number") {
           console.error(
-            `[ERROR] CesiumGeoDataManager: Position (longitude, latitude) is required for 3D model ${layerEntry.name}. Cannot add model.`
+            `[ERROR] CesiumGeoDataManager: Longitude and latitude are required for 3D model ${layerEntry.name}.`
           );
-          if (modelUri && modelUri.startsWith("blob:")) {
-            URL.revokeObjectURL(modelUri);
-          }
+          if (modelUri?.startsWith("blob:")) URL.revokeObjectURL(modelUri);
           return null;
         }
 
         console.log(
-          `[DEBUG] CesiumGeoDataManager: Model position provided: Lon ${longitude}, Lat ${latitude}, El ${elevation}`
+          `[DEBUG] CesiumGeoDataManager: Model coordinates provided: Lon ${longitude}, Lat ${latitude}, El ${elevation}`
         );
 
+        // Sample terrain for accurate placement
         let terrainElevation = elevation;
         try {
-          if (this.viewer.terrainProvider) {
-            console.log(
-              `[DEBUG] CesiumGeoDataManager: Sampling terrain for elevation...`
+          const terrainProvider = this.viewer?.terrainProvider;
+          if (
+            terrainProvider &&
+            terrainProvider.ready &&
+            Cesium.sampleTerrainMostDetailed
+          ) {
+            const cartographicPos = [
+              Cesium.Cartographic.fromDegrees(longitude, latitude),
+            ];
+            const updatedPos = await Cesium.sampleTerrainMostDetailed(
+              terrainProvider,
+              cartographicPos
             );
-            const cartographicPosition = Cesium.Cartographic.fromDegrees(
-              longitude,
-              latitude,
-              elevation
-            );
-            const updatedCartographicPosition =
-              await Cesium.sampleTerrainMostDetailed(
-                this.viewer.terrainProvider,
-                [cartographicPosition]
-              );
-            if (
-              updatedCartographicPosition &&
-              updatedCartographicPosition.length > 0 &&
-              updatedCartographicPosition[0].height !== undefined
-            ) {
-              terrainElevation = updatedCartographicPosition[0].height;
+            if (updatedPos?.[0]?.height !== undefined) {
+              terrainElevation = updatedPos[0].height + elevation; // apply user offset
               console.log(
-                `[DEBUG] CesiumGeoDataManager: Terrain elevation found: ${terrainElevation.toFixed(
+                `[DEBUG] CesiumGeoDataManager: Terrain elevation sampled: ${terrainElevation.toFixed(
                   2
                 )}m`
               );
             } else {
               console.warn(
-                `[WARN] CesiumGeoDataManager: Terrain sampling returned no height. Using provided/default elevation.`
+                `[WARN] CesiumGeoDataManager: Terrain sampling returned no height. Using provided elevation.`
               );
             }
           } else {
             console.warn(
-              `[WARN] CesiumGeoDataManager: No terrain provider configured. Model will be placed at provided/default elevation relative to ellipsoid.`
+              `[WARN] CesiumGeoDataManager: Terrain provider not ready. Using provided/default elevation.`
             );
           }
-        } catch (elevationError) {
+        } catch (terrainError) {
           console.error(
             `[ERROR] CesiumGeoDataManager: Error sampling terrain for ${layerEntry.name}:`,
-            elevationError
+            terrainError
           );
         }
 
+        // Create Cartesian3 position and orientation
         const position = Cesium.Cartesian3.fromDegrees(
           longitude,
           latitude,
           terrainElevation
         );
-
         const heading = layerEntry.srcInfo?.orientation?.heading || 0;
         const pitch = layerEntry.srcInfo?.orientation?.pitch || 0;
         const roll = layerEntry.srcInfo?.orientation?.roll || 0;
-
         const orientation = Cesium.Transforms.headingPitchRollQuaternion(
           position,
           new Cesium.HeadingPitchRoll(
@@ -275,33 +364,22 @@ class CesiumGeoDataManager {
         );
 
         try {
-          console.log(
-            `[DEBUG] CesiumGeoDataManager: Attempting to add model entity to viewer...`
-          );
-
           const modelScale = layerEntry.srcInfo?.scale || 1.0;
-          // Changed default minimumPixelSize to 1 to allow shrinking,
-          // but allow override from srcInfo
-          const modelMinPixelSize = layerEntry.srcInfo?.minimumPixelSize || 1;
-          // Default maximumScale for zoom-in, allow override from srcInfo
           const modelMaxScale = layerEntry.srcInfo?.maximumScale || 20000;
-
-          // Define distance display condition for showing only when within a certain range
           const distanceDisplayConditionNear =
             layerEntry.srcInfo?.distanceDisplayConditionNear || 10;
           const distanceDisplayConditionFar =
             layerEntry.srcInfo?.distanceDisplayConditionFar || 100000;
 
+          // After creating the model entity:
           const modelEntity = this.viewer.entities.add({
             name: layerEntry.name,
-            position: position,
-            orientation: orientation,
+            position,
+            orientation,
             model: {
               uri: modelUri,
               show: layerEntry.isVisible,
               scale: modelScale,
-              // --- FIX for 3D Model: Remove minimumPixelSize to allow realistic scaling ---
-              // minimumPixelSize: modelMinPixelSize,
               maximumScale: modelMaxScale,
               heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
             },
@@ -311,27 +389,50 @@ class CesiumGeoDataManager {
             ),
             id: layerEntry.id,
           });
+
           cesiumLayer = modelEntity;
-          if (modelUri.startsWith("blob:")) {
-            modelEntity._blobUrl = modelUri;
-          }
+          if (modelUri?.startsWith("blob:")) modelEntity._blobUrl = modelUri;
+
+          // --- NEW: Add a marker at the model's position ---
+          const modelMarker = this.viewer.entities.add({
+            name: `${layerEntry.name} - Marker`,
+            position,
+            point: {
+              pixelSize: 10,
+              color: Cesium.Color.DODGERBLUE,
+              outlineColor: Cesium.Color.WHITE,
+              outlineWidth: 2,
+              disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            },
+            label: {
+              text: layerEntry.name,
+              font: "12pt Poppins, sans-serif",
+              fillColor: Cesium.Color.WHITE,
+              outlineColor: Cesium.Color.BLACK,
+              outlineWidth: 2,
+              style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+              verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+              pixelOffset: new Cesium.Cartesian2(0, -15),
+            },
+            show: layerEntry.isVisible,
+          });
+
+          // Store the marker along with the entity
+          cesiumLayer._marker = modelMarker;
+
           console.log(
-            `[SUCCESS] CesiumGeoDataManager: Added 3D Model (${
-              layerEntry.type
-            }): ${layerEntry.name}. Visible: ${
-              modelEntity.model.show
-            }. Placed on terrain at elevation: ${terrainElevation.toFixed(
+            `[SUCCESS] CesiumGeoDataManager: Added 3D Model: ${
+              layerEntry.name
+            }, placed at elevation ${terrainElevation.toFixed(
               2
-            )}m. Scale: ${modelScale}, MinPxSize: ${modelMinPixelSize}, MaxScale: ${modelMaxScale}. Displayed between ${distanceDisplayConditionNear}m and ${distanceDisplayConditionFar}m.`
+            )}m, scale ${modelScale}.`
           );
-        } catch (modelAddError) {
+        } catch (modelError) {
           console.error(
             `[ERROR] CesiumGeoDataManager: Failed to add 3D model entity ${layerEntry.name}:`,
-            modelAddError
+            modelError
           );
-          if (modelUri && modelUri.startsWith("blob:")) {
-            URL.revokeObjectURL(modelUri);
-          }
+          if (modelUri?.startsWith("blob:")) URL.revokeObjectURL(modelUri);
           return null;
         }
       } else if (
@@ -667,7 +768,7 @@ class CesiumGeoDataManager {
           layerEntry.bbox[2],
           layerEntry.bbox[3]
         );
-        this.viewer.camera.flyTo({ destination: rect, duration: 1.5 });
+        this.viewer.camera.flyToRectangle(rect, { duration: 1.5 });
         console.log(
           `[DEBUG] CesiumGeoDataManager: Zoomed to ImageryLayer extent: ${layerEntry.name}`
         );
@@ -687,7 +788,7 @@ class CesiumGeoDataManager {
       }
     } else if (target instanceof Cesium.DataSource) {
       if (target.entities.values.length > 0) {
-        this.viewer.flyTo(target, { duration: 1.5 });
+        this.viewer.flyTo([target], { duration: 1.5 });
         console.log(
           `[DEBUG] CesiumGeoDataManager: Zoomed to GeoJSON/KML/CZML layer: ${layerEntry.name}`
         );
@@ -695,12 +796,12 @@ class CesiumGeoDataManager {
         this.viewer.camera.flyHome();
       }
     } else if (target instanceof Cesium.Cesium3DTileset) {
-      this.viewer.flyTo(target, { duration: 1.5 });
+      this.viewer.flyTo([target], { duration: 1.5 });
       console.log(
         `[DEBUG] CesiumGeoDataManager: Zoomed to 3D Tileset: ${layerEntry.name}`
       );
     } else if (target instanceof Cesium.Entity && target.model) {
-      this.viewer.flyTo(target, { duration: 1.5 });
+      this.viewer.flyTo([target], { duration: 1.5 });
       console.log(
         `[DEBUG] CesiumGeoDataManager: Zoomed to 3D Model: ${layerEntry.name}`
       );
@@ -842,7 +943,7 @@ class CesiumGeoDataManager {
         id: `location-label-${location.identifier}`,
       });
       this.currentLocationMarkerEntity = newMarkerEntity;
-      this.viewer.flyTo(newMarkerEntity, { duration: 1.0 });
+      this.viewer.flyTo([newMarkerEntity], { duration: 1.0 });
       console.log(
         `[DEBUG] CesiumGeoDataManager: Displayed location marker for: ${location.name}`
       );

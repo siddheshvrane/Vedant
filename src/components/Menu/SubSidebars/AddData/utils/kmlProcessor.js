@@ -71,28 +71,32 @@ export async function renderAndZoomKml({ viewer, layerModel }) {
   }
 
   try {
-    // 1. RENDER THE KML FILE
+    // 1. Load the KML DataSource
     const kmlDataSource = await Cesium.KmlDataSource.load(
       layerModel.srcInfo.kmlDetails.rawContent,
       {
-        camera: viewer.scene.camera,
-        canvas: viewer.scene.canvas,
+        camera: viewer.camera,
+        canvas: viewer.canvas,
+        clampToGround: true, // ensures it sticks to terrain
       }
     );
+
     kmlDataSource.name = layerModel.name;
     await viewer.dataSources.add(kmlDataSource);
 
-    // 2. ZOOM to the KML data
-    await viewer.zoomTo(kmlDataSource);
+    // 2. Fly to the KML layer (only if there are entities)
+    if (kmlDataSource.entities.values.length > 0) {
+      await viewer.flyTo(kmlDataSource, { duration: 1.5 });
+    }
 
+    // 3. Add a marker for the first placemark with coordinates
     let markerEntity = null;
     const placemarks = layerModel.srcInfo.kmlDetails.placemarks;
 
-    // 3. ADD A MARKER for the first placemark with coordinates
     if (placemarks && placemarks.length > 0) {
       const firstPlacemark = placemarks.find((p) => p.coordinates);
       if (firstPlacemark) {
-        const { lon, lat, alt } = firstPlacemark.coordinates;
+        const { lon, lat, alt = 0 } = firstPlacemark.coordinates;
         markerEntity = viewer.entities.add({
           name: `${layerModel.name} - Start Point`,
           position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
@@ -105,7 +109,7 @@ export async function renderAndZoomKml({ viewer, layerModel }) {
           },
           label: {
             text: firstPlacemark.name,
-            font: "14pt Poppins",
+            font: "14pt Poppins, sans-serif",
             style: Cesium.LabelStyle.FILL_AND_OUTLINE,
             outlineWidth: 2,
             verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
@@ -119,7 +123,7 @@ export async function renderAndZoomKml({ viewer, layerModel }) {
     console.log(
       `kmlProcessor: Successfully rendered KML and added marker for "${layerModel.name}".`
     );
-    // CHANGED: Return both the data source and the marker
+
     return { kmlDataSource, markerEntity };
   } catch (error) {
     console.error(
