@@ -50,7 +50,7 @@
             </div>
           </div>
 
-          <!-- VIDEO PREVIEW - Show for BOTH Flythrough Tool AND Flight Mode if recording exists -->
+          <!-- VIDEO PREVIEW - Show for flythrough tools with recordings -->
           <div v-if="hasRecording(measurement)" class="recording-preview mb-2">
             <video
               :ref="`video-${measurement.id}`"
@@ -72,8 +72,8 @@
             </div>
           </div>
           
-          <!-- TIMELINE CONTROLS - Only for Flythrough Tool (has path playback) -->
-          <div v-if="measurement.toolName === 'Flythrough Tool' && hasValidFlythroughData(measurement)" class="timeline-container mb-2">
+          <!-- TIMELINE CONTROLS - For flythrough with valid path data -->
+          <div v-if="hasValidFlythroughData(measurement)" class="timeline-container mb-2">
             <div class="d-flex align-items-center mb-1">
               <button
                 @click="toggleFlythroughPlayback(measurement)"
@@ -115,11 +115,11 @@
             </div>
           </div>
           
-          <!-- FLIGHT MODE INFO - Show duration for Flight Mode -->
-          <div v-if="measurement.toolName === 'Flight Mode'" class="flight-mode-info mt-2">
+          <!-- FLYTHROUGH INFO - Show basic info when no timeline -->
+          <div v-if="!hasValidFlythroughData(measurement)" class="flythrough-info-basic mt-2">
             <small class="text-muted">
-              <i class="fas fa-plane me-1"></i>
-              Flight Duration: {{ getFlightDuration(measurement) }}
+              <i class="fas fa-info-circle me-1"></i>
+              {{ getFlythroughBasicInfo(measurement) }}
             </small>
           </div>
           
@@ -172,22 +172,20 @@ export default {
   mounted() {
     console.log('MeasurementHistory: Component mounted');
     
-    // Subscribe to measurement history changes
     this.historySubscription = ToolManagementService.measurementHistory$.subscribe(history => {
       console.log('MeasurementHistory: Received updated history:', history.length, 'measurements');
       this.measurements = history;
       
-      // Process flythrough and flight mode measurements
       history.forEach(measurement => {
         if (this.isFlythroughType(measurement)) {
-          console.log('MeasurementHistory: Processing flythrough/flight measurement:', measurement.id, measurement.toolName);
+          console.log('MeasurementHistory: Processing flythrough measurement:', measurement.id, measurement.toolName);
           
-          // Only register if it's Flythrough Tool (has path for playback)
-          if (measurement.toolName === 'Flythrough Tool') {
+          // Register if has valid path data
+          if (this.hasValidFlythroughData(measurement)) {
             this.ensureFlythroughRegistered(measurement);
           }
           
-          // Create video URL if recording exists (for BOTH types)
+          // Create video URL if recording exists
           if (this.hasRecording(measurement) && !this.videoUrls.has(measurement.id)) {
             this.createVideoUrl(measurement);
           }
@@ -195,20 +193,18 @@ export default {
       });
     });
 
-    // Subscribe to playback state changes (only for Flythrough Tool)
     this.playbackSubscription = FlythroughPlaybackService.playbackStates$.subscribe(states => {
       console.log('MeasurementHistory: Playback states updated:', states.size, 'flythroughs');
       this.playbackStates = new Map(states);
       this.$forceUpdate();
     });
 
-    // Process existing measurements
     const existingMeasurements = ToolManagementService.measurementHistory$.getValue();
     if (existingMeasurements.length > 0) {
       console.log('MeasurementHistory: Processing', existingMeasurements.length, 'existing measurements');
       existingMeasurements.forEach(measurement => {
         if (this.isFlythroughType(measurement)) {
-          if (measurement.toolName === 'Flythrough Tool') {
+          if (this.hasValidFlythroughData(measurement)) {
             this.ensureFlythroughRegistered(measurement);
           }
           if (this.hasRecording(measurement)) {
@@ -227,16 +223,15 @@ export default {
       this.playbackSubscription.unsubscribe();
     }
     
-    // Clean up video URLs
     this.videoUrls.forEach(url => {
       URL.revokeObjectURL(url);
     });
     this.videoUrls.clear();
   },
   methods: {
-    // Check if measurement is flythrough type (Flythrough Tool or Flight Mode)
+    // Check if measurement is flythrough type (Flythrough Tool or Marker Mode)
     isFlythroughType(measurement) {
-      return measurement.toolName === 'Flythrough Tool' || measurement.toolName === 'Flight Mode';
+      return measurement.toolName === 'Flythrough Tool' || measurement.toolName === 'Marker Mode';
     },
 
     toggleEnabled(id) {
@@ -255,10 +250,9 @@ export default {
         if (confirmed) {
           const measurement = this.measurements.find(m => m.id === id);
           
-          if (measurement && measurement.toolName === 'Flythrough Tool') {
+          if (measurement && this.isFlythroughType(measurement)) {
             this.stopFlythrough(measurement);
             
-            // Clean up flythrough registration
             const flythroughId = this.getFlythroughId(measurement);
             if (flythroughId) {
               FlythroughPlaybackService.unregisterFlythrough(flythroughId);
@@ -266,7 +260,6 @@ export default {
             }
           }
           
-          // Clean up video URL (for both Flythrough Tool and Flight Mode)
           if (this.videoUrls.has(id)) {
             URL.revokeObjectURL(this.videoUrls.get(id));
             this.videoUrls.delete(id);
@@ -279,35 +272,26 @@ export default {
       }
     },
 
-    // Helper to get flythrough ID from measurement
     getFlythroughId(measurement) {
       return measurement.entities?.flythroughId || 
-              measurement.entities?.flightModeId ||
-              measurement.cesiumEntities?.flythroughId || 
-              measurement.cesiumEntities?.flightModeId ||
+              measurement.cesiumEntities?.flythroughId ||
               measurement.id;
     },
 
-    // Get entities from measurement
     getEntities(measurement) {
       return measurement.entities || measurement.cesiumEntities || {};
     },
 
-    // Flythrough registration (only for Flythrough Tool with path)
     ensureFlythroughRegistered(measurement) {
-      if (measurement.toolName !== 'Flythrough Tool') {
-        return; // Flight Mode doesn't need path registration
-      }
-
       const flythroughId = this.getFlythroughId(measurement);
       const entities = this.getEntities(measurement);
       
       console.log('MeasurementHistory: Ensuring flythrough registered:', {
         measurementId: measurement.id,
+        toolName: measurement.toolName,
         flythroughId: flythroughId,
         hasEntities: !!entities,
-        hasSampledPositions: !!entities.sampledPositions,
-        hasRecordingBlob: !!entities.recordingBlob
+        hasSampledPositions: !!entities.sampledPositions
       });
 
       if (!entities.sampledPositions || !Array.isArray(entities.sampledPositions)) {
@@ -315,13 +299,11 @@ export default {
         return;
       }
 
-      // Check if already registered
       if (FlythroughPlaybackService.activeFlythroughs.has(flythroughId)) {
         console.log('MeasurementHistory: Flythrough already registered:', flythroughId);
         return;
       }
 
-      // Register the flythrough
       try {
         const registrationData = {
           path: entities.sampledPositions || [],
@@ -387,19 +369,19 @@ export default {
       return '0 B';
     },
 
-    getFlightDuration(measurement) {
-      const entities = this.getEntities(measurement);
-      if (entities.flightDuration) {
-        return `${entities.flightDuration}s`;
-      }
-      return 'N/A';
-    },
-
     hasValidFlythroughData(measurement) {
-      if (measurement.toolName !== 'Flythrough Tool') return false;
+      if (!this.isFlythroughType(measurement)) return false;
       
       const entities = this.getEntities(measurement);
       return !!(entities.sampledPositions && entities.sampledPositions.length >= 2);
+    },
+
+    getFlythroughBasicInfo(measurement) {
+      const entities = this.getEntities(measurement);
+      if (measurement.toolName === 'Marker Mode') {
+        return `${entities.markerCount || 0} markers, ${entities.totalDuration?.toFixed(1) || 0}s duration`;
+      }
+      return `Duration: ${entities.totalDuration?.toFixed(1) || 0}s`;
     },
 
     formatTime(seconds) {
@@ -431,7 +413,6 @@ export default {
       
       const flythroughId = this.getFlythroughId(measurement);
       
-      // Ensure flythrough is registered before playing
       if (!FlythroughPlaybackService.activeFlythroughs.has(flythroughId)) {
         console.log('MeasurementHistory: Flythrough not registered, ensuring registration...');
         this.ensureFlythroughRegistered(measurement);
@@ -477,7 +458,6 @@ export default {
 
         console.log('MeasurementHistory: Downloading recording:', measurement.id, measurement.toolName);
         
-        // Try Electron save first
         if (window.electron && window.electron.saveRecording) {
           this.downloadViaElectron(recordingBlob, measurement);
         } else {
@@ -493,7 +473,7 @@ export default {
     async downloadViaElectron(blob, measurement) {
       try {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
-        const toolPrefix = measurement.toolName.toLowerCase().replace(/\s/g, '');
+        const toolPrefix = measurement.toolName.toLowerCase().replace(/\s/g, '-');
         const filename = `${toolPrefix}-${measurement.operationNumber}-${timestamp}.webm`;
         
         const arrayBuffer = await blob.arrayBuffer();
@@ -516,7 +496,7 @@ export default {
       link.href = url;
       
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
-      const toolPrefix = measurement.toolName.toLowerCase().replace(/\s/g, '');
+      const toolPrefix = measurement.toolName.toLowerCase().replace(/\s/g, '-');
       link.download = `${toolPrefix}-${measurement.operationNumber}-${timestamp}.webm`;
       
       document.body.appendChild(link);
@@ -571,13 +551,12 @@ export default {
       }
     },
 
-    // Video event handlers
     onVideoLoaded(measurement) {
       console.log('MeasurementHistory: Video loaded for measurement:', measurement.id, measurement.toolName);
     },
 
-    onVideoError(measurement, error) {
-      console.error('MeasurementHistory: Video error for measurement:', measurement.id, measurement.toolName, error);
+    onVideoError(measurement) {
+      console.error('MeasurementHistory: Video error for measurement:', measurement.id, measurement.toolName);
       PopupService.showNotification('Video playback error occurred', true);
     },
 
@@ -589,7 +568,6 @@ export default {
       console.log('MeasurementHistory: Video paused for measurement:', measurement.id, measurement.toolName);
     },
 
-    // Helper methods for flythrough state (only for Flythrough Tool)
     getFlythroughState(measurement) {
       const flythroughId = this.getFlythroughId(measurement);
       return FlythroughPlaybackService.getState(flythroughId);
@@ -677,7 +655,6 @@ export default {
   transform: translateY(-2px);
 }
 
-/* Unified Flythrough/Flight Mode Styling (Blue Gradient Only) */
 .flythrough-item {
   min-height: auto;
   padding: 15px !important;
@@ -733,15 +710,11 @@ export default {
   text-align: center;
 }
 
-.flight-mode-info {
+.flythrough-info-basic {
   padding: 8px;
   background: rgba(0, 123, 255, 0.1);
   border-radius: 6px;
   text-align: center;
-}
-
-.flight-mode-info small {
-  color: rgba(255, 255, 255, 0.8);
 }
 
 .timeline-container {
