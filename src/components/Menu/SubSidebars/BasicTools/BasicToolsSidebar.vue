@@ -38,7 +38,7 @@ export default {
         { name: "3D Area Measure", isActive: false },
         { name: "Viewshield Analysis", isActive: false },
         { name: "Terrain Profile", isActive: false },
-        // >>> ADD THIS NEW LINE <<<
+        // >>> ADD THIS NEW LINE 
         { name: "Flythrough Tool", isActive: false }, // Add the new flythrough tool
       ],
       activeToolSubscription: null,

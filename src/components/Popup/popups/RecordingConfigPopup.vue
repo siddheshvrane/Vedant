@@ -1,6 +1,7 @@
 <template>
   <div class="recording-config-content">
     <div class="config-sections">
+      <!-- Warning Section for Unsupported Environments -->
       <div v-if="!isRecordingSupported" class="config-section warning-section">
         <div class="section-header">
           <i class="fas fa-exclamation-triangle section-icon warning-icon"></i>
@@ -12,7 +13,7 @@
               <strong v-if="isHttpContext">HTTPS Required for Screen Recording</strong>
               <strong v-else>Screen Recording Not Supported</strong>
               <p v-if="isHttpContext">
-                Your application is running on HTTP. Modern browsers require HTTPS for screen recording security.
+                Your application is running on HTTP. Modern browsers require HTTPS for screen recording.
               </p>
               <p v-else>
                 Screen recording is not available in this browser or environment.
@@ -31,6 +32,7 @@
         </div>
       </div>
 
+      <!-- Recording Settings Section -->
       <div class="config-section">
         <div class="section-header">
           <i class="fas fa-microphone section-icon"></i>
@@ -57,6 +59,7 @@
             </small>
           </div>
           
+          <!-- Audio Level Test -->
           <div v-if="showAudioTest" class="audio-preview">
             <div class="audio-level-container">
               <label>Audio Level Test:</label>
@@ -86,6 +89,7 @@
         </div>
       </div>
 
+      <!-- Recording Info Section -->
       <div class="config-section">
         <div class="section-header">
           <i class="fas fa-info-circle section-icon"></i>
@@ -109,15 +113,12 @@
               <span class="info-label">Status:</span>
               <span class="info-value" :class="getStatusClass()">{{ getStatusText() }}</span>
             </div>
-            <div v-if="environmentInfo && environmentInfo.hostname" class="info-row">
-              <span class="info-label">Context:</span>
-              <span class="info-value">{{ getProtocolText() }} on {{ environmentInfo.hostname }}</span>
-            </div>
           </div>
         </div>
       </div>
     </div>
 
+    <!-- Action Buttons -->
     <div class="config-actions">
       <button @click="cancel" class="action-button cancel-button">
         <i class="fas fa-times"></i>
@@ -136,7 +137,7 @@
 </template>
 
 <script>
-import { ScreenRecordingService } from '../../../services/ScreenRecordingService';
+import { ScreenRecordingHelper } from '../../Menu/SubSidebars/BasicTools/tool-helpers/ScreenRecordingHelper';
 
 export default {
   name: 'RecordingConfigPopup',
@@ -155,9 +156,7 @@ export default {
     },
     onCancel: {
       type: Function,
-      default: () => {
-        console.log('RecordingConfigPopup: Default onCancel called');
-      }
+      default: () => {}
     }
   },
   data() {
@@ -175,21 +174,16 @@ export default {
   },
   async mounted() {
     try {
-      // Initialize configuration
       this.config = { ...this.config, ...this.currentConfig };
-      
-      // Check recording support and get environment info
       this.checkRecordingSupport();
       
-      // Set appropriate default based on support
       if (!this.isRecordingSupported) {
         this.config.audioSource = 'skip';
       } else if (!this.config.audioSource && this.audioDevices.length > 0) {
-        this.config.audioSource = 'none'; // Video only as safe default
+        this.config.audioSource = 'none';
       }
     } catch (error) {
-      console.error('RecordingConfigPopup: Error during component mount:', error);
-      // Set safe defaults
+      console.error('RecordingConfigPopup: Error during mount:', error);
       this.isRecordingSupported = false;
       this.config.audioSource = 'skip';
     }
@@ -199,16 +193,12 @@ export default {
   },
   computed: {
     canStartRecording() {
-      return true; // Always allow - we handle the logic in the tool
+      return true;
     },
 
     availableAudioDevices() {
-      if (!Array.isArray(this.audioDevices)) {
-        return [];
-      }
-      return this.audioDevices.filter(device => 
-        device && !device.disabled
-      );
+      if (!Array.isArray(this.audioDevices)) return [];
+      return this.audioDevices.filter(device => device && !device.disabled);
     },
 
     showAudioTest() {
@@ -228,15 +218,11 @@ export default {
   methods: {
     checkRecordingSupport() {
       try {
-        this.isRecordingSupported = ScreenRecordingService.constructor.isSupported();
-        this.environmentInfo = ScreenRecordingService.constructor.getEnvironmentInfo();
-        
-        console.log('RecordingConfigPopup: Support check:', {
-          supported: this.isRecordingSupported,
-          environment: this.environmentInfo
-        });
+        const availability = ScreenRecordingHelper.checkRecordingAvailability();
+        this.isRecordingSupported = availability.supported;
+        this.environmentInfo = ScreenRecordingHelper.getEnvironmentInfo();
       } catch (error) {
-        console.error('RecordingConfigPopup: Error checking recording support:', error);
+        console.error('RecordingConfigPopup: Error checking support:', error);
         this.isRecordingSupported = false;
         this.environmentInfo = {
           protocol: window.location.protocol || 'unknown:',
@@ -245,27 +231,11 @@ export default {
       }
     },
 
-    getProtocolText() {
-      if (!this.environmentInfo || !this.environmentInfo.protocol) {
-        return 'Unknown';
-      }
-      
-      try {
-        // Safe string conversion and uppercase
-        const protocol = String(this.environmentInfo.protocol || '');
-        return protocol.toUpperCase();
-      } catch (error) {
-        console.error('RecordingConfigPopup: Error getting protocol text:', error);
-        return 'Unknown';
-      }
-    },
-
     getHelpText() {
       if (!this.isRecordingSupported) {
-        if (this.isHttpContext) {
-          return 'Screen recording requires HTTPS. Only flythrough animation is available.';
-        }
-        return 'Screen recording not supported in this browser. Only flythrough animation is available.';
+        return this.isHttpContext 
+          ? 'Screen recording requires HTTPS. Only flythrough animation is available.'
+          : 'Screen recording not supported. Only flythrough animation is available.';
       }
       
       if (this.config.audioSource === 'skip') {
@@ -280,11 +250,8 @@ export default {
     onAudioSourceChange() {
       this.stopAudioTest();
       if (this.showAudioTest) {
-        // Auto-test audio after a brief delay
         setTimeout(() => {
-          if (this.showAudioTest) {
-            this.testAudio();
-          }
+          if (this.showAudioTest) this.testAudio();
         }, 500);
       }
     },
@@ -337,10 +304,7 @@ export default {
 
         updateLevel();
 
-        // Auto-stop test after 5 seconds
-        setTimeout(() => {
-          this.stopAudioTest();
-        }, 5000);
+        setTimeout(() => this.stopAudioTest(), 5000);
 
       } catch (error) {
         console.error('Audio test failed:', error);
@@ -365,9 +329,7 @@ export default {
       this.audioLevel = 0;
 
       if (this.audioTestStream) {
-        this.audioTestStream.getTracks().forEach(track => {
-          track.stop();
-        });
+        this.audioTestStream.getTracks().forEach(track => track.stop());
         this.audioTestStream = null;
       }
 
@@ -381,44 +343,31 @@ export default {
 
     getAudioDescription() {
       if (this.config.audioSource === 'skip') {
-        return 'No recording (flythrough only)';
+        return 'No recording';
       } else if (this.config.audioSource === 'none') {
-        return 'Video only (no audio)';
+        return 'Video only';
       }
       
       const device = this.audioDevices.find(d => d && d.id === this.config.audioSource);
-      const deviceName = (device && device.label) ? device.label : 'Unknown device';
-      return `${deviceName} (128 kbps)`;
+      return device ? `${device.label} (128 kbps)` : 'Unknown device';
     },
 
     getStatusText() {
-      if (this.config.audioSource === 'skip') {
-        return 'Flythrough Only';
-      } else if (!this.isRecordingSupported) {
-        return 'Recording Not Available';
-      } else {
-        return 'Ready to Record';
-      }
+      if (this.config.audioSource === 'skip') return 'Flythrough Only';
+      if (!this.isRecordingSupported) return 'Recording Not Available';
+      return 'Ready to Record';
     },
 
     getStatusClass() {
-      if (this.config.audioSource === 'skip') {
-        return 'status-disabled';
-      } else if (!this.isRecordingSupported) {
-        return 'status-error';
-      } else {
-        return 'status-ready';
-      }
+      if (this.config.audioSource === 'skip') return 'status-disabled';
+      if (!this.isRecordingSupported) return 'status-error';
+      return 'status-ready';
     },
 
     getStartButtonText() {
-      if (this.config.audioSource === 'skip') {
-        return 'Start Flythrough Only';
-      } else if (!this.isRecordingSupported) {
-        return 'Start (Recording Not Available)';
-      } else {
-        return 'Start Recording & Flythrough';
-      }
+      if (this.config.audioSource === 'skip') return 'Start Flythrough Only';
+      if (!this.isRecordingSupported) return 'Start (Recording Not Available)';
+      return 'Start Recording & Flythrough';
     },
 
     startRecording() {
@@ -429,13 +378,9 @@ export default {
         recordingEnabled: this.config.audioSource !== 'skip' && this.isRecordingSupported
       };
 
-      console.log('RecordingConfigPopup: Starting with config:', finalConfig);
-      
       try {
         if (typeof this.onStart === 'function') {
           this.onStart(finalConfig);
-        } else {
-          console.error('RecordingConfigPopup: onStart is not a function');
         }
       } catch (error) {
         console.error('RecordingConfigPopup: Error calling onStart:', error);
@@ -448,8 +393,6 @@ export default {
       try {
         if (typeof this.onCancel === 'function') {
           this.onCancel();
-        } else {
-          console.warn('RecordingConfigPopup: onCancel is not a function');
         }
       } catch (error) {
         console.error('RecordingConfigPopup: Error calling onCancel:', error);
@@ -767,13 +710,5 @@ export default {
   opacity: 0.6;
   cursor: not-allowed;
   transform: none;
-}
-
-/* Focus styles for accessibility */
-.form-select:focus,
-.action-button:focus,
-.test-button:focus {
-  outline: 2px solid #007bff;
-  outline-offset: 2px;
 }
 </style>
