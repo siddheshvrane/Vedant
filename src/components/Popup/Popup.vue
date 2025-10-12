@@ -111,13 +111,6 @@
           :onClose="hidePopup" />
       </template>
 
-      <template v-else-if="dynamicPopupComponent">
-        <component
-          :is="dynamicPopupComponent"
-          v-bind="popupData"
-          :onClose="hidePopup" />
-      </template>
-
       <template v-else-if="currentPopupType === 'recordingConfig'">
         <RecordingConfigPopup
           :audioDevices="popupData.audioDevices"
@@ -126,6 +119,13 @@
           :onCancel="popupData.onCancel"
           :onClose="hidePopup"
         />
+      </template>
+
+      <template v-else-if="dynamicPopupComponent">
+        <component
+          :is="dynamicPopupComponent"
+          v-bind="popupData"
+          :onClose="hidePopup" />
       </template>
 
       <template v-else>
@@ -151,8 +151,6 @@ import ThreeDModelFormPopup from "./popups/ThreeDModelFormPopup.vue";
 import FlyThroughModePopup from "./popups/FlyThroughModePopup.vue";
 import FlyThroughFormPopup from "./popups/FlyThroughFormPopup.vue";
 import RecordingConfigPopup from "./popups/RecordingConfigPopup.vue";
-import AudioDeviceSelectionPopup from './popups/AudioDeviceSelectionPopup.vue';
-import DownloadRecordingPopup from './popups/DownloadRecordingPopup.vue';
 
 export default {
   name: "AppPopup",
@@ -166,14 +164,14 @@ export default {
     FlyThroughModePopup,
     FlyThroughFormPopup,
     RecordingConfigPopup,
-    AudioDeviceSelectionPopup,
-    DownloadRecordingPopup,
+    // REMOVED: AudioDeviceSelectionPopup (deleted - merged into RecordingConfigPopup)
+    // REMOVED: DownloadRecordingPopup (deleted - functionality in ScreenRecordingHelper)
   },
   data() {
     return {
       showPopup: false,
       currentPopupType: null,
-      popupComponent: null, // NEW: For component-based popups
+      popupComponent: null,
       popupData: {},
       visibilitySubscription: null,
       contentSubscription: null,
@@ -191,7 +189,7 @@ export default {
   computed: {
     pluginPopupStyle() {
       return {
-        position: "fixed", // change to fixed so it stays in viewport
+        position: "fixed",
         top: this.pluginPopupPosition.y + "px",
         left: this.pluginPopupPosition.x + "px",
         width: this.pluginPopupSize.width + "px",
@@ -202,7 +200,7 @@ export default {
       };
     },
     isPluginPopup() {
-      return this.popupData?.tabs !== undefined; // tabs array means it's a plugin popup
+      return this.popupData?.tabs !== undefined;
     },
     dynamicPopupComponent() {
       if (typeof window === "undefined") return null;
@@ -230,12 +228,12 @@ export default {
       };
     },
     getTitleForCurrentPopup() {
-      // NEW: Handle title from component-based popups
+      // Handle title from component-based popups
       if (this.popupComponent && this.popupData.title) {
         return this.popupData.title;
       }
 
-      // EXISTING: Handle titles for type-based popups
+      // Handle titles for type-based popups
       switch (this.currentPopupType) {
         case "serviceAdded":
           return "Successfully Added Service";
@@ -269,16 +267,16 @@ export default {
       (content) => {
         console.log("AppPopup received popupContent:", content);
 
-        // NEW: Handle component-based popups
+        // Handle component-based popups
         if (content.component) {
           this.popupComponent = content.component;
-          this.currentPopupType = null; // Clear type-based popup
+          this.currentPopupType = null;
           this.popupData = content.props || {};
         } else {
-          // EXISTING: Handle type-based popups
-          this.popupComponent = null; // Clear component-based popup
+          // Handle type-based popups
+          this.popupComponent = null;
           this.currentPopupType = content.type;
-          this.popupData = content.props || content.data || {}; // Support both props and data
+          this.popupData = content.props || content.data || {};
         }
 
         // Reset position for non-draggable popups or calculate for draggable ones
@@ -443,12 +441,12 @@ export default {
 }
 
 .non-blocking {
-  pointer-events: none; /* allow clicks to go through overlay */
+  pointer-events: none;
   background-color: transparent !important;
 }
 
 .non-blocking .unified-popup {
-  pointer-events: auto; /* still allow interaction with popup itself */
+  pointer-events: auto;
 }
 
 .popup-header-common {
@@ -478,6 +476,7 @@ export default {
   border-radius: 6px;
   overflow: hidden;
 }
+
 .resize-handle {
   position: absolute;
   bottom: 0;

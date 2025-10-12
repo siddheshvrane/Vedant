@@ -70,7 +70,8 @@ export default {
   /* Applying Measurement History title styles */
   font-size: 1.2em; /* Matches .history-title */
   font-weight: 600; /* Matches .history-title */
-  color: #007bff; /* Matches .history-title primary accent color */
+  color: 
+#007bff; /* Matches .history-title primary accent color */
 }
 
 .close-btn, .back-btn {
