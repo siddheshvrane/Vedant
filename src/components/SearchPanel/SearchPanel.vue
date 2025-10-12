@@ -4,12 +4,12 @@
       <input
         type="text"
         class="form-control custom-search-input"
-        :placeholder="searchTerm ? '' : 'Search Places'" v-model="searchTerm"
+        :placeholder="searchTerm ? '' : 'Search Places'"
+        v-model="searchTerm"
         @input="handleInput"
         @focus="isDropdownVisible = true"
         @blur="hideDropdown"
-        @keyup.enter="performSearch"
-      />
+        @keyup.enter="performSearch" />
       <button class="btn search-icon-btn" @click="performSearch">
         <i class="fas fa-search"></i>
       </button>
@@ -18,23 +18,22 @@
     <Suggestion
       :suggestions="filteredResults"
       :is-visible="isDropdownVisible"
-      @select-location="handleSelectLocation"
-    />
+      @select-location="handleSelectLocation" />
   </div>
 </template>
 
 <script>
-import { MapService } from '../../controller.js'; // Import MapService
-import Suggestion from './Suggestion.vue'; // Import the new Suggestion component
+import { MapService } from "../../controller.js"; // Import MapService
+import Suggestion from "./Suggestion.vue"; // Import the new Suggestion component
 
 export default {
-  name: 'SearchPanel',
+  name: "SearchPanel",
   components: {
     Suggestion, // Register the Suggestion component
   },
   data() {
     return {
-      searchTerm: '',
+      searchTerm: "",
       isDropdownVisible: false,
       allLocations: [], // Will be populated by fetched GeoJSON features
       filteredResults: [], // This will be passed to the Suggestion component
@@ -47,8 +46,8 @@ export default {
         // If the search term becomes empty, ensure dropdown is hidden and results are cleared.
         // This handles cases where user deletes all text.
         if (!newTerm.trim()) {
-            this.isDropdownVisible = false;
-            this.filteredResults = [];
+          this.isDropdownVisible = false;
+          this.filteredResults = [];
         }
       },
       immediate: true,
@@ -57,7 +56,7 @@ export default {
   async mounted() {
     try {
       // Use fetch to load the GeoJSON file as a static asset.
-      const response = await fetch('/src/data/Location.geojson'); // Updated path to Location.geojson
+      const response = await fetch("data/Location.geojson"); // Updated path to Location.geojson
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -65,7 +64,7 @@ export default {
       this.allLocations = geojsonData.features;
       this.filterLocations(this.searchTerm);
     } catch (error) {
-      console.error('Error loading GeoJSON data:', error);
+      console.error("Error loading GeoJSON data:", error);
       this.allLocations = [];
     }
   },
@@ -101,22 +100,33 @@ export default {
         const elevation = 500; // Default elevation for coordinate search
 
         // Basic validation for latitude and longitude ranges
-        if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+        if (
+          isNaN(lat) ||
+          isNaN(lon) ||
+          lat < -90 ||
+          lat > 90 ||
+          lon < -180 ||
+          lon > 180
+        ) {
           this.isDropdownVisible = false; // Hide dropdown
           return;
         }
 
         // For manual coordinates, set a very small range for close zoom
         // You can adjust this value (e.g., 5, 10, 20) to find the desired closeness
-        MapService.zoomToCoordinates({ latitude: lat, longitude: lon, });
+        MapService.zoomToCoordinates({ latitude: lat, longitude: lon });
         MapService.displayLocationMarker({
-            name: `${lat}, ${lon}`,
-            identifier: `coord-${lat}-${lon}`,
-            // For the marker, elevation can be 0 or the range value
-               getCoordinates: () => ({ latitude: lat, longitude: lon, elevation: elevation })
+          name: `${lat}, ${lon}`,
+          identifier: `coord-${lat}-${lon}`,
+          // For the marker, elevation can be 0 or the range value
+          getCoordinates: () => ({
+            latitude: lat,
+            longitude: lon,
+            elevation: elevation,
+          }),
         });
         this.isDropdownVisible = false; // Hide dropdown after action
-        this.searchTerm = ''; // Clear search term after successful coordinate search
+        this.searchTerm = ""; // Clear search term after successful coordinate search
       } else {
         // If not coordinates, proceed with text search/filtering
         this.filterLocations(trimmedSearchTerm);
@@ -135,23 +145,34 @@ export default {
       this.isDropdownVisible = false;
 
       // Check if the feature has valid point coordinates
-      if (locationFeature.geometry && locationFeature.geometry.type === 'Point' && locationFeature.geometry.coordinates) {
+      if (
+        locationFeature.geometry &&
+        locationFeature.geometry.type === "Point" &&
+        locationFeature.geometry.coordinates
+      ) {
         // GeoJSON coords are [lon, lat, elevation]. Use default elevation (500) for named locations.
         const [lon, lat, elevation = 50] = locationFeature.geometry.coordinates;
         // Publish event via MapService to zoom to these coordinates
         MapService.zoomToCoordinates({
-            latitude: lat,
-            longitude: lon,
-            elevation: elevation // Pass the default elevation for named locations
+          latitude: lat,
+          longitude: lon,
+          elevation: elevation, // Pass the default elevation for named locations
         });
         MapService.displayLocationMarker({
-            name: locationFeature.properties.name,
-            identifier: locationFeature.properties.id,
-            getCoordinates: () => ({ latitude: lat, longitude: lon, elevation: elevation })
+          name: locationFeature.properties.name,
+          identifier: locationFeature.properties.id,
+          getCoordinates: () => ({
+            latitude: lat,
+            longitude: lon,
+            elevation: elevation,
+          }),
         });
-        this.searchTerm = ''; // Clear search term after successful selection
+        this.searchTerm = ""; // Clear search term after successful selection
       } else {
-        console.warn('Selected location does not have valid point coordinates:', locationFeature);
+        console.warn(
+          "Selected location does not have valid point coordinates:",
+          locationFeature
+        );
       }
     },
 
@@ -192,7 +213,7 @@ export default {
 <style scoped>
 /* All your existing styles for SearchPanel.vue remain unchanged */
 .poppins-font {
-  font-family: 'Poppins', sans-serif;
+  font-family: "Poppins", sans-serif;
 }
 
 .search-panel-container {
