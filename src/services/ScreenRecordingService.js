@@ -1,5 +1,5 @@
-// ScreenRecordingService.js - Pure Electron desktopCapturer implementation
-// Fixed ArrayBuffer conversion for Electron IPC
+// ScreenRecordingService.js - Fixed Audio Device Detection for All Device Types
+// Properly detects Bluetooth, AUX, USB, and all connected audio devices
 
 import { BehaviorSubject } from 'rxjs';
 import { PopupService } from './PopupService.js';
@@ -28,6 +28,7 @@ class ScreenRecordingServiceClass {
         this.currentStream = null;
         this.audioDevices = [];
         this.initializationPromise = null;
+        this.permissionGranted = false;
 
         // Electron-specific state
         this.isElectron = !!(window.electron);
@@ -130,7 +131,7 @@ class ScreenRecordingServiceClass {
     }
 
     /**
-     * Initialize audio devices (supports both Electron and browser)
+     * FIXED: Initialize audio devices with comprehensive detection
      */
     async initializeAudioDevices() {
         if (this.initializationPromise) {
@@ -143,89 +144,327 @@ class ScreenRecordingServiceClass {
 
     async _initializeAudioDevicesInternal() {
         try {
-            console.log('ScreenRecording: Initializing audio devices...');
+            console.log('ScreenRecording: Initializing audio devices with enhanced detection...');
 
+            // Start with base devices
+            const audioDevicesList = [
+                { id: 'none', label: 'No Audio', type: 'none' },
+                { id: 'default', label: 'System Default Microphone', type: 'default' }
+            ];
+
+            // Try Electron-specific detection first (more reliable)
             if (this.isElectron && window.electron.getAudioDevices) {
                 console.log('ScreenRecording: Using Electron audio device detection');
                 try {
                     const electronDevices = await window.electron.getAudioDevices();
-                    this.audioDevices = electronDevices;
-                    this.availableAudioDevices$.next(electronDevices);
-                    console.log(`ScreenRecording: Electron audio devices detected: ${electronDevices.length}`);
-                    return;
+                    
+                    if (electronDevices && electronDevices.length > 0) {
+                        // Filter out base devices from Electron results
+                        const uniqueDevices = electronDevices.filter(device => 
+                            device.id !== 'none' && device.id !== 'default'
+                        );
+                        
+                        audioDevicesList.push(...uniqueDevices);
+                        this.audioDevices = audioDevicesList;
+                        this.availableAudioDevices$.next(audioDevicesList);
+                        console.log(`ScreenRecording: Electron detected ${uniqueDevices.length} unique audio devices`);
+                        
+                        // Also try browser enumeration to supplement
+                        await this.supplementWithBrowserDevices(audioDevicesList);
+                        return;
+                    }
                 } catch (electronError) {
-                    console.warn('ScreenRecording: Electron audio detection failed, falling back to browser:', electronError);
+                    console.warn('ScreenRecording: Electron audio detection failed, using browser fallback:', electronError);
                 }
             }
 
-            console.log('ScreenRecording: Using browser audio device detection');
-
-            const audioDevicesList = [
-                { id: 'none', label: 'No Audio', type: 'none' },
-                { id: 'default', label: 'Default Microphone', type: 'default' }
-            ];
-
-            // Try browser audio enumeration
-            try {
-                const permissionPromise = navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: false,
-                        noiseSuppression: false,
-                        autoGainControl: false
-                    }
-                });
-
-                const timeoutPromise = new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error('Audio permission timeout')), 8000)
-                );
-
-                const tempStream = await Promise.race([permissionPromise, timeoutPromise]);
-
-                tempStream.getTracks().forEach(track => {
-                    track.stop();
-                    console.log('ScreenRecording: Stopped temporary audio track:', track.kind);
-                });
-
-                const devices = await navigator.mediaDevices.enumerateDevices();
-                const audioInputs = devices.filter(device => device.kind === 'audioinput');
-
-                audioInputs.forEach(device => {
-                    if (device.deviceId !== 'default' && device.label) {
-                        const label = device.label.toLowerCase();
-                        let deviceType = 'microphone';
-
-                        if (label.includes('bluetooth')) deviceType = 'bluetooth';
-                        else if (label.includes('headset') || label.includes('headphones')) deviceType = 'headset';
-
-                        audioDevicesList.push({
-                            id: device.deviceId,
-                            label: device.label,
-                            type: deviceType
-                        });
-                    }
-                });
-
-                console.log(`ScreenRecording: Browser audio devices detected: ${audioDevicesList.length}`);
-
-            } catch (audioError) {
-                console.warn('ScreenRecording: Audio device detection failed:', audioError);
-                audioDevicesList.push({
-                    id: 'unsupported',
-                    label: 'Audio unavailable',
-                    type: 'disabled',
-                    disabled: true
-                });
-            }
-
-            this.audioDevices = audioDevicesList;
-            this.availableAudioDevices$.next(audioDevicesList);
+            // Browser-based detection with proper permission handling
+            await this.detectBrowserAudioDevices(audioDevicesList);
 
         } catch (error) {
             console.error('ScreenRecording: Failed to initialize audio devices:', error);
-            const emergencyFallback = [{ id: 'none', label: 'No Audio', type: 'none' }];
+            const emergencyFallback = [
+                { id: 'none', label: 'No Audio', type: 'none' },
+                { id: 'default', label: 'System Default Microphone', type: 'default' }
+            ];
             this.audioDevices = emergencyFallback;
             this.availableAudioDevices$.next(emergencyFallback);
         }
+    }
+
+    /**
+     * FIXED: Detect audio devices using browser APIs with proper permission handling
+     */
+    async detectBrowserAudioDevices(devicesList) {
+        try {
+            console.log('ScreenRecording: Starting browser audio device detection...');
+
+            // First check what devices are visible without permission
+            const devicesBeforePermission = await navigator.mediaDevices.enumerateDevices();
+            const audioInputsBefore = devicesBeforePermission.filter(d => d.kind === 'audioinput');
+            
+            console.log(`ScreenRecording: Found ${audioInputsBefore.length} audio inputs before permission`);
+            
+            // Check if we have labels (indicates permission already granted)
+            const hasLabels = audioInputsBefore.some(d => d.label && d.label.trim() !== '');
+            
+            if (!hasLabels) {
+                console.log('ScreenRecording: No device labels available, requesting permission...');
+                
+                // Request permission to get device labels
+                try {
+                    const permissionStream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            echoCancellation: false,
+                            noiseSuppression: false,
+                            autoGainControl: false
+                        }
+                    });
+
+                    // Store permission state
+                    this.permissionGranted = true;
+                    console.log('ScreenRecording: Audio permission granted');
+
+                    // Stop the permission stream immediately
+                    permissionStream.getTracks().forEach(track => {
+                        track.stop();
+                        console.log('ScreenRecording: Stopped permission track:', track.label);
+                    });
+
+                    // Small delay to ensure device list updates
+                    await new Promise(resolve => setTimeout(resolve, 200));
+
+                } catch (permissionError) {
+                    console.warn('ScreenRecording: Permission denied or failed:', permissionError);
+                    devicesList.push({
+                        id: 'permission-denied',
+                        label: 'Microphone Permission Required',
+                        type: 'disabled',
+                        disabled: true
+                    });
+                    this.audioDevices = devicesList;
+                    this.availableAudioDevices$.next(devicesList);
+                    return;
+                }
+            } else {
+                console.log('ScreenRecording: Device labels already available (permission granted)');
+                this.permissionGranted = true;
+            }
+
+            // Now enumerate devices again with labels
+            const devicesAfterPermission = await navigator.mediaDevices.enumerateDevices();
+            const audioInputs = devicesAfterPermission.filter(device => device.kind === 'audioinput');
+
+            console.log(`ScreenRecording: Found ${audioInputs.length} audio input devices after permission`);
+
+            // Process each device with enhanced detection
+            const deviceMap = new Map(); // Use Map to prevent duplicates
+            
+            audioInputs.forEach((device, index) => {
+                // Skip if already in base list or no deviceId
+                if (!device.deviceId || device.deviceId === 'default' || device.deviceId === 'communications') {
+                    return;
+                }
+
+                const label = device.label || `Microphone ${index + 1}`;
+                const labelLower = label.toLowerCase();
+                
+                // Enhanced device type detection
+                let deviceType = 'microphone';
+                let enhancedLabel = label;
+
+                // Bluetooth detection (multiple patterns)
+                if (labelLower.includes('bluetooth') || 
+                    labelLower.includes('bt') ||
+                    labelLower.includes('wireless') ||
+                    labelLower.includes('airpods') ||
+                    labelLower.includes('buds') ||
+                    labelLower.includes('beats') ||
+                    labelLower.includes('bose') ||
+                    labelLower.includes('sony wh') ||
+                    labelLower.includes('jabra')) {
+                    deviceType = 'bluetooth';
+                    if (!labelLower.includes('bluetooth')) {
+                        enhancedLabel = `${label}`;
+                    }
+                }
+                // Headset/Headphones detection
+                else if (labelLower.includes('headset') || 
+                         labelLower.includes('headphones') ||
+                         labelLower.includes('earphone') ||
+                         labelLower.includes('earbuds')) {
+                    deviceType = 'headset';
+                    enhancedLabel = `🎧 ${label}`;
+                }
+                // USB detection
+                else if (labelLower.includes('usb') || 
+                         labelLower.includes('external')) {
+                    deviceType = 'usb';
+                    enhancedLabel = `🔌 ${label}`;
+                }
+                // Built-in detection
+                else if (labelLower.includes('built-in') || 
+                         labelLower.includes('internal') ||
+                         labelLower.includes('integrated') ||
+                         labelLower.includes('default')) {
+                    deviceType = 'builtin';
+                    enhancedLabel = `💻 ${label}`;
+                }
+                // AUX/Line-in detection
+                else if (labelLower.includes('line') || 
+                         labelLower.includes('aux') ||
+                         labelLower.includes('jack') ||
+                         labelLower.includes('analog')) {
+                    deviceType = 'aux';
+                    enhancedLabel = `🔊 ${label}`;
+                }
+                // Webcam microphone detection
+                else if (labelLower.includes('camera') || 
+                         labelLower.includes('webcam')) {
+                    deviceType = 'webcam';
+                    enhancedLabel = `📷 ${label}`;
+                }
+
+                // Add to map to prevent duplicates
+                if (!deviceMap.has(device.deviceId)) {
+                    deviceMap.set(device.deviceId, {
+                        id: device.deviceId,
+                        label: enhancedLabel,
+                        originalLabel: label,
+                        type: deviceType,
+                        groupId: device.groupId || null
+                    });
+                }
+            });
+
+            // Convert map to array and add to device list
+            const uniqueDevices = Array.from(deviceMap.values());
+            
+            // Sort devices: Bluetooth first, then headsets, then USB, then built-in, then others
+            const sortOrder = { bluetooth: 1, headset: 2, usb: 3, aux: 4, builtin: 5, webcam: 6, microphone: 7 };
+            uniqueDevices.sort((a, b) => {
+                const orderA = sortOrder[a.type] || 99;
+                const orderB = sortOrder[b.type] || 99;
+                if (orderA !== orderB) return orderA - orderB;
+                return a.label.localeCompare(b.label);
+            });
+
+            devicesList.push(...uniqueDevices);
+
+            console.log(`ScreenRecording: Processed ${uniqueDevices.length} unique audio devices`);
+            uniqueDevices.forEach(device => {
+                console.log(`  - ${device.label} (${device.type})`);
+            });
+
+            this.audioDevices = devicesList;
+            this.availableAudioDevices$.next(devicesList);
+
+            // Listen for device changes
+            this.setupDeviceChangeListener();
+
+        } catch (error) {
+            console.error('ScreenRecording: Browser audio device detection failed:', error);
+            devicesList.push({
+                id: 'unavailable',
+                label: 'Audio devices unavailable',
+                type: 'disabled',
+                disabled: true
+            });
+            this.audioDevices = devicesList;
+            this.availableAudioDevices$.next(devicesList);
+        }
+    }
+
+    /**
+     * FIXED: Supplement Electron devices with browser enumeration
+     */
+    async supplementWithBrowserDevices(existingDevices) {
+        try {
+            console.log('ScreenRecording: Supplementing with browser device detection...');
+
+            if (!this.permissionGranted) {
+                const permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                permissionStream.getTracks().forEach(track => track.stop());
+                this.permissionGranted = true;
+                await new Promise(resolve => setTimeout(resolve, 200));
+            }
+
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const audioInputs = devices.filter(d => d.kind === 'audioinput');
+
+            const existingIds = new Set(existingDevices.map(d => d.id));
+            let addedCount = 0;
+
+            audioInputs.forEach(device => {
+                if (device.deviceId && 
+                    device.deviceId !== 'default' && 
+                    device.deviceId !== 'communications' &&
+                    !existingIds.has(device.deviceId) &&
+                    device.label) {
+                    
+                    const label = device.label;
+                    const labelLower = label.toLowerCase();
+                    let deviceType = 'microphone';
+
+                    if (labelLower.includes('bluetooth')) deviceType = 'bluetooth';
+                    else if (labelLower.includes('headset') || labelLower.includes('headphones')) deviceType = 'headset';
+                    else if (labelLower.includes('usb')) deviceType = 'usb';
+                    else if (labelLower.includes('aux') || labelLower.includes('line')) deviceType = 'aux';
+                    else if (labelLower.includes('built-in')) deviceType = 'builtin';
+
+                    existingDevices.push({
+                        id: device.deviceId,
+                        label: label,
+                        type: deviceType
+                    });
+                    addedCount++;
+                }
+            });
+
+            if (addedCount > 0) {
+                console.log(`ScreenRecording: Added ${addedCount} supplemental devices from browser`);
+                this.audioDevices = existingDevices;
+                this.availableAudioDevices$.next(existingDevices);
+            }
+
+        } catch (error) {
+            console.warn('ScreenRecording: Failed to supplement with browser devices:', error);
+        }
+    }
+
+    /**
+     * NEW: Setup device change listener to detect hotplug events
+     */
+    setupDeviceChangeListener() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.addEventListener) {
+            return;
+        }
+
+        try {
+            navigator.mediaDevices.addEventListener('devicechange', async () => {
+                console.log('ScreenRecording: Audio device change detected, refreshing list...');
+                
+                // Re-enumerate devices
+                const currentDevices = [...this.audioDevices.filter(d => d.id === 'none' || d.id === 'default')];
+                await this.detectBrowserAudioDevices(currentDevices);
+                
+                console.log('ScreenRecording: Audio device list refreshed after device change');
+            });
+            
+            console.log('ScreenRecording: Device change listener setup successfully');
+        } catch (error) {
+            console.warn('ScreenRecording: Failed to setup device change listener:', error);
+        }
+    }
+
+    /**
+     * NEW: Force refresh audio devices (useful for UI refresh button)
+     */
+    async refreshAudioDevices() {
+        console.log('ScreenRecording: Manually refreshing audio devices...');
+        this.initializationPromise = null;
+        this.permissionGranted = false;
+        return await this.initializeAudioDevices();
     }
 
     /**
@@ -243,7 +482,6 @@ class ScreenRecordingServiceClass {
         }
 
         try {
-            // Ensure desktop sources are initialized
             if (this.desktopSources.length === 0 || !this.selectedDesktopSource) {
                 console.log('ScreenRecording: Refreshing desktop sources...');
                 await this.initializeDesktopSources();
@@ -259,9 +497,8 @@ class ScreenRecordingServiceClass {
 
             console.log(`ScreenRecording: Using source: "${this.selectedDesktopSource.name}" (${this.selectedDesktopSource.type})`);
 
-            // Create constraints for getUserMedia with Electron's chromeMediaSourceId
             const constraints = {
-                audio: false, // We'll handle audio separately
+                audio: false,
                 video: {
                     mandatory: {
                         chromeMediaSource: 'desktop',
@@ -386,6 +623,18 @@ class ScreenRecordingServiceClass {
 
             const audioStream = await navigator.mediaDevices.getUserMedia(constraints);
             console.log('ScreenRecording: Audio stream created successfully');
+            
+            // Log audio track details
+            const audioTrack = audioStream.getAudioTracks()[0];
+            if (audioTrack) {
+                console.log('ScreenRecording: Audio track details:', {
+                    label: audioTrack.label,
+                    enabled: audioTrack.enabled,
+                    muted: audioTrack.muted,
+                    readyState: audioTrack.readyState
+                });
+            }
+            
             return audioStream;
 
         } catch (audioError) {
@@ -429,7 +678,6 @@ class ScreenRecordingServiceClass {
 
         console.log('ScreenRecording: Starting recording with config:', this.recordingConfig);
 
-        // Pre-flight check
         if (!ScreenRecordingServiceClass.isSupported()) {
             const envInfo = ScreenRecordingServiceClass.getEnvironmentInfo();
             console.error('ScreenRecording: Recording not supported:', envInfo);
@@ -437,16 +685,13 @@ class ScreenRecordingServiceClass {
         }
 
         try {
-            // Ensure audio devices are initialized
             await this.initializeAudioDevices();
 
-            // Get screen capture stream using Electron desktopCapturer
             const screenStream = await this.getScreenStream();
             if (!screenStream) {
                 throw new Error('Failed to capture screen stream');
             }
 
-            // Get audio stream based on configuration
             let audioStream = null;
             if (this.recordingConfig.audioSource !== 'none' && this.recordingConfig.audioSource !== 'unsupported') {
                 try {
@@ -460,15 +705,13 @@ class ScreenRecordingServiceClass {
                 }
             }
 
-            // Combine streams
             const combinedStream = this.combineStreams(screenStream, audioStream);
 
-            // Get optimal MIME type and options
             const mimeType = this.getSupportedMimeType();
             const options = {
                 mimeType: mimeType,
-                videoBitsPerSecond: 4000000, // 4 Mbps
-                audioBitsPerSecond: 128000  // 128 kbps
+                videoBitsPerSecond: 4000000,
+                audioBitsPerSecond: 128000
             };
 
             console.log('ScreenRecording: MediaRecorder options:', options);
@@ -476,7 +719,6 @@ class ScreenRecordingServiceClass {
             this.mediaRecorder = new MediaRecorder(combinedStream, options);
             this.recordedChunks = [];
 
-            // Set up event handlers
             this.mediaRecorder.ondataavailable = (event) => {
                 if (event.data && event.data.size > 0) {
                     this.recordedChunks.push(event.data);
@@ -490,13 +732,11 @@ class ScreenRecordingServiceClass {
                 PopupService.showNotification(`Recording error: ${event.error}`, true);
             };
 
-            // Start recording
             this.mediaRecorder.start(1000);
             this.recordingStartTime = Date.now();
             this.isRecording$.next(true);
             this.currentStream = combinedStream;
 
-            // Set up stream ended handlers
             combinedStream.getVideoTracks().forEach(track => {
                 track.addEventListener('ended', () => {
                     console.warn('ScreenRecording: Video track ended');
@@ -504,7 +744,6 @@ class ScreenRecordingServiceClass {
                 });
             });
 
-            // Start progress tracking
             this.startProgressTracking();
 
             console.log('ScreenRecording: Recording started successfully using Electron desktopCapturer');
@@ -610,28 +849,18 @@ class ScreenRecordingServiceClass {
                 throw new Error('Invalid or empty recording blob');
             }
 
-            // Use Electron save dialog
             if (this.isElectron && window.electron.saveRecording) {
                 console.log('ScreenRecording: Using Electron save dialog');
                 
                 try {
-                    // Convert Blob to ArrayBuffer properly
                     const arrayBuffer = await blob.arrayBuffer();
                     
-                    // Verify ArrayBuffer was created successfully
                     if (!arrayBuffer || !(arrayBuffer instanceof ArrayBuffer)) {
                         throw new Error('Failed to convert blob to ArrayBuffer');
                     }
                     
                     console.log('ScreenRecording: Converted blob to ArrayBuffer, size:', arrayBuffer.byteLength, 'bytes');
-                    console.log('ScreenRecording: ArrayBuffer type check:', {
-                        isArrayBuffer: arrayBuffer instanceof ArrayBuffer,
-                        byteLength: arrayBuffer.byteLength,
-                        constructor: arrayBuffer.constructor.name
-                    });
 
-                    // Pass the ArrayBuffer directly (NOT converted to Uint8Array)
-                    // Electron IPC should handle ArrayBuffer natively
                     const result = await window.electron.saveRecording(arrayBuffer, filename, blob.type);
                     
                     if (result.success) {
@@ -647,7 +876,6 @@ class ScreenRecordingServiceClass {
                 }
             }
 
-            // Fallback - should not happen in pure Electron implementation
             console.warn('ScreenRecording: Electron not available, cannot download');
             throw new Error('Download only available in Electron desktop application');
 
@@ -676,10 +904,16 @@ class ScreenRecordingServiceClass {
             recordingEndTime: Date.now(),
             hasAudio: this.recordingConfig.audioSource !== 'none' && this.recordingConfig.audioSource !== 'unsupported',
             audioSource: this.recordingConfig.audioSource,
+            audioDeviceLabel: this.getAudioDeviceLabel(this.recordingConfig.audioSource),
             environment: 'Electron',
             captureMethod: 'desktopCapturer',
             sourceUsed: this.selectedDesktopSource ? this.selectedDesktopSource.name : 'Unknown'
         };
+    }
+
+    getAudioDeviceLabel(deviceId) {
+        const device = this.audioDevices.find(d => d.id === deviceId);
+        return device ? device.label : 'Unknown Device';
     }
 
     updateConfig(newConfig) {
@@ -698,7 +932,9 @@ class ScreenRecordingServiceClass {
             environment: ScreenRecordingServiceClass.getEnvironmentInfo(),
             isElectron: this.isElectron,
             desktopSources: this.desktopSources.length,
-            selectedSource: this.selectedDesktopSource ? this.selectedDesktopSource.name : null
+            selectedSource: this.selectedDesktopSource ? this.selectedDesktopSource.name : null,
+            audioDevicesCount: this.audioDevices.length,
+            permissionGranted: this.permissionGranted
         };
     }
 
@@ -773,9 +1009,6 @@ class ScreenRecordingServiceClass {
         console.log('ScreenRecording: Cleanup completed');
     }
 
-    /**
-     * Get available desktop sources for manual selection
-     */
     getDesktopSources() {
         if (!this.isElectron) {
             console.warn('ScreenRecording: Desktop sources only available in Electron');
@@ -784,9 +1017,6 @@ class ScreenRecordingServiceClass {
         return this.desktopSources;
     }
 
-    /**
-     * Select a specific desktop source for recording
-     */
     selectDesktopSource(sourceId) {
         if (!this.isElectron) {
             console.warn('ScreenRecording: Desktop source selection only available in Electron');
@@ -804,9 +1034,6 @@ class ScreenRecordingServiceClass {
         return true;
     }
 
-    /**
-     * Refresh available desktop sources
-     */
     async refreshDesktopSources() {
         if (!this.isElectron) {
             console.warn('ScreenRecording: Desktop source refresh only available in Electron');
@@ -815,6 +1042,27 @@ class ScreenRecordingServiceClass {
 
         await this.initializeDesktopSources();
         return this.desktopSources;
+    }
+
+    /**
+     * Get available audio devices (for UI display)
+     */
+    getAvailableAudioDevices() {
+        return this.audioDevices;
+    }
+
+    /**
+     * Check if specific device type exists
+     */
+    hasDeviceType(type) {
+        return this.audioDevices.some(device => device.type === type);
+    }
+
+    /**
+     * Get devices by type
+     */
+    getDevicesByType(type) {
+        return this.audioDevices.filter(device => device.type === type);
     }
 }
 
